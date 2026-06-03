@@ -78,34 +78,31 @@
       ✅ ĐÃ ĐƯỢC PHÊ DUYỆT
     </div>
     
-    <p>Kính gửi: <strong>{{teacher_name}}</strong></p>
-    <p>Giải trình của bạn về việc không tham gia kiểm tra đã được chấp nhẫn.</p>
-    
+    <p>Kính gửi Anh/Chị <strong>{{teacher_name}}</strong>,</p>
+
+    <p>Chúng tôi xin thông báo rằng nội dung giải trình của Anh/Chị liên quan đến việc không tham gia kiểm tra đã được xem xét và chính thức phê duyệt.</p>
+
     <div class="info-section">
-      <div class="info-row">
-        <strong>Bộ môn:</strong> {{subject}}
-      </div>
-      <div class="info-row">
-        <strong>Ngày kiểm tra:</strong> {{test_date}}
-      </div>
-      <hr style="margin: 15px 0;">
-      <div class="info-row">
-        <strong>Người duyệt:</strong> {{admin_name}}
-      </div>
-      <div class="info-row">
-        <strong>Email người duyệt:</strong> {{admin_email}}
-      </div>
+      <p style="margin: 0 0 10px 0;"><strong>Thông tin chi tiết:</strong></p>
+      <div class="info-row">+ <strong>Bộ môn:</strong> {{subject}}</div>
+      <div class="info-row">+ <strong>Ngày kiểm tra:</strong> {{test_date}}</div>
     </div>
-    
+
+    <p>Trân trọng.</p>
+
     {{#if admin_note}}
     <div class="admin-note">
       <strong>Ghi chú từ quản lý:</strong>
       <p>{{admin_note}}</p>
     </div>
     {{/if}}
-    
-    <div class="footer">
-      <p>Thời gian duyệt: {{updated_at}}</p>
+
+    <hr>
+
+    <div class="info-section" style="background-color:#f5f5f5; border-left-color:#9e9e9e; font-size:0.9em;">
+      <div class="info-row"><strong>Người duyệt:</strong> {{admin_name}}</div>
+      <div class="info-row"><strong>Email người duyệt:</strong> {{admin_email}}</div>
+      <div class="info-row"><strong>Thời gian duyệt:</strong> {{updated_at}}</div>
     </div>
   </div>
 </body>

@@ -1,3 +1,4 @@
+import { requireBearerSession } from '@/lib/datasource-api-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiProtection } from '@/lib/api-protection';
 
@@ -40,6 +41,9 @@ function parseTimestamp(timestamp: string): Date | null {
 
 export const GET = withApiProtection(async (request: NextRequest) => {
   try {
+    const auth = await requireBearerSession(request);
+    if (!auth.ok) return auth.response;
+
     const searchParams = request.nextUrl.searchParams;
     const fromDateStr = searchParams.get('fromDate');
     const toDateStr = searchParams.get('toDate');
@@ -126,13 +130,17 @@ export const GET = withApiProtection(async (request: NextRequest) => {
         notes: columns[14] || '',
       };
 
-      // Filter by teacher name if provided
-      if (teacherName) {
+      // User thường chỉ xem dòng trùng email đăng nhập (tránh lộ toàn bộ sheet).
+      if (!auth.privileged) {
+        const rowEmail = (teacher.email || '').trim().toLowerCase();
+        if (rowEmail !== auth.sessionEmail) {
+          continue;
+        }
+      } else if (teacherName) {
         const normalizedRecordName = teacher.name?.toLowerCase().trim();
         const normalizedFilterName = teacherName.toLowerCase().trim();
-        
-        // Skip if name doesn't match
-        if (!normalizedRecordName.includes(normalizedFilterName) && 
+
+        if (!normalizedRecordName.includes(normalizedFilterName) &&
             !normalizedFilterName.includes(normalizedRecordName)) {
           continue;
         }

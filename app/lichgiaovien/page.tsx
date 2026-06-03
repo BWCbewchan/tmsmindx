@@ -1,6 +1,15 @@
 "use client";
 
-import { Calendar, Filter, User, X } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PageSkeleton } from '@/components/skeletons/PageSkeleton';
+import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/ui/primitives/icon';
+import { FilterBar, FilterSection } from '@/components/ui/filter-bar';
+import { Modal, ModalHeader, ModalTitle, ModalClose, ModalBody } from '@/components/ui/modal';
+import { PageLayout, PageLayoutContent } from '@/components/ui/page-layout';
+import { useAuth } from '@/lib/auth-context';
+import { authHeaders } from '@/lib/auth-headers';
+import { Calendar, MapPin, User, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 
@@ -22,9 +31,24 @@ interface TeacherAvailability {
   notes: string;
 }
 
+interface Center {
+  id: number;
+  region: string;
+  short_code: string;
+  full_name: string;
+  display_name: string;
+  status: string;
+}
+
 interface AvailabilityCount {
   count: number;
   teachers: TeacherAvailability[];
+}
+
+interface RegionGroup {
+  region: string;
+  centers: Center[];
+  aliases: string[];
 }
 
 type DayKey = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
@@ -44,13 +68,29 @@ const TIME_SLOTS: TimeSlot[] = ['Sáng', 'Chiều', 'Tối'];
 
 const PROGRAMS = ['Tất cả', 'Coding', 'Robotics', 'Art'];
 
-const REGIONS = {
-  'Tất cả': [],
-  'HCM01': ['1. Phan Văn Trị', '2. Quang Trung', '3. Tô Ký', '4. Phan Xích Long'],
-  'HCM04': ['5.Trường Chinh', '6. Tây Thạnh', '7. Lũy Bán Bích', '8. Tên Lửa'],
+const normalizeText = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+
+const buildCenterAliases = (center: Center) => {
+  const values = [center.full_name, center.display_name, center.short_code, center.region];
+  return Array.from(new Set(values.filter(Boolean).map((value) => value.trim()).filter(Boolean)));
 };
 
-const REGION_OPTIONS = ['Tất cả', 'HCM01', 'HCM04'];
+const matchesAnyAlias = (teacherBranch: string, aliases: string[]) => {
+  const normalizedTeacherBranch = normalizeText(teacherBranch);
+  return aliases.some((alias) => {
+    const normalizedAlias = normalizeText(alias);
+    return (
+      normalizedTeacherBranch === normalizedAlias ||
+      normalizedTeacherBranch.includes(normalizedAlias) ||
+      normalizedAlias.includes(normalizedTeacherBranch)
+    );
+  });
+};
 
 // Fetcher với cache
 const fetcher = async (url: string) => {
@@ -82,7 +122,7 @@ const CalendarCell = memo(({
                   'bg-blue-50';
 
   return (
-    <td className={`border border-gray-300 p-2 align-top ${bgColor}`}>
+    <TableCell className={`border border-gray-300 p-2 align-top ${bgColor}`}>
       {count === 0 ? (
         <div className="text-center text-gray-400 text-xs py-2">Không có</div>
       ) : (
@@ -91,25 +131,32 @@ const CalendarCell = memo(({
             {count} giáo viên
           </div>
           {teachers.map((teacher, idx) => (
-            <button
+            <Button
               key={`${teacher.email}-${idx}`}
               onClick={() => onTeacherClick(teacher, day, timeSlot)}
-              className="w-full text-left px-2 py-1 text-xs bg-white hover:bg-blue-100 border border-gray-200 rounded transition-colors duration-150 hover:shadow-sm"
+              variant="outline"
+              size="xs"
+              className="w-full justify-start text-left h-auto py-1"
             >
-              <div className="font-medium text-gray-900 truncate">{teacher.name}</div>
-              <div className="text-gray-600 text-[10px] truncate">{teacher.mainBranch}</div>
-            </button>
+              <div className="w-full">
+                <div className="font-medium text-gray-900 truncate">{teacher.name}</div>
+                <div className="text-gray-600 text-[10px] truncate">{teacher.mainBranch}</div>
+              </div>
+            </Button>
           ))}
         </div>
       )}
-    </td>
+    </TableCell>
   );
 });
 CalendarCell.displayName = 'CalendarCell';
 
 export default function Page2() {
+  const { token } = useAuth();
   const [selectedPrograms, setSelectedPrograms] = useState<string[]>([]);
   const [selectedRegion, setSelectedRegion] = useState<string>('Tất cả');
+  const [centers, setCenters] = useState<Center[]>([]);
+  const [centersLoading, setCentersLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalData, setModalData] = useState<{
     teacher: TeacherAvailability;
@@ -128,6 +175,79 @@ export default function Page2() {
   
   const [fromDate, setFromDate] = useState(defaultFromDate);
   const [toDate, setToDate] = useState(defaultToDate);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadCenters = async () => {
+      try {
+        const response = await fetch('/api/app-auth/data?table=centers&status=Active', {
+          headers: authHeaders(token),
+        });
+        const data = await response.json();
+
+        if (!isActive) return;
+
+        const rows = Array.isArray(data.rows) ? data.rows : [];
+        setCenters(rows.map((row: any) => ({
+          id: Number(row.id),
+          region: String(row.region || ''),
+          short_code: String(row.short_code || ''),
+          full_name: String(row.full_name || ''),
+          display_name: String(row.display_name || ''),
+          status: String(row.status || ''),
+        })));
+      } catch (error) {
+        console.error('Error loading centers:', error);
+        if (isActive) {
+          setCenters([]);
+        }
+      } finally {
+        if (isActive) {
+          setCentersLoading(false);
+        }
+      }
+    };
+
+    loadCenters();
+
+    return () => {
+      isActive = false;
+    };
+  }, [token]);
+
+  const regionGroups = useMemo<RegionGroup[]>(() => {
+    const grouped = new Map<string, Center[]>();
+
+    centers.forEach((center) => {
+      const region = center.region?.trim() || 'Khác';
+      const current = grouped.get(region) || [];
+      current.push(center);
+      grouped.set(region, current);
+    });
+
+    return Array.from(grouped.entries())
+      .map(([region, items]) => ({
+        region,
+        centers: items.sort((a, b) => a.display_name.localeCompare(b.display_name, 'vi')),
+        aliases: Array.from(new Set(items.flatMap(buildCenterAliases))),
+      }))
+      .sort((a, b) => a.region.localeCompare(b.region, 'vi'));
+  }, [centers]);
+
+  const regionOptions = useMemo(() => ['Tất cả', ...regionGroups.map((group) => group.region)], [regionGroups]);
+
+  const selectedRegionGroup = useMemo(
+    () => regionGroups.find((group) => group.region === selectedRegion) || null,
+    [regionGroups, selectedRegion]
+  );
+
+  const selectedRegionSummary = useMemo(() => {
+    if (!selectedRegionGroup) return '';
+
+    const names = selectedRegionGroup.centers.map((center) => center.display_name || center.full_name).filter(Boolean);
+    return names.length <= 4 ? names.join(', ') : `${names.slice(0, 4).join(', ')} +${names.length - 4}`;
+  }, [selectedRegionGroup]);
 
   // Build API URL với date params
   const apiUrl = useMemo(() => {
@@ -173,19 +293,16 @@ export default function Page2() {
     }
     
     // Filter by region
-    if (selectedRegion !== 'Tất cả') {
-      const regionBranches = REGIONS[selectedRegion as keyof typeof REGIONS];
+    if (selectedRegion !== 'Tất cả' && selectedRegionGroup) {
       filtered = filtered.filter(t => {
         // Check if teacher's main branch or any available branch is in the region
-        const branches = [t.mainBranch, ...t.branches.split(',').map(b => b.trim())];
-        return branches.some(branch => 
-          regionBranches.some(rb => branch.includes(rb) || rb.includes(branch))
-        );
+        const branches = [t.mainBranch, ...t.branches.split(',').map(b => b.trim())].filter(Boolean);
+        return branches.some(branch => matchesAnyAlias(branch, selectedRegionGroup.aliases));
       });
     }
     
     return filtered;
-  }, [teachers, selectedPrograms, selectedRegion]);
+  }, [teachers, selectedPrograms, selectedRegion, selectedRegionGroup]);
 
   // Calculate availability counts
   const availabilityMatrix = useMemo(() => {
@@ -223,7 +340,7 @@ export default function Page2() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
           <p className="text-red-600 text-lg font-medium">Lỗi tải dữ liệu</p>
           <p className="text-gray-600 mt-2">{error.message}</p>
@@ -233,15 +350,16 @@ export default function Page2() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      {/* Header */}
-      <div className="mb-6">
-        <div className="flex items-center gap-3 mb-2">
-          <Calendar className="w-8 h-8 text-blue-600" />
-          <h1 className="text-3xl font-bold text-gray-900">Lịch Rảnh Giáo Viên</h1>
+    <PageLayout padding="sm">
+      <PageLayoutContent spacing="lg">
+        {/* Header */}
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <Calendar className="w-8 h-8 text-blue-600" />
+            <h1 className="text-3xl font-bold text-gray-900">Lịch Rảnh Giáo Viên</h1>
+          </div>
+          <p className="text-gray-600">Xem số lượng giáo viên rảnh theo khung giờ và chương trình</p>
         </div>
-        <p className="text-gray-600">Xem số lượng giáo viên rảnh theo khung giờ và chương trình</p>
-      </div>
 
       {/* Date Range Filter */}
       <div className="bg-white rounded-lg shadow-md p-4 mb-4">
@@ -268,84 +386,47 @@ export default function Page2() {
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
-          <button
+          <Button
             onClick={() => {
               const newToDate = new Date().toISOString().split('T')[0];
               const newFromDate = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
               setFromDate(newFromDate);
               setToDate(newToDate);
             }}
-            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
+            variant="outline"
+            size="sm"
           >
             10 ngày gần nhất
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* Region and Program Filters */}
-      <div className="bg-white rounded-lg shadow-md p-4 mb-6">
-        {/* Region Filter */}
-        <div className="flex items-center gap-4 pb-4 border-b border-gray-200">
-          <Filter className="w-5 h-5 text-gray-600" />
-          <span className="text-gray-700 font-medium min-w-24">Khu vực:</span>
-          <div className="flex gap-2">
-            {REGION_OPTIONS.map(region => (
-              <button
-                key={region}
-                onClick={() => setSelectedRegion(region)}
-                className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-                  selectedRegion === region
-                    ? 'bg-purple-600 text-white shadow-md'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {region}
-              </button>
-            ))}
-          </div>
-          {selectedRegion !== 'Tất cả' && (
-            <div className="ml-4 text-xs text-gray-600 bg-purple-50 px-3 py-1 rounded-full">
-              {REGIONS[selectedRegion as keyof typeof REGIONS].join(', ')}
+      <FilterSection>
+        <FilterBar
+          label="Khu vực"
+          icon={MapPin}
+          options={regionOptions}
+          selected={selectedRegion}
+          onSelect={(value) => setSelectedRegion(value as string)}
+        />
+
+        <FilterBar
+          label="Chương trình"
+          icon={Calendar}
+          options={PROGRAMS}
+          selected={selectedPrograms}
+          onSelect={(value) => setSelectedPrograms(value as string[])}
+          multiple
+          onClear={() => setSelectedPrograms([])}
+        />
+
+        <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+          {selectedRegion !== 'Tất cả' && selectedRegionGroup && (
+            <div className="text-xs text-gray-600 bg-purple-50 px-3 py-1 rounded-full">
+              {centersLoading ? 'Đang tải cơ sở...' : selectedRegionSummary}
             </div>
           )}
-        </div>
-        
-        {/* Program Filter */}
-        <div className="flex items-center gap-4 pt-4">
-          <Filter className="w-5 h-5 text-gray-600" />
-          <span className="text-gray-700 font-medium min-w-24">Chương trình:</span>
-          <div className="flex gap-2">
-            {PROGRAMS.map(program => {
-              const isSelected = selectedPrograms.includes(program);
-              return (
-                <button
-                  key={program}
-                  onClick={() => {
-                    if (isSelected) {
-                      setSelectedPrograms(selectedPrograms.filter(p => p !== program));
-                    } else {
-                      setSelectedPrograms([...selectedPrograms, program]);
-                    }
-                  }}
-                  className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-                    isSelected
-                      ? 'bg-blue-600 text-white shadow-md'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {program}
-                </button>
-              );
-            })}
-            {selectedPrograms.length > 0 && (
-              <button
-                onClick={() => setSelectedPrograms([])}
-                className="px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-sm font-medium"
-              >
-                Xóa bộ lọc
-              </button>
-            )}
-          </div>
           <span className="ml-auto text-sm text-gray-600">
             Tổng: <span className="font-bold text-gray-900">{filteredTeachers.length}</span> giáo viên
             {selectedPrograms.length > 0 && (
@@ -353,40 +434,37 @@ export default function Page2() {
             )}
           </span>
         </div>
-      </div>
+      </FilterSection>
 
       {/* Calendar */}
       {isLoading ? (
-        <div className="bg-white rounded-lg shadow-md p-8 text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Đang tải dữ liệu...</p>
-        </div>
+        <PageSkeleton variant="table" itemCount={6} showHeader={false} />
       ) : (
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="bg-gradient-to-r from-blue-600 to-blue-800 text-white">
-                  <th className="border border-blue-700 p-3 text-left sticky left-0 bg-blue-700 z-10">
+            <Table className="w-full border-collapse">
+              <TableHeader>
+                <TableRow className="bg-gradient-to-r from-blue-600 to-blue-800 hover:bg-blue-800 text-white">
+                  <TableHead className="border border-blue-700 p-3 text-left sticky left-0 bg-blue-700 z-10 text-white">
                     Khung giờ
-                  </th>
+                  </TableHead>
                   {DAYS.map(day => (
-                    <th key={day.key} className="border border-blue-700 p-3 text-center min-w-32">
+                    <TableHead key={day.key} className="border border-blue-700 p-3 text-center min-w-32 text-white">
                       <div className="font-bold">{day.label}</div>
                       <div className="text-xs font-normal opacity-90">({day.short})</div>
-                    </th>
+                    </TableHead>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {TIME_SLOTS.map(slot => (
-                  <tr key={slot}>
-                    <td className="border border-gray-300 p-3 font-semibold bg-gray-50 sticky left-0 z-10">
+                  <TableRow key={slot}>
+                    <TableCell className="border border-gray-300 p-3 font-semibold bg-gray-50 sticky left-0 z-10">
                       <div className="flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full bg-blue-600"></div>
                         {slot}
                       </div>
-                    </td>
+                    </TableCell>
                     {DAYS.map(day => (
                       <CalendarCell
                         key={`${day.key}-${slot}`}
@@ -397,10 +475,10 @@ export default function Page2() {
                         onTeacherClick={handleTeacherClick}
                       />
                     ))}
-                  </tr>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </div>
       )}
@@ -449,12 +527,14 @@ export default function Page2() {
                   </p>
                 </div>
               </div>
-              <button
+              <Button
                 onClick={() => setModalOpen(false)}
-                className="p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors"
+                variant="ghost"
+                size="icon-sm"
+                className="text-white hover:bg-white hover:bg-opacity-20"
               >
-                <X className="w-6 h-6" />
-              </button>
+                <Icon icon={X} size="sm" />
+              </Button>
             </div>
 
             {/* Modal Body */}
@@ -532,16 +612,18 @@ export default function Page2() {
 
             {/* Modal Footer */}
             <div className="px-6 py-4 bg-gradient-to-b from-gray-50 to-gray-100 border-t border-gray-200">
-              <button
+              <Button
                 onClick={() => setModalOpen(false)}
-                className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+                variant="default"
+                className="w-full"
               >
                 Đóng
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       )}
-    </div>
+      </PageLayoutContent>
+    </PageLayout>
   );
 }

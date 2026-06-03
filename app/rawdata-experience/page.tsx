@@ -2,6 +2,11 @@
 
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { PageSkeleton } from '@/components/skeletons/PageSkeleton';
+import { Button } from '@/components/ui/button';
+import { StatusBadge } from '@/components/ui/badge';
+import { PageLayout, PageLayoutContent } from '@/components/ui/page-layout';
 
 interface TestRecord {
   area: string;
@@ -87,8 +92,8 @@ function RawDataExperienceContent() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto">
-      <div className="space-y-4">
+    <PageLayout>
+      <PageLayoutContent>
         <div className="border-b border-gray-900 pb-3">
           <h1 className="text-2xl font-bold text-gray-900">Raw Data - Kỹ năng & Quy trình trải nghiệm</h1>
           <p className="text-xs text-gray-600 mt-1">Xem chi tiết điểm test trải nghiệm theo tháng</p>
@@ -105,13 +110,13 @@ function RawDataExperienceContent() {
               className="w-full px-3 py-2 text-sm border border-gray-900 rounded focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
           </div>
-          <button
+          <Button
             onClick={() => handleSearch()}
             disabled={loading}
-            className="px-4 py-2 bg-gray-900 text-white rounded text-sm font-medium hover:bg-gray-700 disabled:bg-gray-400 transition-colors"
+            loading={loading}
           >
-            {loading ? "Đang tìm..." : "Tìm kiếm"}
-          </button>
+            Tìm kiếm
+          </Button>
         </div>
 
         {error && (
@@ -120,11 +125,7 @@ function RawDataExperienceContent() {
           </div>
         )}
 
-        {loading && (
-          <div className="flex items-center justify-center p-8">
-            <div className="text-gray-600">Đang tải dữ liệu...</div>
-          </div>
-        )}
+        {loading && <PageSkeleton variant="table" itemCount={8} showHeader={true} />}
 
         {!loading && teacherCode && (
           <>
@@ -168,31 +169,31 @@ function RawDataExperienceContent() {
                   <h3 className="text-sm font-bold">Chi tiết tất cả bài test</h3>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead className="bg-gray-100 border-b-2 border-gray-300">
-                      <tr>
-                        <th className="text-left py-3 px-3 font-bold">STT</th>
-                        <th className="text-left py-3 px-3 font-bold">Tháng/Năm</th>
-                        <th className="text-left py-3 px-3 font-bold">Khối giảng dạy</th>
-                        <th className="text-center py-3 px-3 font-bold">Câu đúng</th>
-                        <th className="text-center py-3 px-3 font-bold">Điểm</th>
-                        <th className="text-left py-3 px-3 font-bold">Email giải trình</th>
-                        <th className="text-center py-3 px-3 font-bold">Tính điểm</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                  <Table className="w-full text-xs">
+                    <TableHeader className="bg-gray-100 border-b-2 border-gray-300">
+                      <TableRow>
+                        <TableHead className="text-left py-3 px-3 font-bold">STT</TableHead>
+                        <TableHead className="text-left py-3 px-3 font-bold">Tháng/Năm</TableHead>
+                        <TableHead className="text-left py-3 px-3 font-bold">Khối giảng dạy</TableHead>
+                        <TableHead className="text-center py-3 px-3 font-bold">Câu đúng</TableHead>
+                        <TableHead className="text-center py-3 px-3 font-bold">Điểm</TableHead>
+                        <TableHead className="text-left py-3 px-3 font-bold">Email giải trình</TableHead>
+                        <TableHead className="text-center py-3 px-3 font-bold">Tính điểm</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {records.map((record, index) => (
-                        <tr
+                        <TableRow
                           key={index}
                           className={`border-b border-gray-200 ${
                             !record.isCountedInAverage ? "bg-red-50" : "hover:bg-gray-50"
                           }`}
                         >
-                          <td className="py-3 px-3 text-gray-500 font-medium">{index + 1}</td>
-                          <td className="py-3 px-3 font-medium">{record.date}</td>
-                          <td className="py-3 px-3 font-medium">{record.teachingLevel}</td>
-                          <td className="text-center py-3 px-3">{record.correct}</td>
-                          <td className="text-center py-3 px-3">
+                          <TableCell className="py-3 px-3 text-gray-500 font-medium">{index + 1}</TableCell>
+                          <TableCell className="py-3 px-3 font-medium">{record.date}</TableCell>
+                          <TableCell className="py-3 px-3 font-medium">{record.teachingLevel}</TableCell>
+                          <TableCell className="text-center py-3 px-3">{record.correct}</TableCell>
+                          <TableCell className="text-center py-3 px-3">
                             <span
                               className={`font-bold text-base ${
                                 parseFloat(record.score.replace(",", ".")) >= 4
@@ -204,8 +205,8 @@ function RawDataExperienceContent() {
                             >
                               {record.score}
                             </span>
-                          </td>
-                          <td className="py-3 px-3">
+                          </TableCell>
+                          <TableCell className="py-3 px-3">
                             {record.emailExplanation ? (
                               <span className="text-orange-600 font-medium">
                                 {record.emailExplanation}
@@ -213,22 +214,19 @@ function RawDataExperienceContent() {
                             ) : (
                               <span className="text-gray-400">-</span>
                             )}
-                          </td>
-                          <td className="text-center py-3 px-3">
-                            {record.isCountedInAverage ? (
-                              <span className="inline-block px-3 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">
-                                ✓ Tính
-                              </span>
-                            ) : (
-                              <span className="inline-block px-3 py-1 bg-red-100 text-red-800 rounded text-xs font-medium">
-                                ✗ Không tính
-                              </span>
-                            )}
-                          </td>
-                        </tr>
+                          </TableCell>
+                          <TableCell className="text-center py-3 px-3">
+                            <StatusBadge
+                              active={record.isCountedInAverage}
+                              activeText="✓ Tính"
+                              inactiveText="✗ Không tính"
+                              size="sm"
+                            />
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
               </div>
             )}
@@ -264,29 +262,29 @@ function RawDataExperienceContent() {
               </div>
 
               <div className="overflow-y-auto max-h-[calc(90vh-180px)] bg-white">
-                <table className="w-full text-xs bg-white">
-                  <thead className="bg-gray-100 border-b-2 border-gray-300 sticky top-0">
-                    <tr>
-                      <th className="text-left py-3 px-3 font-bold">STT</th>
-                      <th className="text-left py-3 px-3 font-bold">Khối giảng dạy</th>
-                      <th className="text-center py-3 px-3 font-bold">Câu đúng</th>
-                      <th className="text-center py-3 px-3 font-bold">Điểm</th>
-                      <th className="text-left py-3 px-3 font-bold">Email giải trình</th>
-                      <th className="text-center py-3 px-3 font-bold">Tính điểm</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table className="w-full text-xs">
+                  <TableHeader className="bg-gray-100 border-b-2 border-gray-300 sticky top-0 z-10">
+                    <TableRow>
+                      <TableHead className="text-left py-3 px-3 font-bold">STT</TableHead>
+                      <TableHead className="text-left py-3 px-3 font-bold">Khối giảng dạy</TableHead>
+                      <TableHead className="text-center py-3 px-3 font-bold">Câu đúng</TableHead>
+                      <TableHead className="text-center py-3 px-3 font-bold">Điểm</TableHead>
+                      <TableHead className="text-left py-3 px-3 font-bold">Email giải trình</TableHead>
+                      <TableHead className="text-center py-3 px-3 font-bold">Tính điểm</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {selectedMonth.records.map((record, index) => (
-                      <tr
+                      <TableRow
                         key={index}
                         className={`border-b border-gray-200 ${
                           !record.isCountedInAverage ? "bg-red-50" : "hover:bg-gray-50"
                         }`}
                       >
-                        <td className="py-3 px-3 text-gray-500 font-medium">{index + 1}</td>
-                        <td className="py-3 px-3 font-medium">{record.teachingLevel}</td>
-                        <td className="text-center py-3 px-3">{record.correct}</td>
-                        <td className="text-center py-3 px-3">
+                        <TableCell className="py-3 px-3 text-gray-500 font-medium">{index + 1}</TableCell>
+                        <TableCell className="py-3 px-3 font-medium">{record.teachingLevel}</TableCell>
+                        <TableCell className="text-center py-3 px-3">{record.correct}</TableCell>
+                        <TableCell className="text-center py-3 px-3">
                           <span
                             className={`font-bold text-base ${
                               parseFloat(record.score.replace(",", ".")) >= 4
@@ -298,8 +296,8 @@ function RawDataExperienceContent() {
                           >
                             {record.score}
                           </span>
-                        </td>
-                        <td className="py-3 px-3">
+                        </TableCell>
+                        <TableCell className="py-3 px-3">
                           {record.emailExplanation ? (
                             <span className="text-orange-600 font-medium">
                               {record.emailExplanation}
@@ -307,22 +305,19 @@ function RawDataExperienceContent() {
                           ) : (
                             <span className="text-gray-400">-</span>
                           )}
-                        </td>
-                        <td className="text-center py-3 px-3">
-                          {record.isCountedInAverage ? (
-                            <span className="inline-block px-3 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">
-                              ✓ Tính
-                            </span>
-                          ) : (
-                            <span className="inline-block px-3 py-1 bg-red-100 text-red-800 rounded text-xs font-medium">
-                              ✗ Không tính
-                            </span>
-                          )}
-                        </td>
-                      </tr>
+                        </TableCell>
+                        <TableCell className="text-center py-3 px-3">
+                          <StatusBadge
+                            active={record.isCountedInAverage}
+                            activeText="✓ Tính"
+                            inactiveText="✗ Không tính"
+                            size="sm"
+                          />
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
 
               <div className="p-4 bg-gray-50 border-t border-gray-200 text-xs text-gray-600 space-y-1">
@@ -332,20 +327,34 @@ function RawDataExperienceContent() {
             </div>
           </div>
         )}
-      </div>
-    </div>
+      </PageLayoutContent>
+    </PageLayout>
   );
 }
 
 export default function RawDataExperiencePage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Đang tải...</p>
-        </div>
-      </div>
+      <PageLayout>
+        <PageLayoutContent>
+          {/* Header Skeleton */}
+          <div className="space-y-3 animate-pulse">
+            <div className="h-8 bg-gray-200 rounded w-96"></div>
+            <div className="h-4 bg-gray-200 rounded w-64"></div>
+          </div>
+          {/* Search Bar Skeleton */}
+          <div className="flex gap-2">
+            <div className="flex-1 h-10 bg-gray-200 rounded animate-pulse"></div>
+            <div className="w-24 h-10 bg-gray-200 rounded animate-pulse"></div>
+          </div>
+          {/* Results Skeleton */}
+          <div className="bg-white rounded-lg shadow p-6 space-y-4">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="h-16 bg-gray-200 rounded animate-pulse"></div>
+            ))}
+          </div>
+        </PageLayoutContent>
+      </PageLayout>
     }>
       <RawDataExperienceContent />
     </Suspense>

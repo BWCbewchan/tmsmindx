@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/birthdays-prewarm",
+      "schedule": "0 20 * * 0"
+    },
+    {
+      "path": "/api/cron/db-cleanup",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}

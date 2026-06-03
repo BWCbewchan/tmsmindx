@@ -1,7 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+import { PageLayout, PageLayoutContent } from '@/components/ui/page-layout';
 interface Teacher {
   [key: string]: any;
 }
@@ -39,21 +41,22 @@ export default function TestTeachersPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-8">
-      <div className="max-w-7xl mx-auto">
+    <PageLayout>
+      <PageLayoutContent spacing="xl">
         <div className="bg-white rounded-lg shadow-lg p-6">
           <h1 className="text-3xl font-bold text-gray-800 mb-6">
             🧪 Test PostgreSQL Connection - Bảng Teachers
           </h1>
 
           <div className="mb-6">
-            <button
+            <Button
               onClick={handleTest}
               disabled={loading}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold py-3 px-6 rounded-lg shadow transition duration-200"
+              loading={loading}
+              variant="default"
             >
-              {loading ? 'Đang kết nối...' : 'Test Kết Nối'}
-            </button>
+              Test Kết Nối
+            </Button>
           </div>
 
           {response && (
@@ -100,31 +103,31 @@ export default function TestTeachersPage() {
                     📝 Dữ liệu Teachers (Hiển thị tối đa 50 bản ghi)
                   </h3>
                   <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-100 border-b">
-                        <tr>
+                    <Table className="w-full">
+                      <TableHeader className="bg-gray-100 border-b">
+                        <TableRow>
                           {Object.keys(response.data[0]).map((key) => (
-                            <th key={key} className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
+                            <TableHead key={key} className="px-4 py-3 text-left text-sm font-semibold text-gray-700">
                               {key}
-                            </th>
+                            </TableHead>
                           ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody className="divide-y divide-gray-200">
                         {response.data.map((teacher, index) => (
-                          <tr key={index} className="hover:bg-gray-50">
+                          <TableRow key={index} className="hover:bg-gray-50">
                             {Object.values(teacher).map((value, idx) => (
-                              <td key={idx} className="px-4 py-3 text-sm text-gray-600">
+                              <TableCell key={idx} className="px-4 py-3 text-sm text-gray-600">
                                 {value !== null && value !== undefined 
                                   ? String(value) 
                                   : <span className="text-gray-400 italic">null</span>
                                 }
-                              </td>
+                              </TableCell>
                             ))}
-                          </tr>
+                          </TableRow>
                         ))}
-                      </tbody>
-                    </table>
+                      </TableBody>
+                    </Table>
                   </div>
                 </div>
               )}
@@ -141,7 +144,7 @@ export default function TestTeachersPage() {
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </PageLayoutContent>
+    </PageLayout>
   );
 }

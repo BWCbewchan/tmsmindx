@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+import { PageLayout, PageLayoutContent } from '@/components/ui/page-layout';
 
 export default function CourseLinksTestPage() {
   const [loading, setLoading] = useState(false);
@@ -82,9 +85,9 @@ export default function CourseLinksTestPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold mb-6">Course Links Raw Data Test</h1>
+    <PageLayout>
+      <PageLayoutContent spacing="xl">
+        <h1 className="text-3xl font-bold">Course Links Raw Data Test</h1>
         
         {/* Sheet Info */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
@@ -97,13 +100,14 @@ export default function CourseLinksTestPage() {
               https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}
             </div>
           </div>
-          <button
+          <Button
             onClick={fetchData}
             disabled={loading}
-            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
+            loading={loading}
+            className="mt-4"
           >
-            {loading ? 'Loading...' : 'Refresh Data'}
-          </button>
+            Refresh Data
+          </Button>
         </div>
 
         {/* Error Display */}
@@ -116,9 +120,16 @@ export default function CourseLinksTestPage() {
 
         {/* Data Display */}
         {loading ? (
-          <div className="text-center py-8">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">Loading data...</p>
+          <div className="animate-pulse space-y-4">
+            <div className="h-8 bg-gray-300 rounded w-1/3"></div>
+            <div className="bg-white rounded-lg shadow-md p-6 space-y-4">
+              <div className="h-6 bg-gray-300 rounded w-1/4"></div>
+              <div className="space-y-2">
+                <div className="h-4 bg-gray-300 rounded"></div>
+                <div className="h-4 bg-gray-300 rounded w-3/4"></div>
+                <div className="h-4 bg-gray-300 rounded w-1/2"></div>
+              </div>
+            </div>
           </div>
         ) : data.length > 0 ? (
           <div className="space-y-6">
@@ -129,36 +140,36 @@ export default function CourseLinksTestPage() {
               
               {/* Table */}
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse border border-gray-300 text-sm">
-                  <thead className="bg-gray-100">
-                    <tr>
-                      <th className="border border-gray-300 px-3 py-2 text-left">#</th>
-                      <th className="border border-gray-300 px-3 py-2 text-left">STT</th>
-                      <th className="border border-gray-300 px-3 py-2 text-left">Chuyên đề</th>
-                      <th className="border border-gray-300 px-3 py-2 text-left">Chủ đề</th>
-                      <th className="border border-gray-300 px-3 py-2 text-left">Trạng thái</th>
-                      <th className="border border-gray-300 px-3 py-2 text-left">Mã lớp</th>
-                      <th className="border border-gray-300 px-3 py-2 text-left">Video</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table className="w-full text-sm">
+                  <TableHeader className="bg-gray-100">
+                    <TableRow>
+                      <TableHead className="px-3 py-2 text-left">#</TableHead>
+                      <TableHead className="px-3 py-2 text-left">STT</TableHead>
+                      <TableHead className="px-3 py-2 text-left">Chuyên đề</TableHead>
+                      <TableHead className="px-3 py-2 text-left">Chủ đề</TableHead>
+                      <TableHead className="px-3 py-2 text-left">Trạng thái</TableHead>
+                      <TableHead className="px-3 py-2 text-left">Mã lớp</TableHead>
+                      <TableHead className="px-3 py-2 text-left">Video</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {data.map((row, idx) => (
-                      <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                        <td className="border border-gray-300 px-3 py-2 text-gray-500">{row.line}</td>
-                        <td className="border border-gray-300 px-3 py-2">{row.stt}</td>
-                        <td className="border border-gray-300 px-3 py-2">{row.chuyenDe}</td>
-                        <td className="border border-gray-300 px-3 py-2 font-medium">{row.chuDe}</td>
-                        <td className="border border-gray-300 px-3 py-2">
+                      <TableRow key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                        <TableCell className="px-3 py-2 text-gray-500">{row.line}</TableCell>
+                        <TableCell className="px-3 py-2">{row.stt}</TableCell>
+                        <TableCell className="px-3 py-2">{row.chuyenDe}</TableCell>
+                        <TableCell className="px-3 py-2 font-medium">{row.chuDe}</TableCell>
+                        <TableCell className="px-3 py-2">
                           <span className={`px-2 py-0.5 rounded text-xs ${
                             row.trangThai === 'Release' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                           }`}>
                             {row.trangThai}
                           </span>
-                        </td>
-                        <td className="border border-gray-300 px-3 py-2 font-mono text-xs">
+                        </TableCell>
+                        <TableCell className="px-3 py-2 font-mono text-xs">
                           {row.maLop || '—'}
-                        </td>
-                        <td className="border border-gray-300 px-3 py-2">
+                        </TableCell>
+                        <TableCell className="px-3 py-2">
                           {row.link && row.link.startsWith('http') ? (
                             <a 
                               href={row.link} 
@@ -171,11 +182,11 @@ export default function CourseLinksTestPage() {
                           ) : (
                             <span className="text-gray-400 text-xs">{row.link || '—'}</span>
                           )}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             </div>
 
@@ -192,7 +203,7 @@ export default function CourseLinksTestPage() {
             <p className="text-blue-800">No data loaded. Click "Refresh Data" to fetch.</p>
           </div>
         )}
-      </div>
-    </div>
+      </PageLayoutContent>
+    </PageLayout>
   );
 }

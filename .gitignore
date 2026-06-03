@@ -23,6 +23,14 @@
 # misc
 .DS_Store
 *.pem
+fileAccount.txt
+*.log
+temp_*.csv
+*_secrets.txt
+*_pii.txt
+
+# reference projects (not part of main codebase)
+/mindx-kpi-control
 
 # debug
 npm-debug.log*

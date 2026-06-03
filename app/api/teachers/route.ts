@@ -1,108 +1,246 @@
-import { NextRequest, NextResponse } from "next/server";
+import {
+  rejectIfDatasourceLookupForbidden,
+  requireBearerSession,
+} from "@/lib/datasource-api-auth";
 import { withApiProtection } from "@/lib/api-protection";
+import pool from "@/lib/db";
+import { Teacher } from "@/types/teacher";
+import { NextRequest, NextResponse } from "next/server";
 
 const TEACHER_PROFILE_CSV_URL = process.env.NEXT_PUBLIC_TEACHER_PROFILE_CSV_URL || "";
+const TEACHER_ONBOARDING_CSV_URL = process.env.TEACHER_ONBOARDING_CSV_URL || "";
 const TEACHER_EXPERTISE_CSV_URL = process.env.NEXT_PUBLIC_TEACHER_EXPERTISE_CSV_URL || "";
 const TEACHER_EXPERIENCE_CSV_URL = process.env.NEXT_PUBLIC_TEACHER_EXPERIENCE_CSV_URL || "";
+const SHEET_FETCH_TIMEOUT_MS = 30000;
+const SHEET_FETCH_RETRIES = 3;
+const SHEET_RETRY_DELAY_MS = 500;
 
-// In-memory cache
+// In-memory cache with global persistence for dev mode and pending promise tracking
 interface CacheEntry<T> {
   data: T;
   timestamp: number;
 }
 
-const cache = {
-  teachers: null as CacheEntry<Teacher[]> | null,
-  expertiseRaw: null as CacheEntry<string> | null,
-  experienceRaw: null as CacheEntry<string> | null,
-};
+interface CacheStore {
+  teachers: CacheEntry<Teacher[]> | null;
+  expertiseRaw: CacheEntry<string> | null;
+  experienceRaw: CacheEntry<string> | null;
+  pendingRequests: {
+    teachers: Promise<Teacher[]> | null;
+    expertiseRaw: Promise<string> | null;
+    experienceRaw: Promise<string> | null;
+  };
+}
+
+const globalForCache = global as unknown as { teacherCache: CacheStore };
+
+// Ensure cache structure is valid (handle migration from old cache structure in dev)
+let cache: CacheStore;
+
+if (globalForCache.teacherCache && globalForCache.teacherCache.pendingRequests) {
+  cache = globalForCache.teacherCache;
+} else {
+  cache = {
+    teachers: null,
+    expertiseRaw: null,
+    experienceRaw: null,
+    pendingRequests: {
+      teachers: null,
+      expertiseRaw: null,
+      experienceRaw: null,
+    }
+  };
+}
+
+if (process.env.NODE_ENV !== "production") globalForCache.teacherCache = cache;
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 phút
+
+const ONBOARDING_HEADERS = [
+  "No",
+  "Full name",
+  "Code",
+  "User name",
+  "Work email",
+  "Personal email",
+  "Phone number",
+  "Status (update)",
+  "Centers",
+  "Khối final",
+  "Role",
+  "Course line",
+  "Rank",
+  "Joined date",
+  "Teacher point",
+  "Data HR (Raw)",
+  "Status check",
+  "BU check",
+  "Khối check",
+  "CHECK",
+  "TE quản lý",
+  "Leader quản lý",
+  "Rate K12 check",
+  "Rank K12 check",
+] as const;
+
+type OnboardingHeader = typeof ONBOARDING_HEADERS[number];
+type OnboardingRow = Partial<Record<OnboardingHeader, string>>;
 
 function isCacheValid<T>(entry: CacheEntry<T> | null): boolean {
   if (!entry) return false;
   return Date.now() - entry.timestamp < CACHE_TTL;
 }
 
-interface Teacher {
-  stt: string;
-  name: string;
-  code: string;
-  emailMindx: string;
-  emailPersonal: string;
-  status: string;
-  branchIn: string;
-  programIn: string;
-  branchCurrent: string;
-  programCurrent: string;
-  manager: string;
-  responsible: string;
-  position: string;
-  startDate: string;
-  onboardBy: string;
-  monthlyMetrics?: {
-    expertise: { [key: string]: string }; // Chuyên môn chuyên sâu
-    experience: { [key: string]: string }; // Kỹ năng - Trải nghiệm
-  };
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Fetch data từ Google Sheets với caching
+function isRetryableFetchError(error: unknown): boolean {
+  const err = error as any;
+  const message = String(err?.message || "").toLowerCase();
+  const causeCode = String(err?.cause?.code || "").toUpperCase();
+
+  return (
+    causeCode === "UND_ERR_SOCKET" ||
+    causeCode === "ECONNRESET" ||
+    causeCode === "ETIMEDOUT" ||
+    message.includes("fetch failed") ||
+    message.includes("socket") ||
+    message.includes("timed out") ||
+    message.includes("timeout") ||
+    err?.name === "AbortError" ||
+    err?.name === "TimeoutError"
+  );
+}
+
+async function fetchCsvWithRetry(
+  url: string,
+  label: string,
+  options?: { disableRetry?: boolean },
+): Promise<string> {
+  if (!url) {
+    throw new Error(`${label} URL is empty`);
+  }
+
+  let lastError: unknown;
+
+  const maxRetries = options?.disableRetry ? 0 : SHEET_FETCH_RETRIES;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(SHEET_FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const retryableStatus = response.status >= 500 || response.status === 429;
+        if (retryableStatus && attempt < maxRetries) {
+          await sleep(SHEET_RETRY_DELAY_MS * (attempt + 1));
+          continue;
+        }
+        throw new Error(`Cannot fetch ${label}. Status: ${response.status}`);
+      }
+
+      return await response.text();
+    } catch (error) {
+      lastError = error;
+      const retryable = isRetryableFetchError(error);
+      const hasMoreAttempts = attempt < maxRetries;
+      if (!retryable || !hasMoreAttempts) {
+        break;
+      }
+      // Exponential backoff
+      const delay = SHEET_RETRY_DELAY_MS * Math.pow(2, attempt);
+      console.warn(`⚠️ Retrying fetch for ${label} (attempt ${attempt + 1}/${maxRetries}) after ${delay}ms delay... Cause: ${error instanceof Error ? error.message : "Unknown"}`);
+      await sleep(delay);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(`Cannot fetch ${label}`);
+}
+
+// Fetch data từ Google Sheets với caching  
 async function fetchTeachersFromSheet(): Promise<Teacher[]> {
+  // Ensure cache is initialized
+  if (!cache || !cache.pendingRequests) {
+    console.error("Cache was not initialized correctly, re-initializing...");
+    cache = {
+      teachers: null,
+      expertiseRaw: null,
+      experienceRaw: null,
+      pendingRequests: {
+        teachers: null,
+        expertiseRaw: null,
+        experienceRaw: null,
+      }
+    };
+    globalForCache.teacherCache = cache;
+  }
+  
   // Kiểm tra cache
   if (isCacheValid(cache.teachers)) {
     console.log("📦 Using cached teachers data");
     return cache.teachers!.data;
   }
 
-  try {
-    console.log("🔄 Fetching fresh teachers data from Google Sheets...");
-    const response = await fetch(TEACHER_PROFILE_CSV_URL, { 
-      cache: 'no-store' // Không dùng Next.js cache vì đã có memory cache
-    });
-    
-    if (!response.ok) {
-      throw new Error("Cannot fetch sheet data");
-    }
-
-    const csvText = await response.text();
-    const lines = csvText.split("\n");
-    
-    // Skip header row
-    const dataLines = lines.slice(1).filter(line => line.trim());
-    
-    const teachers: Teacher[] = dataLines.map(line => {
-      // Parse CSV line (simple approach, may need improvement for quoted fields)
-      const columns = line.split(",").map(col => col.trim().replace(/^"|"$/g, ""));
+  // Deduplicate
+  if (!cache.pendingRequests.teachers) {
+    console.log("🔄 Starting fresh fetch for teachers data...");
+    cache.pendingRequests.teachers = (async () => {
+      const csvText = await fetchCsvWithRetry(TEACHER_PROFILE_CSV_URL, "teacher profile data");
+      const lines = csvText.split("\n");
       
-      return {
-        stt: columns[0] || "",
-        name: columns[1] || "",
-        code: columns[2] || "",
-        emailMindx: columns[3] || "",
-        emailPersonal: columns[4] || "",
-        status: columns[5] || "",
-        branchIn: columns[6] || "",
-        programIn: columns[7] || "",
-        branchCurrent: columns[8] || "",
-        programCurrent: columns[9] || "",
-        manager: columns[10] || "",
-        responsible: columns[11] || "",
-        position: columns[12] || "",
-        startDate: columns[13] || "",
-        onboardBy: columns[14] || ""
-      };
-    });
+      // Skip first 2 rows (title row + header row)
+      const dataLines = lines.slice(2).filter(line => line.trim());
+      
+      const teachers: Teacher[] = dataLines.map(line => {
+        const columns = parseCSVLine(line).map(col => col.trim().replace(/^"|"$/g, ""));
 
-    const filteredTeachers = teachers.filter(t => t.code);
+        // Current sheet schema (row 2 header):
+        // 0 No, 1 Full name, 2 Code, 3 Work email, 4 Personal email,
+        // 5 Khoi final, 6 Centers, 7 Status update,
+        // 8 Status - month N-1, 9 Status - month N,
+        // 10 BU check, 11 Khoi check, 12 Rank K12 check,
+        // 13 Joined date, 14 Leader/TE
+        const latestStatus = columns[9] || columns[8] || columns[7] || "";
+        
+        return {
+          stt: columns[0] || "",
+          name: columns[1] || "",
+          code: columns[2] || "",
+          emailMindx: columns[3] || "",
+          emailPersonal: columns[4] || "",
+          status: latestStatus,
+          branchIn: columns[10] || columns[6] || "",
+          programIn: columns[5] || "",
+          branchCurrent: columns[6] || "",
+          programCurrent: columns[11] || columns[5] || "",
+          manager: columns[14] || "",
+          responsible: columns[11] || "",
+          position: columns[12] || "",
+          startDate: columns[13] || "",
+          onboardBy: columns[14] || ""
+        };
+      });
+
+      return teachers.filter(t => t.code);
+    })();
+  } else {
+    console.log("⏳ Waiting for pending teachers fetch...");
+  }
+
+  try {
+    const data = await cache.pendingRequests.teachers;
     
     // Lưu vào cache
     cache.teachers = {
-      data: filteredTeachers,
+      data,
       timestamp: Date.now()
     };
     
-    console.log(`✅ Cached ${filteredTeachers.length} teachers`);
-    return filteredTeachers;
+    console.log(`✅ Cached ${data.length} teachers`);
+    return data;
   } catch (error) {
     console.error("Error fetching from Google Sheets:", error);
     // Nếu có cache cũ, dùng nó dù đã hết hạn
@@ -111,6 +249,8 @@ async function fetchTeachersFromSheet(): Promise<Teacher[]> {
       return cache.teachers.data;
     }
     return [];
+  } finally {
+    cache.pendingRequests.teachers = null;
   }
 }
 
@@ -122,25 +262,31 @@ async function fetchExpertiseScores(teacherCode: string): Promise<{ [key: string
     
     // Kiểm tra cache
     if (isCacheValid(cache.expertiseRaw)) {
-      console.log("📦 Using cached expertise data");
       csvText = cache.expertiseRaw!.data;
     } else {
-      console.log("🔄 Fetching fresh expertise data from Google Sheets...");
-      const response = await fetch(TEACHER_EXPERTISE_CSV_URL, { 
-        cache: 'no-store'
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Cannot fetch expertise data. Status: ${response.status}`);
+      // Deduplicate simultaneous requests
+      if (!cache.pendingRequests.expertiseRaw) {
+        console.log("🔄 Fetching fresh expertise data from Google Sheets...");
+        cache.pendingRequests.expertiseRaw = fetchCsvWithRetry(
+          TEACHER_EXPERTISE_CSV_URL,
+          "expertise data"
+        );
+      } else {
+        console.log("⏳ Waiting for pending expertise fetch...");
       }
 
-      csvText = await response.text();
-      
-      // Lưu vào cache
-      cache.expertiseRaw = {
-        data: csvText,
-        timestamp: Date.now()
-      };
+      try {
+        csvText = await cache.pendingRequests.expertiseRaw;
+        
+        // Lưu vào cache
+        cache.expertiseRaw = {
+          data: csvText,
+          timestamp: Date.now()
+        };
+      } finally {
+        // Clear pending flag so subsequent failures can retry
+        cache.pendingRequests.expertiseRaw = null;
+      }
       console.log("✅ Cached expertise data");
     }
 
@@ -197,25 +343,31 @@ async function fetchExperienceScores(teacherCode: string): Promise<{ [key: strin
     
     // Kiểm tra cache
     if (isCacheValid(cache.experienceRaw)) {
-      console.log("📦 Using cached experience data");
       csvText = cache.experienceRaw!.data;
     } else {
-      console.log("🔄 Fetching fresh experience data from Google Sheets...");
-      const response = await fetch(TEACHER_EXPERIENCE_CSV_URL, { 
-        cache: 'no-store'
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Cannot fetch experience data. Status: ${response.status}`);
+      // Deduplicate pending requests
+      if (!cache.pendingRequests.experienceRaw) {
+        console.log("🔄 Fetching fresh experience data from Google Sheets...");
+        cache.pendingRequests.experienceRaw = fetchCsvWithRetry(
+          TEACHER_EXPERIENCE_CSV_URL,
+          "experience data"
+        );
+      } else {
+        console.log("⏳ Waiting for pending experience fetch...");
       }
 
-      csvText = await response.text();
-      
-      // Lưu vào cache
-      cache.experienceRaw = {
-        data: csvText,
-        timestamp: Date.now()
-      };
+      try {
+        csvText = await cache.pendingRequests.experienceRaw;
+        
+        // Lưu vào cache
+        cache.experienceRaw = {
+          data: csvText,
+          timestamp: Date.now()
+        };
+      } finally {
+        // Clear pending flag
+        cache.pendingRequests.experienceRaw = null;
+      }
       console.log("✅ Cached experience data");
     }
 
@@ -286,14 +438,128 @@ function parseCSVLine(line: string): string[] {
   return result;
 }
 
+function buildFallbackTeacher(code: string, email: string, fullName = ""): Teacher {
+  return {
+    stt: "",
+    name: fullName || code,
+    code,
+    emailMindx: email,
+    emailPersonal: "",
+    status: "Active",
+    branchIn: "",
+    programIn: "",
+    branchCurrent: "",
+    programCurrent: "",
+    manager: "",
+    responsible: "",
+    position: "",
+    startDate: "",
+    onboardBy: "",
+  };
+}
+
+function normalizeEmail(value: string | null | undefined): string {
+  return String(value || "").trim().toLowerCase();
+}
+
+function mapOnboardingToTeacher(row: OnboardingRow): Teacher {
+  return {
+    stt: row["No"] || "",
+    name: row["Full name"] || "",
+    code: row["Code"] || "",
+    emailMindx: row["Work email"] || "",
+    emailPersonal: row["Personal email"] || "",
+    status: row["Status check"] || row["Status (update)"] || "",
+    branchIn: row["Centers"] || "",
+    programIn: row["Khối final"] || "",
+    branchCurrent: row["BU check"] || row["Centers"] || "",
+    programCurrent: row["Khối check"] || row["Khối final"] || "",
+    manager: row["Leader quản lý"] || "",
+    responsible: row["TE quản lý"] || "",
+    position: row["Role"] || "",
+    startDate: row["Joined date"] || "",
+    onboardBy: row["Data HR (Raw)"] || "",
+  };
+}
+
+async function fetchOnboardingByWorkEmail(email: string): Promise<OnboardingRow | null> {
+  if (!TEACHER_ONBOARDING_CSV_URL) return null;
+
+  try {
+    const csvText = await fetchCsvWithRetry(
+      TEACHER_ONBOARDING_CSV_URL,
+      "teacher onboarding data",
+      { disableRetry: true },
+    );
+    const lines = csvText.split("\n").filter((line) => line.trim());
+    const dataLines = lines.slice(2);
+    const targetEmail = normalizeEmail(email);
+
+    for (const line of dataLines) {
+      const cols = parseCSVLine(line).map((col) => col.trim().replace(/^"|"$/g, ""));
+      const row: OnboardingRow = {};
+
+      ONBOARDING_HEADERS.forEach((header, idx) => {
+        row[header] = cols[idx] || "";
+      });
+
+      if (normalizeEmail(row["Work email"]) === targetEmail) {
+        return row;
+      }
+    }
+  } catch (error) {
+    console.warn("fetchOnboardingByWorkEmail failed:", error);
+  }
+
+  return null;
+}
+
+async function resolveTeacherFallbackByEmail(email: string): Promise<Teacher | null> {
+  try {
+    const normalizedEmail = email.trim().toLowerCase();
+    const byEmailResult = await pool.query(
+      `
+      SELECT teacher_code, full_name, work_email, center, teaching_block, position, status
+      FROM training_teacher_stats
+      WHERE LOWER(TRIM(work_email)) = LOWER(TRIM($1))
+      LIMIT 1
+      `,
+      [normalizedEmail]
+    );
+
+    if (byEmailResult.rows.length > 0) {
+      const row = byEmailResult.rows[0];
+      const teacher = buildFallbackTeacher(
+        String(row.teacher_code || "").trim(),
+        String(row.work_email || normalizedEmail).trim(),
+        String(row.full_name || "").trim()
+      );
+      teacher.branchCurrent = String(row.center || "").trim();
+      teacher.programCurrent = String(row.teaching_block || "").trim();
+      teacher.position = String(row.position || "").trim();
+      teacher.status = String(row.status || "Active").trim() || "Active";
+      return teacher;
+    }
+  } catch (error) {
+    console.warn("resolveTeacherFallbackByEmail query failed:", error);
+  }
+
+  const codeFromEmail = (email.split("@")[0] || "").trim();
+  if (!codeFromEmail) {
+    return null;
+  }
+  return buildFallbackTeacher(codeFromEmail, email);
+}
+
 export const GET = withApiProtection(async (request: NextRequest) => {
+  const auth = await requireBearerSession(request);
+  if (!auth.ok) return auth.response;
+
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get("code");
   const emailParam = searchParams.get("email");
-  
-  // 🔒 LẤY TOKEN TỪ HEADER ĐỂ VERIFY
-  const authHeader = request.headers.get("authorization");
-  const token = authHeader?.replace("Bearer ", "");
+  const isBasicLookup = searchParams.get("basic") === "true";
+  const onboardingByEmail = emailParam ? await fetchOnboardingByWorkEmail(emailParam) : null;
 
   if (!code && !emailParam) {
     return NextResponse.json(
@@ -302,55 +568,13 @@ export const GET = withApiProtection(async (request: NextRequest) => {
     );
   }
 
-  if (!token) {
-    return NextResponse.json(
-      { error: "Unauthorized: Missing authentication token" },
-      { status: 401 }
-    );
-  }
-
-  // Verify token với Firebase để lấy email thực
-  let verifiedEmail: string;
-  let isAdmin = false;
-  
-  try {
-    const FIREBASE_API_KEY = 'AIzaSyAh2Au-mk5ci-hN83RUBqj1fsAmCMdvJx4';
-    const verifyUrl = `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_API_KEY}`;
-    
-    const verifyResponse = await fetch(verifyUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idToken: token })
-    });
-
-    if (!verifyResponse.ok) {
-      return NextResponse.json(
-        { error: "Unauthorized: Invalid token" },
-        { status: 401 }
-      );
-    }
-
-    const verifyData = await verifyResponse.json();
-    verifiedEmail = verifyData.users[0].email;
-
-    // Check admin status từ sheet
-    try {
-      const adminCheckUrl = process.env.NEXT_PUBLIC_ADMIN_CHECK_URL;
-      if (adminCheckUrl) {
-        const adminResponse = await fetch(`${adminCheckUrl}?email=${encodeURIComponent(verifiedEmail)}`);
-        const adminData = await adminResponse.json();
-        isAdmin = adminData.isAdmin || false;
-      }
-    } catch (e) {
-      // Nếu check admin fail, mặc định không phải admin
-      isAdmin = false;
-    }
-  } catch (error) {
-    return NextResponse.json(
-      { error: "Unauthorized: Token verification failed" },
-      { status: 401 }
-    );
-  }
+  const denied = await rejectIfDatasourceLookupForbidden(
+    auth.sessionEmail,
+    auth.privileged,
+    String(emailParam || "").trim().toLowerCase(),
+    String(code || "").trim(),
+  );
+  if (denied) return denied;
 
   // Fetch teachers từ Google Sheets
   const teachers = await fetchTeachersFromSheet();
@@ -365,29 +589,46 @@ export const GET = withApiProtection(async (request: NextRequest) => {
     );
 
     if (!teacher) {
-      // Trả về danh sách mã có sẵn để debug
-      const availableCodes = teachers.slice(0, 10).map(t => t.code).join(", ");
+      if (auth.privileged) {
+        const availableCodes = teachers.slice(0, 10).map(t => t.code).join(", ");
+        return NextResponse.json(
+          { 
+            error: `Không tìm thấy giáo viên với mã "${code}". Một số mã có sẵn: ${availableCodes}...`,
+            totalTeachers: teachers.length,
+            sampleCodes: teachers.slice(0, 20).map(t => ({ code: t.code, name: t.name }))
+          },
+          { status: 404 }
+        );
+      }
       return NextResponse.json(
-        { 
-          error: `Không tìm thấy giáo viên với mã "${code}". Một số mã có sẵn: ${availableCodes}...`,
-          totalTeachers: teachers.length,
-          sampleCodes: teachers.slice(0, 20).map(t => ({ code: t.code, name: t.name }))
-        },
+        { error: `Không tìm thấy giáo viên với mã đã nhập` },
         { status: 404 }
       );
     }
   } else if (emailParam) {
     const normalizedEmail = emailParam.trim().toLowerCase();
-    teacher = teachers.find(t =>
-      (t.emailMindx || '').toLowerCase().trim() === normalizedEmail ||
-      (t.emailPersonal || '').toLowerCase().trim() === normalizedEmail
-    );
+    if (onboardingByEmail) {
+      teacher = mapOnboardingToTeacher(onboardingByEmail);
+    } else {
+      teacher = teachers.find(t =>
+        (t.emailMindx || '').toLowerCase().trim() === normalizedEmail ||
+        (t.emailPersonal || '').toLowerCase().trim() === normalizedEmail
+      );
+    }
 
     if (!teacher) {
-      return NextResponse.json(
-        { error: `Không tìm thấy giáo viên với email "${emailParam}"` },
-        { status: 404 }
-      );
+      const fallbackTeacher = await resolveTeacherFallbackByEmail(normalizedEmail);
+      if (fallbackTeacher) {
+        if (isBasicLookup) {
+          return NextResponse.json({ teacher: fallbackTeacher, fallback: true, onboardingData: null });
+        }
+        teacher = fallbackTeacher;
+      } else {
+        return NextResponse.json(
+          { error: `Không tìm thấy giáo viên với email "${emailParam}"` },
+          { status: 404 }
+        );
+      }
     }
   }
 
@@ -399,22 +640,9 @@ export const GET = withApiProtection(async (request: NextRequest) => {
     );
   }
 
-  // 🔒 BẢO MẬT: Kiểm tra quyền truy cập bằng EMAIL TỪ TOKEN
-  // Admin: xem tất cả
-  // User: chỉ xem được của chính mình
-  if (!isAdmin) {
-    const normalizedVerifiedEmail = verifiedEmail.toLowerCase().trim();
-    const normalizedTeacherMindxEmail = teacher.emailMindx.toLowerCase().trim();
-    const normalizedTeacherPersonalEmail = teacher.emailPersonal.toLowerCase().trim();
-    
-    // Kiểm tra email từ TOKEN có khớp với email của teacher không
-    if (normalizedVerifiedEmail !== normalizedTeacherMindxEmail && 
-        normalizedVerifiedEmail !== normalizedTeacherPersonalEmail) {
-      return NextResponse.json(
-        { error: "Forbidden: Bạn không có quyền xem thông tin của giáo viên khác" },
-        { status: 403 }
-      );
-    }
+  // Fetch real monthly metrics từ Google Sheets
+  if (isBasicLookup) {
+    return NextResponse.json({ teacher, onboardingData: onboardingByEmail || null });
   }
 
   // Fetch real monthly metrics từ Google Sheets
@@ -424,7 +652,8 @@ export const GET = withApiProtection(async (request: NextRequest) => {
   ]);
 
   // Initialize với "3T" cho tất cả các tháng
-  const months = ["1/2025", "2/2025", "3/2025", "4/2025", "5/2025", "6/2025", "7/2025", "8/2025", "9/2025", "10/2025", "11/2025", "12/2025"];
+  const currentYear = new Date().getFullYear();
+  const months = Array.from({ length: 12 }, (_, i) => `${i + 1}/${currentYear}`);
   
   teacher.monthlyMetrics = {
     expertise: {},
@@ -437,5 +666,13 @@ export const GET = withApiProtection(async (request: NextRequest) => {
     teacher.monthlyMetrics!.experience[month] = experienceScores[month] || "3T";
   });
 
-  return NextResponse.json({ teacher });
+  // Optimized response with caching headers
+  const response = NextResponse.json({ teacher, onboardingData: onboardingByEmail || null });
+  
+  // Add performance headers
+  response.headers.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
+  response.headers.set('X-Served-From', 'cache');
+  response.headers.set('X-Teacher-Count', teachers.length.toString());
+  
+  return response;
 });

@@ -1,3 +1,7 @@
+import {
+  rejectIfDatasourceLookupForbidden,
+  requireBearerSession,
+} from "@/lib/datasource-api-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiProtection } from "@/lib/api-protection";
 
@@ -31,6 +35,9 @@ interface MonthlyAverage {
 }
 
 export const GET = withApiProtection(async (request: NextRequest) => {
+  const auth = await requireBearerSession(request);
+  if (!auth.ok) return auth.response;
+
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get("code");
 
@@ -38,7 +45,13 @@ export const GET = withApiProtection(async (request: NextRequest) => {
     return NextResponse.json({ error: "Mã giáo viên là bắt buộc" }, { status: 400 });
   }
 
-  // Token verification not needed for rawdata - only teacher info API needs it
+  const denied = await rejectIfDatasourceLookupForbidden(
+    auth.sessionEmail,
+    auth.privileged,
+    "",
+    code,
+  );
+  if (denied) return denied;
 
   try {
     const response = await fetch(CSV_URL);
@@ -124,16 +137,60 @@ export const GET = withApiProtection(async (request: NextRequest) => {
 
     const monthlyData: MonthlyAverage[] = [];
     monthlyMap.forEach((monthRecords, month) => {
-      const countedRecords = monthRecords.filter((r) => r.isCountedInAverage);
-      if (countedRecords.length > 0) {
-        const sum = countedRecords.reduce((acc, r) => {
-          return acc + parseFloat(r.score.replace(",", "."));
-        }, 0);
-        const average = sum / countedRecords.length;
+      // Nhóm theo cấp độ giảng dạy trong tháng
+      const levelMap = new Map<string, TestRecord[]>();
+      monthRecords.forEach(r => {
+        if (!levelMap.has(r.teachingLevel)) {
+          levelMap.set(r.teachingLevel, []);
+        }
+        levelMap.get(r.teachingLevel)!.push(r);
+      });
+
+      let totalCombinedScore = 0;
+      let levelCount = 0;
+
+      levelMap.forEach((levelRecords) => {
+        // Chỉ tính những cấp độ có ít nhất một bài thi được tính vào trung bình
+        if (levelRecords.some(r => r.isCountedInAverage)) {
+          let officialScore = 0;
+          let supplementScore = 0;
+
+          levelRecords.forEach(r => {
+            if (!r.isCountedInAverage) return;
+            
+            const type = r.type.toLowerCase();
+            const isSupplement = type.includes('bổ sung') || type.includes('bo') || type === 'additional';
+            const score = parseFloat(r.score.replace(",", "."));
+
+            if (isSupplement) {
+              supplementScore = score;
+            } else {
+              officialScore = score;
+            }
+          });
+
+          // Công thức:
+          // - Có cả chính thức VÀ bổ sung → (officialScore + supplementScore) / 2
+          // - Chỉ có bổ sung (không có chính thức) → lấy điểm bổ sung làm điểm chính
+          // - Chỉ có chính thức → lấy điểm chính thức
+          const hasOfficial = levelRecords.some(r => r.isCountedInAverage && !r.type.toLowerCase().includes('bổ sung') && !r.type.toLowerCase().includes('bo') && r.type.toLowerCase() !== 'additional');
+          const hasSupplement = levelRecords.some(r => r.isCountedInAverage && (r.type.toLowerCase().includes('bổ sung') || r.type.toLowerCase().includes('bo') || r.type.toLowerCase() === 'additional'));
+          const combinedScore = (hasOfficial && hasSupplement)
+            ? (officialScore + supplementScore) / 2
+            : hasSupplement
+              ? supplementScore
+              : officialScore;
+          totalCombinedScore += combinedScore;
+          levelCount++;
+        }
+      });
+
+      if (levelCount > 0) {
+        const average = totalCombinedScore / levelCount;
         monthlyData.push({
           month: month,
           average: average,
-          count: countedRecords.length,
+          count: levelCount,
           records: monthRecords,
         });
       } else {
