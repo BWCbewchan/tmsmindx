@@ -7,7 +7,13 @@ import bcrypt from 'bcryptjs'
 import { NextRequest, NextResponse } from 'next/server'
 
 const REGION_MAP: Record<string, string> = { 'HCM': '1', 'HN': '2', 'DN': '3' }
-const BLOCK_MAP: Record<string, string> = { 'Art': '1', 'Tech': '2', 'Biz': '3' }
+const BLOCK_MAP: Record<string, string> = {
+  'Art': '1',
+  'Coding': '2',
+  'Robotics': '2',
+  'Tech': '2',
+  'Biz': '3',
+}
 
 function getGenNumber(genName: string) {
   const parsed = Number((genName.match(/\d+/) || [])[0])
@@ -142,18 +148,19 @@ export const POST = withApiProtection(async (req: NextRequest) => {
 
       const regionCode = c.regionCode || '2' // mặc định HN/Miền Bắc
       const workBlock = c.workBlock || 'Tech'
+      const workBlockForCode = c.workBlockCode || workBlock
 
       // Tìm ứng viên hiện tại
       const cacheKey = `${email}_${genId || ''}`
       const existing = existingMap.get(cacheKey)
 
       if (!candidateCodeVal && !existing?.candidate_code && genId !== null) {
-        const prefix = getCodePrefix(regionCode, normalizedGenName, workBlock)
+        const prefix = getCodePrefix(regionCode, normalizedGenName, workBlockForCode)
         if (prefix) {
           candidateCodeVal = `${prefix}${await getNextSequence(prefix)}`
         }
       } else if (!isStandardCandidateCode(existing?.candidate_code) && genId !== null) {
-        const prefix = getCodePrefix(regionCode, normalizedGenName, workBlock)
+        const prefix = getCodePrefix(regionCode, normalizedGenName, workBlockForCode)
         if (prefix) {
           candidateCodeVal = `${prefix}${await getNextSequence(prefix)}`
         }
@@ -416,22 +423,53 @@ export const POST = withApiProtection(async (req: NextRequest) => {
       usersByCandidateId.set(item.candidate_id, item)
     }
 
-    for (const item of usersByCandidateId.values()) {
-      const updateUserRes = await pool.query(
-        `UPDATE hr_candidate_users
-         SET username = $2, is_active = true
-         WHERE candidate_id = $1`,
-        [item.candidate_id, item.username]
-      )
+    const userItems = Array.from(usersByCandidateId.values())
+    const USER_CHUNK_SIZE = 500
 
-      if (updateUserRes.rowCount === 0) {
-        await pool.query(
-          `INSERT INTO hr_candidate_users (candidate_id, username, password_hash)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (username) DO NOTHING`,
-          [item.candidate_id, item.username, item.password_hash]
-        )
+    for (let i = 0; i < userItems.length; i += USER_CHUNK_SIZE) {
+      const chunk = userItems.slice(i, i + USER_CHUNK_SIZE)
+      const values: any[] = []
+      const updateRows: string[] = []
+      let pIdx = 1
+
+      for (const item of chunk) {
+        updateRows.push(`($${pIdx}::int, $${pIdx + 1}::varchar)`)
+        values.push(item.candidate_id, item.username)
+        pIdx += 2
       }
+
+      await pool.query(
+        `UPDATE hr_candidate_users u
+         SET username = v.username,
+             is_active = true
+         FROM (VALUES ${updateRows.join(', ')}) AS v(candidate_id, username)
+         WHERE u.candidate_id = v.candidate_id`,
+        values
+      )
+    }
+
+    for (let i = 0; i < userItems.length; i += USER_CHUNK_SIZE) {
+      const chunk = userItems.slice(i, i + USER_CHUNK_SIZE)
+      const values: any[] = []
+      const insertRows: string[] = []
+      let pIdx = 1
+
+      for (const item of chunk) {
+        insertRows.push(`($${pIdx}::int, $${pIdx + 1}::varchar, $${pIdx + 2}::varchar)`)
+        values.push(item.candidate_id, item.username, item.password_hash)
+        pIdx += 3
+      }
+
+      await pool.query(
+        `INSERT INTO hr_candidate_users (candidate_id, username, password_hash)
+         SELECT v.candidate_id, v.username, v.password_hash
+         FROM (VALUES ${insertRows.join(', ')}) AS v(candidate_id, username, password_hash)
+         WHERE NOT EXISTS (
+           SELECT 1 FROM hr_candidate_users u WHERE u.candidate_id = v.candidate_id
+         )
+         ON CONFLICT (username) DO NOTHING`,
+        values
+      )
     }
 
     return NextResponse.json({

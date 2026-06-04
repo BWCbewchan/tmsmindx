@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PageContainer } from '@/components/PageContainer';
 import { toast } from '@/lib/app-toast';
+import { authHeaders } from '@/lib/auth-headers';
+import { useAuth } from '@/lib/auth-context';
 import { HrCandidateRow, HrSummary, HrPagination } from './types';
 import HrCandidateStats from './components/HrCandidateStats';
 import HrCandidatesFilter from './components/HrCandidatesFilter';
@@ -13,6 +15,7 @@ import Link from 'next/link';
 const PAGE_SIZE = 25;
 
 export default function HrCandidatesPage() {
+  const { token } = useAuth();
   const [rows, setRows] = useState<HrCandidateRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -82,7 +85,10 @@ export default function HrCandidatesPage() {
     try {
       const res = await fetch('/api/hr/candidates/sync', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(token),
+        },
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Không thể đồng bộ ứng viên từ sheet.');
@@ -97,7 +103,7 @@ export default function HrCandidatesPage() {
     } finally {
       setSyncing(false);
     }
-  }, [fetchRows]);
+  }, [fetchRows, token]);
 
   const applyQuickFilter = (nextStatus: string) => {
     setStatusFilter(nextStatus);

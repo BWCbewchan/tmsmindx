@@ -29,7 +29,10 @@ export const GET = withApiProtection(async (req: NextRequest) => {
 
   // Lấy tất cả ứng viên của GEN
   const candidatesResult = await pool.query(
-    `SELECT id, full_name, email, status FROM hr_candidates WHERE gen_id = $1 ORDER BY full_name ASC`,
+    `SELECT id, full_name, email, phone, candidate_code, desired_campus, work_block, facebook_url, status
+     FROM hr_candidates
+     WHERE gen_id = $1
+     ORDER BY full_name ASC`,
     [gen_id]
   )
   const candidates = candidatesResult.rows
@@ -52,6 +55,38 @@ export const GET = withApiProtection(async (req: NextRequest) => {
   }
   const records = recordsResult.rows
 
+  const candidateIds = candidates.map((candidate) => candidate.id)
+  const assessmentsResult = candidateIds.length > 0
+    ? await pool.query(
+        `SELECT DISTINCT ON (candidate_id, assessment_type)
+           candidate_id,
+           assessment_type,
+           total_score,
+           is_passed,
+           feedback_note,
+           criteria_scores,
+           created_at
+         FROM hr_candidate_assessments
+         WHERE candidate_id = ANY($1::int[])
+         ORDER BY candidate_id, assessment_type, created_at DESC`,
+        [candidateIds],
+      )
+    : { rows: [] }
+
+  const assessmentsByCandidate = new Map<number, any[]>()
+  for (const row of assessmentsResult.rows) {
+    const list = assessmentsByCandidate.get(row.candidate_id) || []
+    list.push({
+      assessment_type: row.assessment_type,
+      total_score: row.total_score != null ? parseFloat(row.total_score) : null,
+      is_passed: row.is_passed,
+      feedback_note: row.feedback_note,
+      criteria_scores: row.criteria_scores || {},
+      created_at: row.created_at,
+    })
+    assessmentsByCandidate.set(row.candidate_id, list)
+  }
+
   // Build candidateSummaries
   const totalSessions = sessions.length
   const candidateSummaries = candidates.map(c => {
@@ -69,10 +104,16 @@ export const GET = withApiProtection(async (req: NextRequest) => {
     const scores = sessionDetails.map(s => s.score).filter((s): s is number => s != null)
     return {
       candidate_id: c.id,
+      candidate_code: c.candidate_code,
       full_name: c.full_name,
       email: c.email,
+      phone: c.phone,
+      desired_campus: c.desired_campus,
+      work_block: c.work_block,
+      facebook_url: c.facebook_url,
       status: c.status,
       sessions: sessionDetails,
+      assessments: assessmentsByCandidate.get(c.id) || [],
       attendance_score: calculateAttendanceScore(attended, totalSessions),
       avg_test_score: calculateAvgTestScore(scores),
     }

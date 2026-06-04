@@ -1,8 +1,16 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Save, AlertCircle } from 'lucide-react';
+import { Save, AlertCircle } from 'lucide-react';
 import { Modal } from '@/components/ui/modal';
+import {
+  calculateInputAssessmentScore,
+  getAssessmentProfile,
+  getCriteriaForProfile,
+  INPUT_ASSESSMENT_PROFILES,
+  normalizeAssessmentProfileId,
+  type AssessmentProfileId,
+} from '@/lib/hr-input-assessment';
 
 interface TAAssessmentFormProps {
   candidateId: number;
@@ -11,21 +19,8 @@ interface TAAssessmentFormProps {
   onClose: () => void;
 }
 
-const ASSESSMENT_TYPES = [
-  { id: 'ta_trial_review', label: 'Đánh giá TA/Trial' },
-  { id: 'technical_test', label: 'Bài test kỹ thuật' },
-  { id: 'pedagogical_review', label: 'Duyệt sư phạm' },
-];
-
-const DEFAULT_CRITERIA = [
-  { key: 'communication', label: 'Kỹ năng giao tiếp', weight: 20 },
-  { key: 'technical', label: 'Kiến thức chuyên môn', weight: 40 },
-  { key: 'pedagogy', label: 'Phương pháp giảng dạy', weight: 30 },
-  { key: 'attitude', label: 'Thái độ/Tác phong', weight: 10 },
-];
-
 export default function TAAssessmentForm({ candidateId, initialData, onSuccess, onClose }: TAAssessmentFormProps) {
-  const [type, setType] = useState(ASSESSMENT_TYPES[0].id);
+  const [type, setType] = useState<AssessmentProfileId>(INPUT_ASSESSMENT_PROFILES[0].id);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [totalScore, setTotalScore] = useState(0);
   const [isPassed, setIsPassed] = useState(false);
@@ -35,15 +30,14 @@ export default function TAAssessmentForm({ candidateId, initialData, onSuccess, 
 
   useEffect(() => {
     if (initialData) {
-      setType(initialData.assessment_type);
+      setType(normalizeAssessmentProfileId(initialData.assessment_type));
       setScores(initialData.criteria_scores || {});
       setTotalScore(initialData.total_score || 0);
       setIsPassed(initialData.is_passed);
       setNote(initialData.feedback_note || '');
     } else {
-      // Initialize scores to 0
       const initialScores: Record<string, number> = {};
-      DEFAULT_CRITERIA.forEach(c => initialScores[c.key] = 0);
+      getCriteriaForProfile(INPUT_ASSESSMENT_PROFILES[0].id).forEach(c => initialScores[c.key] = 0);
       setScores(initialScores);
     }
   }, [initialData]);
@@ -53,15 +47,21 @@ export default function TAAssessmentForm({ candidateId, initialData, onSuccess, 
     const newScores = { ...scores, [key]: numValue };
     setScores(newScores);
 
-    // Auto-calculate total score based on weights
-    let total = 0;
-    DEFAULT_CRITERIA.forEach(c => {
-      total += (newScores[c.key] || 0) * (c.weight / 100);
+    const total = calculateInputAssessmentScore(type, newScores);
+    setTotalScore(total);
+    setIsPassed(total >= getAssessmentProfile(type).passingScore);
+  };
+
+  const handleTypeChange = (nextType: AssessmentProfileId) => {
+    const nextScores: Record<string, number> = {};
+    getCriteriaForProfile(nextType).forEach(c => {
+      nextScores[c.key] = scores[c.key] || 0;
     });
-    setTotalScore(parseFloat(total.toFixed(2)));
-    
-    // Auto-determine pass/fail (threshold 6.0)
-    setIsPassed(total >= 6.0);
+    const total = calculateInputAssessmentScore(nextType, nextScores);
+    setType(nextType);
+    setScores(nextScores);
+    setTotalScore(total);
+    setIsPassed(total >= getAssessmentProfile(nextType).passingScore);
   };
 
   const handleSubmit = async () => {
@@ -100,26 +100,29 @@ export default function TAAssessmentForm({ candidateId, initialData, onSuccess, 
           <label className="text-xs font-bold uppercase text-gray-500">Loại đánh giá</label>
           <select 
             value={type} 
-            onChange={(e) => setType(e.target.value)}
+            onChange={(e) => handleTypeChange(e.target.value as AssessmentProfileId)}
             className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none transition-all"
           >
-            {ASSESSMENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+            {INPUT_ASSESSMENT_PROFILES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
           </select>
+          <p className="text-[11px] font-semibold text-gray-400">
+            Ngưỡng đạt: {getAssessmentProfile(type).passingScore} điểm. {getAssessmentProfile(type).description}
+          </p>
         </div>
 
         {/* Criteria Scores */}
         <div className="space-y-3">
-          <label className="text-xs font-bold uppercase text-gray-500">Chấm điểm chi tiết (Thang điểm 10)</label>
+          <label className="text-xs font-bold uppercase text-gray-500">Chấm điểm chi tiết (Thang điểm 1-5)</label>
           <div className="grid grid-cols-1 gap-3">
-            {DEFAULT_CRITERIA.map(c => (
+            {getCriteriaForProfile(type).map(c => (
               <div key={c.key} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
                 <div className="flex flex-col">
                   <span className="text-sm font-bold text-gray-700">{c.label}</span>
-                  <span className="text-[10px] text-gray-400">Trọng số: {c.weight}%</span>
+                  <span className="text-[10px] text-gray-400">Trọng số: {c.weight}% · {c.group}</span>
                 </div>
                 <input 
                   type="number" 
-                  min="0" max="10" step="0.1"
+                  min="0" max="5" step="0.1"
                   value={scores[c.key] || 0}
                   onChange={(e) => handleScoreChange(c.key, e.target.value)}
                   className="w-20 p-2 text-right bg-white border border-gray-200 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none"

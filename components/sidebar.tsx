@@ -150,6 +150,14 @@ export function Sidebar() {
           label: 'Lịch đào tạo',
         },
         {
+          href: '/admin/hr-candidates/pedagogy-training',
+          label: 'Tập huấn sư phạm',
+        },
+        {
+          href: '/admin/hr-candidates/input-assessment',
+          label: 'Quản lý đánh giá đầu vào',
+        },
+        {
           href: '/admin/hr-candidates/gen-planner?region=south',
           label: 'Miền Nam (HCM + Tỉnh Nam)',
         },

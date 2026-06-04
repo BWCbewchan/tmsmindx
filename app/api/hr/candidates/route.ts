@@ -54,6 +54,34 @@ function parsePageParam(input: string | null, fallback: number) {
   return Number.isNaN(parsed) || parsed < 1 ? fallback : Math.floor(parsed);
 }
 
+function appendRegionConditions(
+  conditions: string[],
+  params: unknown[],
+  startIndex: number,
+  selectedRegionCodes: string[] | null,
+  selectedRegionKeywords: string[] | null,
+) {
+  let idx = startIndex;
+  if (selectedRegionCodes && selectedRegionCodes.length > 0) {
+    const regionCodeParam = idx++;
+    params.push(selectedRegionCodes);
+    if (selectedRegionKeywords && selectedRegionKeywords.length > 0) {
+      const keywordParam = idx++;
+      params.push(selectedRegionKeywords.map((keyword) => `%${keyword}%`));
+      conditions.push(`(
+        c.region_code = ANY($${regionCodeParam}::text[])
+        OR LEFT(COALESCE(c.candidate_code, ''), 1) = ANY($${regionCodeParam}::text[])
+        OR lower(COALESCE(c.region_code, '')) ILIKE ANY($${keywordParam}::text[])
+        OR lower(COALESCE(c.region_name, '')) ILIKE ANY($${keywordParam}::text[])
+        OR lower(COALESCE(c.desired_campus, '')) ILIKE ANY($${keywordParam}::text[])
+      )`);
+    } else {
+      conditions.push(`c.region_code = ANY($${regionCodeParam}::text[])`);
+    }
+  }
+  return idx;
+}
+
 function getGenNumber(genName: string) {
   const parsed = Number((genName.match(/\d+/) || [])[0]);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
@@ -107,8 +135,8 @@ const handleGet = async (request: NextRequest) => {
     const selectedRegionCodes = resolveRegionCodes(regionFilter);
     const selectedRegionKeywords = resolveRegionKeywords(regionFilter);
 
-    // Build WHERE conditions
-    const conditions: string[] = ['1=1'];
+    // Build WHERE conditions for table rows. These include all active filters.
+    const conditions: string[] = ['c.is_deleted = false'];
     const params: unknown[] = [];
     let idx = 1;
 
@@ -129,23 +157,7 @@ const handleGet = async (request: NextRequest) => {
     }
 
     // Region filter
-    if (selectedRegionCodes && selectedRegionCodes.length > 0) {
-      const regionCodeParam = idx++;
-      params.push(selectedRegionCodes);
-      if (selectedRegionKeywords && selectedRegionKeywords.length > 0) {
-        const keywordParam = idx++;
-        params.push(selectedRegionKeywords.map((keyword) => `%${keyword}%`));
-        conditions.push(`(
-          c.region_code = ANY($${regionCodeParam}::text[])
-          OR LEFT(COALESCE(c.candidate_code, ''), 1) = ANY($${regionCodeParam}::text[])
-          OR lower(COALESCE(c.region_code, '')) ILIKE ANY($${keywordParam}::text[])
-          OR lower(COALESCE(c.region_name, '')) ILIKE ANY($${keywordParam}::text[])
-          OR lower(COALESCE(c.desired_campus, '')) ILIKE ANY($${keywordParam}::text[])
-        )`);
-      } else {
-        conditions.push(`c.region_code = ANY($${regionCodeParam}::text[])`);
-      }
-    }
+    idx = appendRegionConditions(conditions, params, idx, selectedRegionCodes, selectedRegionKeywords);
 
     // Search
     if (search) {
@@ -155,6 +167,10 @@ const handleGet = async (request: NextRequest) => {
     }
 
     const where = conditions.join(' AND ');
+    const summaryConditions: string[] = ['c.is_deleted = false'];
+    const summaryParams: unknown[] = [];
+    appendRegionConditions(summaryConditions, summaryParams, 1, selectedRegionCodes, selectedRegionKeywords);
+    const summaryWhere = summaryConditions.join(' AND ');
     const orderBy =
       genSort === 'asc' || genSort === 'desc'
         ? `CASE WHEN g.gen_name IS NULL THEN 1 ELSE 0 END ASC,
@@ -192,16 +208,16 @@ const handleGet = async (request: NextRequest) => {
            COUNT(*) FILTER (WHERE c.region_code = '5') AS r5
          FROM hr_candidates c
          LEFT JOIN hr_gen_catalog g ON g.id = c.gen_id
-         WHERE ${where}`,
-        params
+         WHERE ${summaryWhere}`,
+        summaryParams
       ),
       pool.query(
         `SELECT COALESCE(g.gen_name, 'Chưa xếp GEN') AS gen_name, COUNT(*)::int AS count
          FROM hr_candidates c
          LEFT JOIN hr_gen_catalog g ON g.id = c.gen_id
-         WHERE ${where}
+         WHERE ${summaryWhere}
          GROUP BY COALESCE(g.gen_name, 'Chưa xếp GEN')`,
-        params
+        summaryParams
       ),
       pool.query(`SELECT id, gen_name FROM hr_gen_catalog WHERE is_active = true ORDER BY gen_name ASC`),
     ]);
