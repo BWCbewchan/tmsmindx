@@ -1,5 +1,6 @@
 import pool from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
+import { NextRequest, NextResponse } from 'next/server';
 
 type BlockCode = 'CODING' | 'ROBOTICS' | 'ART' | 'PROCESS' | `PROCESS-${string}`;
 
@@ -77,7 +78,7 @@ async function ensureSubjectConfigColumns() {
     WHERE thoi_gian_thi_phut IS NULL;
   `);
 
-  // Auto-fix dữ liệu cũ: nếu vẫn đang lưu PROCESS theo 3 môn chuẩn thì tách về PROCESS-ART/COD/ROB.
+  // Auto-fix dá»¯ liá»‡u cÅ©: náº¿u váº«n Ä‘ang lÆ°u PROCESS theo 3 mÃ´n chuáº©n thÃ¬ tÃ¡ch vá» PROCESS-ART/COD/ROB.
   await pool.query(`
     UPDATE chuyen_sau_monhoc
     SET ma_khoi = CASE
@@ -141,9 +142,12 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   const client = await pool.connect();
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     await ensureSubjectConfigColumns();
 
     const body = await request.json();
@@ -151,7 +155,7 @@ export async function POST(request: Request) {
     const rawBlockCode = String(body?.block_code || 'CODING').toUpperCase();
     if (!isAllowedBlockCode(rawBlockCode)) {
       return NextResponse.json(
-        { success: false, error: 'Khối môn không hợp lệ' },
+        { success: false, error: 'Khá»‘i mÃ´n khÃ´ng há»£p lá»‡' },
         { status: 400 }
       );
     }
@@ -159,7 +163,7 @@ export async function POST(request: Request) {
 
     if (!subjectName) {
       return NextResponse.json(
-        { success: false, error: 'Tên môn là bắt buộc' },
+        { success: false, error: 'TÃªn mÃ´n lÃ  báº¯t buá»™c' },
         { status: 400 }
       );
     }
@@ -188,7 +192,7 @@ export async function POST(request: Request) {
     if (existing.rows.length > 0) {
       await client.query('ROLLBACK');
       return NextResponse.json(
-        { success: false, error: 'Môn học đã tồn tại trong hệ thống' },
+        { success: false, error: 'MÃ´n há»c Ä‘Ã£ tá»“n táº¡i trong há»‡ thá»‘ng' },
         { status: 409 }
       );
     }
@@ -230,7 +234,7 @@ export async function POST(request: Request) {
          dang_hoat_dong AS is_active,
          tao_luc AS created_at,
          tao_luc AS updated_at`,
-      // NOTE: tham số giữ nguyên thứ tự ($1=loai_ky_thi, $2=ma_khoi, ...)
+      // NOTE: tham sá»‘ giá»¯ nguyÃªn thá»© tá»± ($1=loai_ky_thi, $2=ma_khoi, ...)
       [
         examType,
         inputBlockCode,
@@ -265,8 +269,11 @@ export async function POST(request: Request) {
   }
 }
 
-export async function PUT(request: Request) {
+export async function PUT(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     await ensureSubjectConfigColumns();
 
     const body = await request.json();
@@ -278,28 +285,28 @@ export async function PUT(request: Request) {
 
     if (!Number.isFinite(subjectId) || subjectId <= 0) {
       return NextResponse.json(
-        { success: false, error: 'id bộ môn không hợp lệ' },
+        { success: false, error: 'id bá»™ mÃ´n khÃ´ng há»£p lá»‡' },
         { status: 400 }
       );
     }
 
     if (!hasDuration && !hasSelectionMode) {
       return NextResponse.json(
-        { success: false, error: 'Không có dữ liệu cần cập nhật' },
+        { success: false, error: 'KhÃ´ng cÃ³ dá»¯ liá»‡u cáº§n cáº­p nháº­t' },
         { status: 400 }
       );
     }
 
     if (hasDuration && (!Number.isFinite(inputDurationMinutes) || inputDurationMinutes <= 0)) {
       return NextResponse.json(
-        { success: false, error: 'duration_minutes phải lớn hơn 0' },
+        { success: false, error: 'duration_minutes pháº£i lá»›n hÆ¡n 0' },
         { status: 400 }
       );
     }
 
     if (hasSelectionMode && !['default', 'random'].includes(inputSelectionMode)) {
       return NextResponse.json(
-        { success: false, error: 'set_selection_mode chỉ chấp nhận default hoặc random' },
+        { success: false, error: 'set_selection_mode chá»‰ cháº¥p nháº­n default hoáº·c random' },
         { status: 400 }
       );
     }
@@ -344,7 +351,7 @@ export async function PUT(request: Request) {
 
     if (result.rows.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'Không tìm thấy bộ môn' },
+        { success: false, error: 'KhÃ´ng tÃ¬m tháº¥y bá»™ mÃ´n' },
         { status: 404 }
       );
     }
@@ -359,13 +366,16 @@ export async function PUT(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+export async function DELETE(request: NextRequest) {
+  const authGate = await requireBearerAdminOrSuperMutation(request);
+  if (!authGate.ok) return authGate.response;
+
   const { searchParams } = new URL(request.url);
   const subjectId = Number(searchParams.get('id'));
 
   if (!Number.isFinite(subjectId) || subjectId <= 0) {
     return NextResponse.json(
-      { success: false, error: 'id bộ môn không hợp lệ' },
+      { success: false, error: 'id bá»™ mÃ´n khÃ´ng há»£p lá»‡' },
       { status: 400 }
     );
   }
@@ -382,7 +392,7 @@ export async function DELETE(request: Request) {
     if (existed.rows.length === 0) {
       await client.query('ROLLBACK');
       return NextResponse.json(
-        { success: false, error: 'Không tìm thấy bộ môn' },
+        { success: false, error: 'KhÃ´ng tÃ¬m tháº¥y bá»™ mÃ´n' },
         { status: 404 }
       );
     }
@@ -398,7 +408,7 @@ export async function DELETE(request: Request) {
       [subjectId]
     );
 
-    // Delete the subject — cascades to:
+    // Delete the subject â€” cascades to:
     //   chuyen_sau_bode (id_mon FK ON DELETE CASCADE)
     //   chuyen_sau_chonde_thang (id_mon FK ON DELETE CASCADE)
     //   chuyen_sau_bode_cauhoi via bode cascade (if FK exists)

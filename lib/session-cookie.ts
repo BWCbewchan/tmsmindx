@@ -2,6 +2,7 @@ import { jwtVerify } from 'jose';
 import type { NextResponse } from 'next/server';
 
 import { getJwtSecret } from '@/lib/jwt-secret';
+import { normalizeAuthenticatedEmail } from '@/lib/security-identity';
 
 /** Tên cookie phiên (HttpOnly, set từ API login). */
 export const TPS_SESSION_COOKIE = 'tps_session';
@@ -14,6 +15,9 @@ export type VerifiedEdgeSession = {
   email: string;
   /** Có quyền vào /admin và /api/admin (theo DB/permissions lúc đăng nhập). */
   canAdminPortal: boolean;
+  role?: string;
+  userId?: number;
+  candidateId?: number;
 };
 
 export async function verifySessionCookieValue(
@@ -28,15 +32,23 @@ export async function verifySessionCookieValue(
       new TextEncoder().encode(getJwtSecret()),
       { algorithms: ['HS256'] },
     );
-    const email =
-      typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '';
+    const email = normalizeAuthenticatedEmail(payload.email);
     if (!email) return null;
+    const role = typeof payload.role === 'string' ? payload.role : undefined;
+    const userId = Number(payload.userId);
+    const candidateId = Number(payload.candidateId);
     const ap =
       payload.ap === true ||
       payload.ap === 'true' ||
-      (typeof payload.role === 'string' &&
-        ['super_admin', 'admin', 'manager'].includes(payload.role));
-    return { email, canAdminPortal: Boolean(ap) };
+      (typeof role === 'string' &&
+        ['super_admin', 'admin', 'manager'].includes(role));
+    return {
+      email,
+      canAdminPortal: Boolean(ap),
+      role,
+      ...(Number.isInteger(userId) && userId > 0 ? { userId } : {}),
+      ...(Number.isInteger(candidateId) && candidateId > 0 ? { candidateId } : {}),
+    };
   } catch {
     return null;
   }

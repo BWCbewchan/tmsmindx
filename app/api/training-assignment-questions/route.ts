@@ -1,4 +1,7 @@
 import pool from '@/lib/db';
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
+import { requireBearerSession } from '@/lib/datasource-api-auth';
+import { sanitizeHtml } from '@/lib/server-sanitize-html';
 import {
   deleteQuestionImagesSilently,
   deleteRemovedQuestionImagesSilently,
@@ -13,6 +16,18 @@ type TrainingQuestionRow = {
   correct_answer?: string | null;
   explanation?: string | null;
   options?: unknown;
+};
+
+const QUESTION_UPDATE_COLUMNS: Record<string, string> = {
+  question_text: 'question_text',
+  question_type: 'question_type',
+  correct_answer: 'correct_answer',
+  options: 'options',
+  image_url: 'image_url',
+  explanation: 'explanation',
+  points: 'points',
+  order_number: 'order_number',
+  difficulty: 'difficulty',
 };
 
 function parseOptionValues(value: unknown): unknown[] {
@@ -37,7 +52,7 @@ const questionImageValues = (row: TrainingQuestionRow | null | undefined): unkno
 
 async function persistHtmlValue(value: unknown): Promise<string | null> {
   const persisted = await persistEmbeddedQuestionImages(value);
-  return persisted == null ? null : String(persisted);
+  return persisted == null ? null : sanitizeHtml(String(persisted));
 }
 
 async function persistOptions(options: unknown): Promise<string[] | null> {
@@ -48,6 +63,9 @@ async function persistOptions(options: unknown): Promise<string[] | null> {
 
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireBearerSession(request);
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(request.url);
     const assignmentId = searchParams.get('assignment_id');
 
@@ -58,9 +76,23 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const canReadAnswers = ['super_admin', 'admin'].includes(auth.resolvedAccess.role);
+    const questionFields = canReadAnswers
+      ? 'taq.*'
+      : `taq.id,
+        taq.assignment_id,
+        taq.question_text,
+        taq.question_type,
+        taq.options,
+        taq.image_url,
+        taq.points,
+        taq.order_number,
+        taq.difficulty,
+        taq.created_at`;
+
     const result = await pool.query(
       `SELECT
-        taq.*,
+        ${questionFields},
         tva.assignment_title,
         tv.title as video_title
       FROM training_assignment_questions taq
@@ -87,6 +119,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const {
       assignment_id,
@@ -158,6 +193,9 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const { id, ...updates } = body;
 
@@ -168,26 +206,15 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const allowedFields = [
-      'question_text',
-      'question_type',
-      'correct_answer',
-      'options',
-      'image_url',
-      'explanation',
-      'points',
-      'order_number',
-      'difficulty',
-    ];
-
     const setClauses: string[] = [];
     const values: unknown[] = [];
     let paramIndex = 1;
 
     for (const key of Object.keys(updates)) {
-      if (!allowedFields.includes(key)) continue;
+      const column = QUESTION_UPDATE_COLUMNS[key];
+      if (!column) continue;
 
-      setClauses.push(`${key} = $${paramIndex}`);
+      setClauses.push(`${column} = $${paramIndex}`);
       if (key === 'options') {
         const sanitizedOptions = await persistOptions(updates[key]);
         values.push(sanitizedOptions ? JSON.stringify(sanitizedOptions) : null);
@@ -246,6 +273,9 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 

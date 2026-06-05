@@ -1,12 +1,20 @@
 import pool from '@/lib/db';
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
 import {
   effectiveCompletionForGroupedLesson,
   type TrainingVideoScoreRow,
 } from '@/lib/training-effective-video-completion';
 import { deleteQuestionImagesSilently } from '@/lib/question-image-storage';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-/** Xóa ảnh S3 an toàn, không throw */
+const ASSIGNMENT_UPDATE_COLUMNS: Record<string, string> = {
+  video_id: 'video_id',
+  assignment_title: 'assignment_title',
+  assignment_type: 'assignment_type',
+  description: 'description',
+};
+
+/** XÃ³a áº£nh S3 an toÃ n, khÃ´ng throw */
 function parseQuestionOptions(value: unknown): unknown {
   if (typeof value !== 'string') return value;
   try {
@@ -16,21 +24,21 @@ function parseQuestionOptions(value: unknown): unknown {
   }
 }
 
-// GET: Lấy danh sách assignments
+// GET: Láº¥y danh sÃ¡ch assignments
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const video_id = searchParams.get('video_id');
-    // Normalize teacher_code: lowercase + trim để tránh case mismatch
+    // Normalize teacher_code: lowercase + trim Ä‘á»ƒ trÃ¡nh case mismatch
     const teacher_code = (searchParams.get('teacher_code') || '').toLowerCase().trim() || null;
-    // status column đã bị xóa (migration V42) — không dùng nữa
+    // status column Ä‘Ã£ bá»‹ xÃ³a (migration V42) â€” khÃ´ng dÃ¹ng ná»¯a
 
     const quizEvidenceByVideoQuery = `
       SELECT DISTINCT tva.video_id
       FROM training_assignment_submissions tas
       INNER JOIN training_video_assignments tva ON tva.id = tas.assignment_id
-      WHERE tas.teacher_code = $1
+      WHERE LOWER(TRIM(tas.teacher_code)) = $1
         AND tva.video_id IS NOT NULL
         AND (
           tas.status = 'graded'
@@ -75,7 +83,7 @@ export async function GET(request: Request) {
       (quizEvidenceResult.rows as { video_id: number }[]).map((r) => r.video_id),
     );
 
-    // Lấy số lượng câu hỏi cho mỗi assignment
+    // Láº¥y sá»‘ lÆ°á»£ng cÃ¢u há»i cho má»—i assignment
     if (result.rows.length > 0) {
       const assignmentIds = result.rows.map(row => row.id);
 
@@ -92,13 +100,13 @@ export async function GET(request: Request) {
         return acc;
       }, {} as Record<number, number>);
 
-      // Fetch teacher submissions nếu có teacher_code
+      // Fetch teacher submissions náº¿u cÃ³ teacher_code
       const submissionsMap: Record<number, any> = {};
       if (teacher_code) {
         const submissionsResult = await pool.query(
           `SELECT DISTINCT ON (assignment_id) *
            FROM training_assignment_submissions
-           WHERE teacher_code = $1 AND assignment_id = ANY($2)
+           WHERE LOWER(TRIM(teacher_code)) = $1 AND assignment_id = ANY($2)
              AND status IN ('submitted', 'graded')
            ORDER BY assignment_id, submitted_at DESC NULLS LAST`,
           [teacher_code, assignmentIds]
@@ -151,7 +159,7 @@ export async function GET(request: Request) {
                       COALESCE(server_time_seconds, 0) AS server_time_seconds,
                       last_heartbeat_at
                FROM training_teacher_video_scores
-               WHERE teacher_code = $1 AND video_id = ANY($2::int[])`,
+               WHERE LOWER(TRIM(teacher_code)) = $1 AND video_id = ANY($2::int[])`,
               [teacher_code, allScoreVideoIds],
             );
             scoresRes.rows.forEach(
@@ -270,9 +278,12 @@ export async function GET(request: Request) {
   }
 }
 
-// POST: Tạo assignment mới
-export async function POST(request: Request) {
+// POST: Táº¡o assignment má»›i
+export async function POST(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const {
       video_id,
@@ -310,9 +321,12 @@ export async function POST(request: Request) {
   }
 }
 
-// PUT: Cập nhật assignment
-export async function PUT(request: Request) {
+// PUT: Cáº­p nháº­t assignment
+export async function PUT(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const { id: initialId, ...updateData } = body;
 
@@ -330,11 +344,13 @@ export async function PUT(request: Request) {
       );
     }
 
-    // Loại bỏ các field đã bị xóa khỏi DB
+    // Loáº¡i bá» cÃ¡c field Ä‘Ã£ bá»‹ xÃ³a khá»i DB
     const REMOVED_FIELDS = ['status', 'total_points', 'passing_score', 'time_limit_minutes', 'max_attempts', 'is_required', 'due_date'];
     REMOVED_FIELDS.forEach(f => delete updateData[f]);
 
-    const fields = Object.keys(updateData).filter(key => updateData[key] !== undefined);
+    const fields = Object.keys(updateData).filter(
+      key => updateData[key] !== undefined && ASSIGNMENT_UPDATE_COLUMNS[key],
+    );
     if (fields.length === 0) {
       return NextResponse.json(
         { success: false, error: 'No fields to update' },
@@ -342,8 +358,8 @@ export async function PUT(request: Request) {
       );
     }
 
-    // Build SET clause với đúng $N placeholder
-    const setClause = fields.map((field, index) => `${field} = $${index + 2}`).join(', ');
+    // Build SET clause vá»›i Ä‘Ãºng $N placeholder
+    const setClause = fields.map((field, index) => `${ASSIGNMENT_UPDATE_COLUMNS[field]} = $${index + 2}`).join(', ');
     const values = [id, ...fields.map(field => updateData[field])];
 
     const result = await pool.query(
@@ -372,9 +388,12 @@ export async function PUT(request: Request) {
   }
 }
 
-// DELETE: Xóa assignment
-export async function DELETE(request: Request) {
+// DELETE: XÃ³a assignment
+export async function DELETE(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 
@@ -385,7 +404,7 @@ export async function DELETE(request: Request) {
       );
     }
 
-    // Kiểm tra video status trước khi xóa
+    // Kiá»ƒm tra video status trÆ°á»›c khi xÃ³a
     const checkResult = await pool.query(
       `SELECT a.id, v.status AS video_status
        FROM training_video_assignments a
@@ -403,12 +422,12 @@ export async function DELETE(request: Request) {
 
     if (checkResult.rows[0].video_status === 'active') {
       return NextResponse.json(
-        { success: false, error: 'Không thể xóa assignment khi video đang Active' },
+        { success: false, error: 'KhÃ´ng thá»ƒ xÃ³a assignment khi video Ä‘ang Active' },
         { status: 403 }
       );
     }
 
-    // Lấy ảnh của tất cả câu hỏi TRƯỚC khi xóa (CASCADE sẽ xóa questions cùng lúc với assignment)
+    // Láº¥y áº£nh cá»§a táº¥t cáº£ cÃ¢u há»i TRÆ¯á»šC khi xÃ³a (CASCADE sáº½ xÃ³a questions cÃ¹ng lÃºc vá»›i assignment)
     const questions = await pool.query(
       `SELECT image_url, question_text, correct_answer, explanation, options
          FROM training_assignment_questions
@@ -421,7 +440,7 @@ export async function DELETE(request: Request) {
       [id]
     );
 
-    // Xóa ảnh S3 sau khi DB delete thành công
+    // XÃ³a áº£nh S3 sau khi DB delete thÃ nh cÃ´ng
     questions.rows.forEach((q) => deleteQuestionImagesSilently([
       q.image_url,
       q.question_text,

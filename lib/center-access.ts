@@ -1,4 +1,5 @@
 import pool from '@/lib/db'
+import { getOrSetRequestCache } from '@/lib/request-cache'
 
 let teachingLeadersHasAreasColumn: boolean | null = null
 
@@ -89,9 +90,20 @@ export async function getAccessibleCenters(
   }>
 > {
   if (!email?.trim()) return []
-
   const normalized = email.trim().toLowerCase()
+  // Cache per-request: getAccessibleCenters có thể được gọi nhiều lần trong 1 request
+  return getOrSetRequestCache(`accessible-centers:${normalized}`, () => _getAccessibleCenters(normalized))
+}
 
+async function _getAccessibleCenters(normalized: string): Promise<
+  Array<{
+    id: number
+    full_name: string
+    short_code: string | null
+    region: string | null
+    email: string | null
+  }>
+> {
   try {
     const userResult = await pool.query(
       `SELECT id, role FROM app_users WHERE email = $1 AND is_active = true`,

@@ -1,8 +1,9 @@
 import pool from '@/lib/db';
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
 import { NextRequest, NextResponse } from 'next/server';
 import { deleteObject, parsePublicUrl } from '@/lib/supabase-s3';
 
-/** Xóa ảnh S3 an toàn, không throw */
+/** XÃ³a áº£nh S3 an toÃ n, khÃ´ng throw */
 async function deleteImageSilently(url: string | null) {
   if (!url) return;
   const parsed = parsePublicUrl(url);
@@ -14,7 +15,7 @@ async function deleteImageSilently(url: string | null) {
   }
 }
 
-/** Extract tất cả src URL từ HTML content */
+/** Extract táº¥t cáº£ src URL tá»« HTML content */
 function extractImageUrls(html: string): string[] {
   if (!html) return [];
   const urls: string[] = [];
@@ -26,7 +27,7 @@ function extractImageUrls(html: string): string[] {
   return urls;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function normalizeText(input: string) {
   return input
@@ -52,8 +53,8 @@ function buildSetPrefix(maKhoi: string, maMon: string) {
     blockPrefix = 'PRO';
   }
 
-  // PROCESS: dùng nội dung trong ngoặc [...] để phân biệt [Art]/[Coding]/[Robotics].
-  // normalizeText() xoá ngoặc trước khi lấy prefix → 3 môn đều ra "KIE" nếu không xử lý riêng.
+  // PROCESS: dÃ¹ng ná»™i dung trong ngoáº·c [...] Ä‘á»ƒ phÃ¢n biá»‡t [Art]/[Coding]/[Robotics].
+  // normalizeText() xoÃ¡ ngoáº·c trÆ°á»›c khi láº¥y prefix â†’ 3 mÃ´n Ä‘á»u ra "KIE" náº¿u khÃ´ng xá»­ lÃ½ riÃªng.
   if (maKhoi.startsWith('PROCESS')) {
     const bracketMatch = maMon.match(/\[([^\]]+)\]/);
     if (bracketMatch) {
@@ -67,7 +68,7 @@ function buildSetPrefix(maKhoi: string, maMon: string) {
   return `${blockPrefix}-${subjectPrefix}`;
 }
 
-// ─── GET ──────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ GET â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function GET(request: NextRequest) {
   try {
@@ -76,7 +77,7 @@ export async function GET(request: NextRequest) {
     const examType = searchParams.get('exam_type');       // loai_ky_thi
     const blockCode = searchParams.get('block_code');     // ma_khoi
     const subjectCode = searchParams.get('subject_code'); // ma_mon
-    const subjectId = searchParams.get('subject_id');     // id_mon (chuyen_sau_monhoc.id) — lọc chính xác nhất
+    const subjectId = searchParams.get('subject_id');     // id_mon (chuyen_sau_monhoc.id) â€” lá»c chÃ­nh xÃ¡c nháº¥t
 
     const conditions: string[] = [];
     const values: unknown[] = [];
@@ -85,7 +86,7 @@ export async function GET(request: NextRequest) {
       conditions.push(`bd.id = $${values.length + 1}`);
       values.push(id);
     }
-    // subject_id ưu tiên hơn block_code/examType/subjectCode: truy vấn thẳng qua id_mon
+    // subject_id Æ°u tiÃªn hÆ¡n block_code/examType/subjectCode: truy váº¥n tháº³ng qua id_mon
     if (subjectId) {
       conditions.push(`bd.id_mon = $${values.length + 1}`);
       values.push(Number(subjectId));
@@ -152,11 +153,14 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// ─── POST ─────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ POST â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function POST(request: NextRequest) {
   const client = await pool.connect();
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const {
       exam_type,
@@ -182,18 +186,18 @@ export async function POST(request: NextRequest) {
     await client.query('BEGIN');
 
     // Resolve subject id.
-    // Ưu tiên subject_id từ client (= chuyen_sau_monhoc.id) → không cần upsert lại monhoc.
+    // Æ¯u tiÃªn subject_id tá»« client (= chuyen_sau_monhoc.id) â†’ khÃ´ng cáº§n upsert láº¡i monhoc.
     const directSubjectId = body?.subject_id ? Number(body.subject_id) : null;
     let subjectId: number;
 
     if (directSubjectId && directSubjectId > 0) {
       subjectId = directSubjectId;
     } else {
-      // Fallback: upsert môn học theo ma_mon (giữ backward-compat với các caller không truyền subject_id)
+      // Fallback: upsert mÃ´n há»c theo ma_mon (giá»¯ backward-compat vá»›i cÃ¡c caller khÃ´ng truyá»n subject_id)
       if (!exam_type || !block_code || !subject_code || !subject_name) {
         await client.query('ROLLBACK');
         return NextResponse.json(
-          { success: false, error: 'Thiếu field bắt buộc: exam_type, block_code, subject_code, subject_name (khi không truyền subject_id)' },
+          { success: false, error: 'Thiáº¿u field báº¯t buá»™c: exam_type, block_code, subject_code, subject_name (khi khÃ´ng truyá»n subject_id)' },
           { status: 400 }
         );
       }
@@ -213,10 +217,10 @@ export async function POST(request: NextRequest) {
       subjectId = subjectUpsert.rows[0].id;
     }
 
-    // Tự sinh mã đề nếu không có
+    // Tá»± sinh mÃ£ Ä‘á» náº¿u khÃ´ng cÃ³
     let finalSetCode = (set_code || '').trim();
     if (!finalSetCode) {
-      // Khi gọi qua subject_id, block_code/subject_code có thể vắng mặt → load từ DB
+      // Khi gá»i qua subject_id, block_code/subject_code cÃ³ thá»ƒ váº¯ng máº·t â†’ load tá»« DB
       let prefixBlockCode = block_code || '';
       let prefixSubjectCode = subject_code || '';
       if ((!prefixBlockCode || !prefixSubjectCode) && directSubjectId && directSubjectId > 0) {
@@ -286,10 +290,13 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// ─── PUT ──────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ PUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function PUT(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const { id, set_name, total_points, passing_score, scoring_mode, random_weight, status } = body;
 
@@ -327,7 +334,7 @@ export async function PUT(request: NextRequest) {
     if (status !== undefined) {
       if (!['active', 'inactive', 'hoat_dong', 'khong_hoat_dong'].includes(status)) {
         return NextResponse.json(
-          { success: false, error: 'status không hợp lệ' },
+          { success: false, error: 'status khÃ´ng há»£p lá»‡' },
           { status: 400 }
         );
       }
@@ -361,11 +368,14 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// ─── DELETE ───────────────────────────────────────────────────────────────────
+// â”€â”€â”€ DELETE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function DELETE(request: NextRequest) {
   const client = await pool.connect();
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     if (!id) {
@@ -374,7 +384,7 @@ export async function DELETE(request: NextRequest) {
 
     await client.query('BEGIN');
 
-    // Lấy nội dung tất cả câu hỏi thuộc bộ đề để cleanup ảnh S3 sau
+    // Láº¥y ná»™i dung táº¥t cáº£ cÃ¢u há»i thuá»™c bá»™ Ä‘á» Ä‘á»ƒ cleanup áº£nh S3 sau
     const questionsResult = await client.query(
       `SELECT cq.noi_dung_cau_hoi
        FROM chuyen_sau_cauhoi cq
@@ -390,24 +400,24 @@ export async function DELETE(request: NextRequest) {
 
     if (deleteResult.rows.length === 0) {
       await client.query('ROLLBACK');
-      return NextResponse.json({ success: false, error: 'Không tìm thấy bộ đề để xóa' }, { status: 404 });
+      return NextResponse.json({ success: false, error: 'KhÃ´ng tÃ¬m tháº¥y bá»™ Ä‘á» Ä‘á»ƒ xÃ³a' }, { status: 404 });
     }
 
     await client.query('COMMIT');
 
-    // Xóa ảnh S3 của tất cả câu hỏi trong bộ đề
+    // XÃ³a áº£nh S3 cá»§a táº¥t cáº£ cÃ¢u há»i trong bá»™ Ä‘á»
     questionsResult.rows.forEach(q => {
       const urls = extractImageUrls(q.noi_dung_cau_hoi || '');
       urls.forEach(url => deleteImageSilently(url));
     });
 
-    return NextResponse.json({ success: true, message: 'Đã xóa bộ đề thành công', data: deleteResult.rows[0] });
+    return NextResponse.json({ success: true, message: 'ÄÃ£ xÃ³a bá»™ Ä‘á» thÃ nh cÃ´ng', data: deleteResult.rows[0] });
   } catch (error: unknown) {
     await client.query('ROLLBACK');
     console.error('Error deleting exam set:', error);
     const e = error as { code?: string; message?: string };
     if (e?.code === '23503') {
-      return NextResponse.json({ success: false, error: 'Bộ đề đang được sử dụng nên không thể xóa.' }, { status: 409 });
+      return NextResponse.json({ success: false, error: 'Bá»™ Ä‘á» Ä‘ang Ä‘Æ°á»£c sá»­ dá»¥ng nÃªn khÃ´ng thá»ƒ xÃ³a.' }, { status: 409 });
     }
     return NextResponse.json({ success: false, error: e.message || 'Failed to delete exam set' }, { status: 500 });
   } finally {

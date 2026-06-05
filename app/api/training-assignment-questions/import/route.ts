@@ -1,26 +1,30 @@
 import pool from '@/lib/db';
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const assignmentId = formData.get('assignment_id') as string;
 
     if (!file) {
-      return NextResponse.json({ success: false, error: 'Không tìm thấy file' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'KhÃ´ng tÃ¬m tháº¥y file' }, { status: 400 });
     }
     if (!assignmentId) {
-      return NextResponse.json({ success: false, error: 'Thiếu assignment_id' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'Thiáº¿u assignment_id' }, { status: 400 });
     }
 
     const text = await file.text();
-    // Bỏ BOM nếu có
+    // Bá» BOM náº¿u cÃ³
     const cleanText = text.replace(/^\uFEFF/, '');
     const lines = cleanText.split('\n').filter(line => line.trim());
 
     if (lines.length < 2) {
-      return NextResponse.json({ success: false, error: 'File CSV rỗng hoặc không hợp lệ' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'File CSV rá»—ng hoáº·c khÃ´ng há»£p lá»‡' }, { status: 400 });
     }
 
     const headers = parseCSVLine(lines[0]);
@@ -29,7 +33,7 @@ export async function POST(request: NextRequest) {
     if (!hasAllHeaders) {
       return NextResponse.json({
         success: false,
-        error: 'Header không đúng định dạng. Vui lòng sử dụng file mẫu.',
+        error: 'Header khÃ´ng Ä‘Ãºng Ä‘á»‹nh dáº¡ng. Vui lÃ²ng sá»­ dá»¥ng file máº«u.',
         expected: expectedHeaders,
         received: headers
       }, { status: 400 });
@@ -53,24 +57,24 @@ export async function POST(request: NextRequest) {
         headers.forEach((header, index) => { row[header] = values[index] || ''; });
 
         if (!row.question_text?.trim()) {
-          errors.push(`Dòng ${i + 1}: Thiếu nội dung câu hỏi`);
+          errors.push(`DÃ²ng ${i + 1}: Thiáº¿u ná»™i dung cÃ¢u há»i`);
           continue;
         }
 
         if (!row.question_type?.trim()) {
-          errors.push(`Dòng ${i + 1}: Thiếu loại câu hỏi`);
+          errors.push(`DÃ²ng ${i + 1}: Thiáº¿u loáº¡i cÃ¢u há»i`);
           continue;
         }
 
         const validTypes = ['multiple_choice', 'multiple_select', 'true_false', 'short_answer', 'essay'];
         if (!validTypes.includes(row.question_type)) {
-          errors.push(`Dòng ${i + 1}: Loại câu hỏi không hợp lệ (${row.question_type})`);
+          errors.push(`DÃ²ng ${i + 1}: Loáº¡i cÃ¢u há»i khÃ´ng há»£p lá»‡ (${row.question_type})`);
           continue;
         }
 
         const validDifficulties = ['easy', 'medium', 'hard'];
         if (row.difficulty && !validDifficulties.includes(row.difficulty)) {
-          errors.push(`Dòng ${i + 1}: Độ khó không hợp lệ (${row.difficulty})`);
+          errors.push(`DÃ²ng ${i + 1}: Äá»™ khÃ³ khÃ´ng há»£p lá»‡ (${row.difficulty})`);
           continue;
         }
 
@@ -80,65 +84,65 @@ export async function POST(request: NextRequest) {
           optionsArray = row.options.split('|').map(o => o.trim()).filter(Boolean);
         }
 
-        // Điểm số — cho phép 0
+        // Äiá»ƒm sá»‘ â€” cho phÃ©p 0
         const points = parseFloat(row.points) || 0;
         if (points < 0) {
-          errors.push(`Dòng ${i + 1}: Điểm số không hợp lệ`);
+          errors.push(`DÃ²ng ${i + 1}: Äiá»ƒm sá»‘ khÃ´ng há»£p lá»‡`);
           continue;
         }
 
         let finalCorrectAnswer = row.correct_answer?.trim() || '';
         let finalQuestionType = row.question_type;
 
-        // ── Xử lý multiple_choice / multiple_select ──────────────────────────
+        // â”€â”€ Xá»­ lÃ½ multiple_choice / multiple_select â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (row.question_type === 'multiple_choice' || row.question_type === 'multiple_select') {
           if (!optionsArray || optionsArray.length < 2) {
-            errors.push(`Dòng ${i + 1}: Câu hỏi ${row.question_type} cần ít nhất 2 đáp án`);
+            errors.push(`DÃ²ng ${i + 1}: CÃ¢u há»i ${row.question_type} cáº§n Ã­t nháº¥t 2 Ä‘Ã¡p Ã¡n`);
             continue;
           }
 
-          // Nếu correct_answer rỗng → câu thông tin (điểm 0), cho phép
+          // Náº¿u correct_answer rá»—ng â†’ cÃ¢u thÃ´ng tin (Ä‘iá»ƒm 0), cho phÃ©p
           if (!finalCorrectAnswer) {
             if (points > 0) {
-              errors.push(`Dòng ${i + 1}: Thiếu đáp án đúng cho câu hỏi có điểm`);
+              errors.push(`DÃ²ng ${i + 1}: Thiáº¿u Ä‘Ã¡p Ã¡n Ä‘Ãºng cho cÃ¢u há»i cÃ³ Ä‘iá»ƒm`);
               continue;
             }
-            // Câu thông tin (điểm 0) — lưu bình thường không cần correct_answer
+            // CÃ¢u thÃ´ng tin (Ä‘iá»ƒm 0) â€” lÆ°u bÃ¬nh thÆ°á»ng khÃ´ng cáº§n correct_answer
           } else {
-            // Thử resolve correct_answer từ options
+            // Thá»­ resolve correct_answer tá»« options
             const resolved = resolveCorrectAnswers(finalCorrectAnswer, optionsArray);
 
             if (resolved.length === 0) {
-              errors.push(`Dòng ${i + 1}: Không tìm thấy đáp án đúng "${finalCorrectAnswer}" trong danh sách đáp án`);
+              errors.push(`DÃ²ng ${i + 1}: KhÃ´ng tÃ¬m tháº¥y Ä‘Ã¡p Ã¡n Ä‘Ãºng "${finalCorrectAnswer}" trong danh sÃ¡ch Ä‘Ã¡p Ã¡n`);
               continue;
             }
 
             if (resolved.length === 1) {
-              // Một đáp án đúng → multiple_choice
+              // Má»™t Ä‘Ã¡p Ã¡n Ä‘Ãºng â†’ multiple_choice
               finalQuestionType = 'multiple_choice';
               finalCorrectAnswer = resolved[0];
             } else {
-              // Nhiều đáp án đúng → multiple_select, lưu JSON array
+              // Nhiá»u Ä‘Ã¡p Ã¡n Ä‘Ãºng â†’ multiple_select, lÆ°u JSON array
               finalQuestionType = 'multiple_select';
               finalCorrectAnswer = JSON.stringify(resolved);
             }
           }
         }
 
-        // ── true_false ────────────────────────────────────────────────────────
+        // â”€â”€ true_false â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (row.question_type === 'true_false') {
           if (!optionsArray || optionsArray.length < 2) {
-            errors.push(`Dòng ${i + 1}: Câu hỏi true_false cần ít nhất 2 đáp án`);
+            errors.push(`DÃ²ng ${i + 1}: CÃ¢u há»i true_false cáº§n Ã­t nháº¥t 2 Ä‘Ã¡p Ã¡n`);
             continue;
           }
           if (!finalCorrectAnswer && points > 0) {
-            errors.push(`Dòng ${i + 1}: Thiếu đáp án đúng`);
+            errors.push(`DÃ²ng ${i + 1}: Thiáº¿u Ä‘Ã¡p Ã¡n Ä‘Ãºng`);
             continue;
           }
           if (finalCorrectAnswer) {
             const matched = optionsArray.find(o => o.toLowerCase() === finalCorrectAnswer.toLowerCase());
             if (!matched) {
-              errors.push(`Dòng ${i + 1}: Đáp án đúng "${finalCorrectAnswer}" không có trong danh sách đáp án`);
+              errors.push(`DÃ²ng ${i + 1}: ÄÃ¡p Ã¡n Ä‘Ãºng "${finalCorrectAnswer}" khÃ´ng cÃ³ trong danh sÃ¡ch Ä‘Ã¡p Ã¡n`);
               continue;
             }
             finalCorrectAnswer = matched;
@@ -170,13 +174,13 @@ export async function POST(request: NextRequest) {
 
       } catch (error: any) {
         console.error(`Error parsing line ${i + 1}:`, error);
-        errors.push(`Dòng ${i + 1}: ${error.message}`);
+        errors.push(`DÃ²ng ${i + 1}: ${error.message}`);
       }
     }
 
     return NextResponse.json({
       success: true,
-      message: `Import thành công ${imported.length} câu hỏi`,
+      message: `Import thÃ nh cÃ´ng ${imported.length} cÃ¢u há»i`,
       imported: imported.length,
       errors: errors.length > 0 ? errors : undefined,
       data: imported
@@ -184,24 +188,24 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Error importing questions:', error);
-    return NextResponse.json({ success: false, error: error.message || 'Lỗi khi import câu hỏi' }, { status: 500 });
+    return NextResponse.json({ success: false, error: error.message || 'Lá»—i khi import cÃ¢u há»i' }, { status: 500 });
   }
 }
 
 /**
- * Resolve correct_answer string thành mảng các đáp án khớp với options.
+ * Resolve correct_answer string thÃ nh máº£ng cÃ¡c Ä‘Ã¡p Ã¡n khá»›p vá»›i options.
  *
- * Hỗ trợ các format:
- * 1. Khớp trực tiếp với 1 option → ["option"]
- * 2. Pipe-separated: "A|B|C" → tìm từng phần trong options
- * 3. Dạng "A, B. ..., D. ..." (từ file thực tế) → tách và tìm trong options
- * 4. Dạng "A. text, B. text" → tách và tìm trong options
+ * Há»— trá»£ cÃ¡c format:
+ * 1. Khá»›p trá»±c tiáº¿p vá»›i 1 option â†’ ["option"]
+ * 2. Pipe-separated: "A|B|C" â†’ tÃ¬m tá»«ng pháº§n trong options
+ * 3. Dáº¡ng "A, B. ..., D. ..." (tá»« file thá»±c táº¿) â†’ tÃ¡ch vÃ  tÃ¬m trong options
+ * 4. Dáº¡ng "A. text, B. text" â†’ tÃ¡ch vÃ  tÃ¬m trong options
  */
 function resolveCorrectAnswers(correctAnswer: string, options: string[]): string[] {
   const ca = correctAnswer.trim();
   if (!ca) return [];
 
-  // 1. Khớp trực tiếp (case-insensitive)
+  // 1. Khá»›p trá»±c tiáº¿p (case-insensitive)
   const directMatch = options.find(o => o.toLowerCase() === ca.toLowerCase());
   if (directMatch) return [directMatch];
 
@@ -212,20 +216,20 @@ function resolveCorrectAnswers(correctAnswer: string, options: string[]): string
     if (resolved.length > 0) return resolved;
   }
 
-  // 3. Tách theo dấu phẩy + loại bỏ prefix "A.", "B.", "C.", "D." nếu có
-  // Ví dụ: "Đáp án A, B. Đáp án B, D. Đáp án D"
+  // 3. TÃ¡ch theo dáº¥u pháº©y + loáº¡i bá» prefix "A.", "B.", "C.", "D." náº¿u cÃ³
+  // VÃ­ dá»¥: "ÄÃ¡p Ã¡n A, B. ÄÃ¡p Ã¡n B, D. ÄÃ¡p Ã¡n D"
   const commaParts = splitByCommaRespectingOptions(ca, options);
   if (commaParts.length > 1) {
     const resolved = commaParts
       .map(p => {
-        const cleaned = p.replace(/^[A-Za-z]\.\s*/, '').trim(); // bỏ "A. ", "B. "...
+        const cleaned = p.replace(/^[A-Za-z]\.\s*/, '').trim(); // bá» "A. ", "B. "...
         return options.find(o => o.toLowerCase() === cleaned.toLowerCase() || o.toLowerCase() === p.toLowerCase());
       })
       .filter(Boolean) as string[];
     if (resolved.length > 0) return resolved;
   }
 
-  // 4. Tìm kiếm substring — nếu correct_answer chứa text của option
+  // 4. TÃ¬m kiáº¿m substring â€” náº¿u correct_answer chá»©a text cá»§a option
   const substringMatches = options.filter(o =>
     ca.toLowerCase().includes(o.toLowerCase()) && o.length > 3
   );
@@ -235,17 +239,17 @@ function resolveCorrectAnswers(correctAnswer: string, options: string[]): string
 }
 
 /**
- * Tách chuỗi theo dấu phẩy nhưng không tách nếu phần sau dấu phẩy
- * là tiếp nối của một option đang được match.
+ * TÃ¡ch chuá»—i theo dáº¥u pháº©y nhÆ°ng khÃ´ng tÃ¡ch náº¿u pháº§n sau dáº¥u pháº©y
+ * lÃ  tiáº¿p ná»‘i cá»§a má»™t option Ä‘ang Ä‘Æ°á»£c match.
  */
 function splitByCommaRespectingOptions(text: string, options: string[]): string[] {
-  // Tách đơn giản theo ", " hoặc ","
+  // TÃ¡ch Ä‘Æ¡n giáº£n theo ", " hoáº·c ","
   const rawParts = text.split(/,\s*/).map(p => p.trim()).filter(Boolean);
 
-  // Nếu chỉ có 1 phần → không phải multi
+  // Náº¿u chá»‰ cÃ³ 1 pháº§n â†’ khÃ´ng pháº£i multi
   if (rawParts.length <= 1) return rawParts;
 
-  // Gộp lại các phần bị tách nhầm (khi option chứa dấu phẩy)
+  // Gá»™p láº¡i cÃ¡c pháº§n bá»‹ tÃ¡ch nháº§m (khi option chá»©a dáº¥u pháº©y)
   const result: string[] = [];
   let current = '';
 
@@ -262,7 +266,7 @@ function splitByCommaRespectingOptions(text: string, options: string[]): string[
     }
   }
 
-  // Nếu còn phần dư chưa match → thêm vào
+  // Náº¿u cÃ²n pháº§n dÆ° chÆ°a match â†’ thÃªm vÃ o
   if (current) result.push(current);
 
   return result.length > 1 ? result : rawParts;

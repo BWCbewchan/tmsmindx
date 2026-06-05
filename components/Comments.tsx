@@ -554,7 +554,6 @@ interface CommentsProps {
 export default function Comments({
   postSlug,
   currentUserId,
-  currentUserName,
   currentUserEmail,
   isAdmin,
 }: CommentsProps) {
@@ -661,9 +660,6 @@ export default function Comments({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: currentUserId,
-          userName: currentUserName || 'Anonymous',
-          userEmail: currentUserEmail,
           content: newComment,
           images: commentImages,
           parentId: null,
@@ -746,9 +742,6 @@ export default function Comments({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: currentUserId,
-          userName: currentUserName || 'Anonymous',
-          userEmail: currentUserEmail,
           content,
           parentId,
         }),
@@ -770,7 +763,6 @@ export default function Comments({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: currentUserId,
           reactionType,
         }),
       })
@@ -791,7 +783,6 @@ export default function Comments({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: currentUserId,
           content,
         }),
       })
@@ -808,11 +799,7 @@ export default function Comments({
     if (!currentUserId) return
 
     try {
-      const url = isAdmin
-        ? `/api/truyenthong/comments/${commentId}?userId=${currentUserId}&userEmail=${encodeURIComponent(currentUserEmail || '')}`
-        : `/api/truyenthong/comments/${commentId}?userId=${currentUserId}`
-
-      const res = await fetch(url, {
+      const res = await fetch(`/api/truyenthong/comments/${commentId}`, {
         method: 'DELETE',
       })
 
@@ -834,7 +821,6 @@ export default function Comments({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userEmail: currentUserEmail,
           hidden,
         }),
       })

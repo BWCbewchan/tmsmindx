@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server';
+import { requireBearerAdminOrSuper } from '@/lib/auth-server';
+import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { generateSlug } from '@/lib/utils';
 
@@ -7,8 +8,11 @@ import { generateSlug } from '@/lib/utils';
  * Call this endpoint once after adding the slug column
  * GET /api/truyenthong/migrate-slugs
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
     try {
+        const gate = await requireBearerAdminOrSuper(request);
+        if (!gate.ok) return gate.response;
+
         const client = await pool.connect();
 
         try {

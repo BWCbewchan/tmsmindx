@@ -1,4 +1,5 @@
 import { requireBearerDbRoles, requireBearerSuperAdmin } from '@/lib/auth-server';
+import { isManagementPermissionRoute } from '@/lib/admin-permission-routes';
 import pool from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -59,7 +60,10 @@ export async function GET(request: NextRequest) {
        ORDER BY group_name ASC, sort_order ASC, label ASC, route_path ASC`,
     );
 
-    return NextResponse.json({ success: true, screens: result.rows.map(toScreen) });
+    return NextResponse.json({
+      success: true,
+      screens: result.rows.filter((row: ScreenRow) => isManagementPermissionRoute(row.route_path)).map(toScreen),
+    });
   } catch (error: unknown) {
     console.error('Error listing screens:', error);
     return NextResponse.json({ error: 'Lỗi server' }, { status: 500 });
@@ -80,6 +84,13 @@ export async function POST(request: NextRequest) {
     if (!routePath || !label || !groupName) {
       return NextResponse.json(
         { error: 'routePath, label và groupName là bắt buộc' },
+        { status: 400 },
+      );
+    }
+
+    if (!isManagementPermissionRoute(routePath)) {
+      return NextResponse.json(
+        { error: 'Màn hình này không thuộc danh sách chức năng quản lý' },
         { status: 400 },
       );
     }
@@ -146,6 +157,14 @@ export async function PATCH(request: NextRequest) {
         await client.query('ROLLBACK');
         return NextResponse.json(
           { error: 'routePath, label và groupName không được để trống' },
+          { status: 400 },
+        );
+      }
+
+      if (!isManagementPermissionRoute(nextRoutePath)) {
+        await client.query('ROLLBACK');
+        return NextResponse.json(
+          { error: 'Màn hình này không thuộc danh sách chức năng quản lý' },
           { status: 400 },
         );
       }

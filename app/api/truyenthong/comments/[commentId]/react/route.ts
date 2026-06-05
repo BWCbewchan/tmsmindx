@@ -1,22 +1,28 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { requireCommunicationActor } from '@/lib/communication-actor';
+
+const ALLOWED_REACTIONS = new Set(['like', 'love', 'haha', 'sad', 'angry']);
 
 /**
  * Toggle reaction on a comment
  * POST /api/truyenthong/comments/[commentId]/react
  */
 export async function POST(
-    request: Request,
+    request: NextRequest,
     { params }: { params: Promise<{ commentId: string }> }
 ) {
     try {
         const { commentId } = await params;
-        const body = await request.json();
-        const { userId, reactionType } = body;
+        const actor = await requireCommunicationActor(request);
+        if (!actor.ok) return actor.response;
 
-        if (!userId || !reactionType) {
+        const body = await request.json();
+        const { reactionType } = body;
+
+        if (!reactionType || !ALLOWED_REACTIONS.has(reactionType)) {
             return NextResponse.json({ 
-                error: 'Missing userId or reactionType' 
+                error: 'Invalid reactionType' 
             }, { status: 400 });
         }
 
@@ -28,7 +34,7 @@ export async function POST(
             // Check if user already reacted
             const existingReaction = await client.query(
                 'SELECT * FROM truyenthong_comment_reactions WHERE comment_id = $1 AND user_id = $2',
-                [commentId, userId]
+                [commentId, actor.userId]
             );
 
             if (existingReaction.rows.length > 0) {
@@ -38,20 +44,20 @@ export async function POST(
                     // Remove reaction if same type
                     await client.query(
                         'DELETE FROM truyenthong_comment_reactions WHERE comment_id = $1 AND user_id = $2',
-                        [commentId, userId]
+                        [commentId, actor.userId]
                     );
                 } else {
                     // Update to new reaction type
                     await client.query(
                         'UPDATE truyenthong_comment_reactions SET reaction_type = $1 WHERE comment_id = $2 AND user_id = $3',
-                        [reactionType, commentId, userId]
+                        [reactionType, commentId, actor.userId]
                     );
                 }
             } else {
                 // Add new reaction
                 await client.query(
                     'INSERT INTO truyenthong_comment_reactions (comment_id, user_id, reaction_type) VALUES ($1, $2, $3)',
-                    [commentId, userId, reactionType]
+                    [commentId, actor.userId, reactionType]
                 );
             }
 

@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server'
+import { requireBearerAdminOrSuper } from '@/lib/auth-server'
+import { NextRequest, NextResponse } from 'next/server'
 import pool from '@/lib/db'
 
 const BIRTHDAY_GAS_URL = 'https://script.google.com/macros/s/AKfycbxgtpi2ZxtWxzcXwcfO-l0_Qy43sXgy97yIh7F1YX2TgxvH_5AdbxfjDM24l0CSQGDQhQ/exec'
@@ -9,10 +10,13 @@ const BIRTHDAY_GAS_URL = 'https://script.google.com/macros/s/AKfycbxgtpi2ZxtWxzc
  */
 export const dynamic = 'force-dynamic'
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
     if (process.env.NODE_ENV === 'production') {
         return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 })
     }
+    const gate = await requireBearerAdminOrSuper(request)
+    if (!gate.ok) return gate.response
+
     try {
         const { searchParams } = new URL(request.url)
         const email = (searchParams.get('email') || '').trim()

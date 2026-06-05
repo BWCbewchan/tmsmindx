@@ -1,4 +1,4 @@
-import { requireBearerSuperAdmin } from '@/lib/auth-server';
+import { requireBearerSuperAdminMutation } from '@/lib/auth-server';
 import pool from '@/lib/db';
 import { migrations, runMigrations } from '@/lib/migrations';
 import { NextRequest, NextResponse } from 'next/server';
@@ -12,10 +12,49 @@ async function validateTable(tableName: string): Promise<boolean> {
     return result.rows.length > 0;
 }
 
+function quoteIdentifier(identifier: string): string {
+    return `"${identifier.replace(/"/g, '""')}"`;
+}
+
+async function getValidColumns(tableName: string): Promise<Set<string>> {
+    const result = await pool.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND table_schema = 'public'`,
+        [tableName],
+    );
+    return new Set(result.rows.map((row: any) => String(row.column_name)));
+}
+
+function validateColumnKeys(
+    keys: string[],
+    validColumns: Set<string>,
+): { ok: true } | { ok: false; response: NextResponse } {
+    if (keys.length === 0) {
+        return { ok: false, response: NextResponse.json({ error: 'No columns provided' }, { status: 400 }) };
+    }
+    const invalid = keys.filter((key) => !validColumns.has(key));
+    if (invalid.length > 0) {
+        return {
+            ok: false,
+            response: NextResponse.json(
+                { error: 'Invalid column name', columns: invalid },
+                { status: 400 },
+            ),
+        };
+    }
+    return { ok: true };
+}
+
+function isReadOnlySql(sql: string): boolean {
+    const normalized = sql.trim().replace(/;\s*$/, '');
+    if (!/^(SELECT|WITH|EXPLAIN)\b/i.test(normalized)) return false;
+    if (/;\s*\S/.test(normalized)) return false;
+    return !/\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|MERGE|CALL|GRANT|REVOKE|COPY|VACUUM|ANALYZE|REFRESH|COMMENT|DO)\b/i.test(normalized);
+}
+
 // GET: Lấy thông tin database — chỉ super_admin + Bearer hợp lệ
 export async function GET(request: NextRequest) {
     try {
-        const gate = await requireBearerSuperAdmin(request);
+        const gate = await requireBearerSuperAdminMutation(request);
         if (!gate.ok) return gate.response;
 
         const { searchParams } = new URL(request.url);
@@ -39,7 +78,7 @@ export async function GET(request: NextRequest) {
                 const tables = [];
                 for (const t of tablesResult.rows) {
                     try {
-                        const countRes = await pool.query(`SELECT count(*) as cnt FROM "${t.name}"`);
+                        const countRes = await pool.query(`SELECT count(*) as cnt FROM ${quoteIdentifier(String(t.name))}`);
                         tables.push({ ...t, row_count: parseInt(countRes.rows[0].cnt) });
                     } catch {
                         tables.push({ ...t, row_count: 0 });
@@ -74,6 +113,9 @@ export async function GET(request: NextRequest) {
             case 'columns': {
                 const tableName = searchParams.get('table');
                 if (!tableName) return NextResponse.json({ error: 'Missing table parameter' }, { status: 400 });
+                if (!(await validateTable(tableName))) {
+                    return NextResponse.json({ error: 'Table not found' }, { status: 404 });
+                }
 
                 const columns = await pool.query(`
                     SELECT column_name, data_type, is_nullable, 
@@ -111,7 +153,7 @@ export async function GET(request: NextRequest) {
                     WHERE tc.table_name = $1 AND tc.constraint_type = 'FOREIGN KEY';
                 `, [tableName]);
 
-                const count = await pool.query(`SELECT count(*) as total FROM "${tableName}"`);
+                const count = await pool.query(`SELECT count(*) as total FROM ${quoteIdentifier(tableName)}`);
 
                 return NextResponse.json({
                     table: tableName,
@@ -142,11 +184,11 @@ export async function GET(request: NextRequest) {
                     `SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND table_schema = 'public'`,
                     [tableName]
                 );
-                const validCols = colsRes.rows.map((r: any) => r.column_name);
+                const validCols = colsRes.rows.map((r: any) => String(r.column_name));
 
                 let orderClause = '';
                 if (sort && validCols.includes(sort)) {
-                    orderClause = `ORDER BY "${sort}" ${order}`;
+                    orderClause = `ORDER BY ${quoteIdentifier(sort)} ${order}`;
                 }
 
                 // Search across text columns
@@ -160,32 +202,29 @@ export async function GET(request: NextRequest) {
                         [tableName]
                     );
                     if (textCols.rows.length > 0) {
-                        const conditions = textCols.rows.map((c: any) => `"${c.column_name}"::text ILIKE $3`).join(' OR ');
+                        const conditions = textCols.rows
+                            .map((c: any) => `${quoteIdentifier(String(c.column_name))}::text ILIKE $3`)
+                            .join(' OR ');
                         whereClause = `WHERE ${conditions}`;
                         queryParams.push(`%${search}%`);
                     }
                 }
 
                 const data = await pool.query(
-                    `SELECT * FROM "${tableName}" ${whereClause} ${orderClause} LIMIT $1 OFFSET $2`,
+                    `SELECT * FROM ${quoteIdentifier(tableName)} ${whereClause} ${orderClause} LIMIT $1 OFFSET $2`,
                     queryParams
                 );
 
-                const totalRes = await pool.query(
-                    `SELECT count(*) as total FROM "${tableName}" ${whereClause}`,
-                    search && whereClause ? [`%${search}%`] : []
-                );
-                // Fix param for count query
                 let totalCount = 0;
                 try {
                     if (search && whereClause) {
                         const countRes = await pool.query(
-                            `SELECT count(*) as total FROM "${tableName}" ${whereClause.replace('$3', '$1')}`,
+                            `SELECT count(*) as total FROM ${quoteIdentifier(tableName)} ${whereClause.replace('$3', '$1')}`,
                             [`%${search}%`]
                         );
                         totalCount = parseInt(countRes.rows[0].total);
                     } else {
-                        const countRes = await pool.query(`SELECT count(*) as total FROM "${tableName}"`);
+                        const countRes = await pool.query(`SELECT count(*) as total FROM ${quoteIdentifier(tableName)}`);
                         totalCount = parseInt(countRes.rows[0].total);
                     }
                 } catch { totalCount = data.rows.length; }
@@ -211,7 +250,7 @@ export async function GET(request: NextRequest) {
                     return NextResponse.json({ error: 'Table not found' }, { status: 404 });
                 }
 
-                const data = await pool.query(`SELECT * FROM "${tableName}"`);
+                const data = await pool.query(`SELECT * FROM ${quoteIdentifier(tableName)}`);
 
                 if (format === 'csv') {
                     if (data.rows.length === 0) {
@@ -256,7 +295,7 @@ export async function GET(request: NextRequest) {
 // POST: SQL query, migrations, CRUD — chỉ super_admin + Bearer (không dùng secret tĩnh trên client)
 export async function POST(request: NextRequest) {
     try {
-        const gate = await requireBearerSuperAdmin(request);
+        const gate = await requireBearerSuperAdminMutation(request);
         if (!gate.ok) return gate.response;
 
         const body = await request.json();
@@ -271,12 +310,8 @@ export async function POST(request: NextRequest) {
                 }
 
                 // Safety: block dangerous keywords for non-SELECT
-                const trimmed = sql.trim().toUpperCase();
-                const isSelect = trimmed.startsWith('SELECT') || trimmed.startsWith('WITH') || trimmed.startsWith('EXPLAIN');
-                const isDangerous = /\b(DROP\s+DATABASE|TRUNCATE|ALTER\s+SYSTEM)\b/i.test(sql);
-
-                if (isDangerous) {
-                    return NextResponse.json({ error: 'Dangerous query blocked: DROP DATABASE, TRUNCATE, ALTER SYSTEM are not allowed' }, { status: 403 });
+                if (!isReadOnlySql(sql)) {
+                    return NextResponse.json({ error: 'Only read-only SELECT/WITH/EXPLAIN queries are allowed' }, { status: 403 });
                 }
 
                 const startTime = Date.now();
@@ -290,7 +325,7 @@ export async function POST(request: NextRequest) {
                     fields: result.fields?.map(f => ({ name: f.name, dataTypeID: f.dataTypeID })),
                     command: result.command,
                     duration,
-                    isSelect,
+                    isSelect: true,
                 });
             }
 
@@ -309,14 +344,18 @@ export async function POST(request: NextRequest) {
                 if (!(await validateTable(table))) {
                     return NextResponse.json({ error: 'Table not found' }, { status: 404 });
                 }
+                const validColumns = await getValidColumns(table);
+                const whereKeys = Object.keys(where);
+                const validWhere = validateColumnKeys(whereKeys, validColumns);
+                if (!validWhere.ok) return validWhere.response;
 
-                const conditions = Object.entries(where)
-                    .map(([key, _], i) => `"${key}" = $${i + 1}`)
+                const conditions = whereKeys
+                    .map((key, i) => `${quoteIdentifier(key)} = $${i + 1}`)
                     .join(' AND ');
                 const values = Object.values(where);
 
                 const result = await pool.query(
-                    `DELETE FROM "${table}" WHERE ${conditions}`,
+                    `DELETE FROM ${quoteIdentifier(table)} WHERE ${conditions}`,
                     values
                 );
 
@@ -332,13 +371,16 @@ export async function POST(request: NextRequest) {
                 if (!(await validateTable(table))) {
                     return NextResponse.json({ error: 'Table not found' }, { status: 404 });
                 }
+                const validColumns = await getValidColumns(table);
 
                 const columns = Object.keys(data);
+                const validData = validateColumnKeys(columns, validColumns);
+                if (!validData.ok) return validData.response;
                 const values = Object.values(data);
                 const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
 
                 const result = await pool.query(
-                    `INSERT INTO "${table}" (${columns.map(c => `"${c}"`).join(', ')}) VALUES (${placeholders}) RETURNING *`,
+                    `INSERT INTO ${quoteIdentifier(table)} (${columns.map(quoteIdentifier).join(', ')}) VALUES (${placeholders}) RETURNING *`,
                     values
                 );
 
@@ -354,19 +396,26 @@ export async function POST(request: NextRequest) {
                 if (!(await validateTable(table))) {
                     return NextResponse.json({ error: 'Table not found' }, { status: 404 });
                 }
+                const validColumns = await getValidColumns(table);
+                const updateKeys = Object.keys(updateData);
+                const whereKeys = Object.keys(updateWhere);
+                const validUpdate = validateColumnKeys(updateKeys, validColumns);
+                if (!validUpdate.ok) return validUpdate.response;
+                const validWhere = validateColumnKeys(whereKeys, validColumns);
+                if (!validWhere.ok) return validWhere.response;
 
-                const setClauses = Object.keys(updateData)
-                    .map((key, i) => `"${key}" = $${i + 1}`)
+                const setClauses = updateKeys
+                    .map((key, i) => `${quoteIdentifier(key)} = $${i + 1}`)
                     .join(', ');
-                const whereIdx = Object.keys(updateData).length;
-                const whereClauses = Object.keys(updateWhere)
-                    .map((key, i) => `"${key}" = $${whereIdx + i + 1}`)
+                const whereIdx = updateKeys.length;
+                const whereClauses = whereKeys
+                    .map((key, i) => `${quoteIdentifier(key)} = $${whereIdx + i + 1}`)
                     .join(' AND ');
 
                 const allValues = [...Object.values(updateData), ...Object.values(updateWhere)];
 
                 const result = await pool.query(
-                    `UPDATE "${table}" SET ${setClauses} WHERE ${whereClauses} RETURNING *`,
+                    `UPDATE ${quoteIdentifier(table)} SET ${setClauses} WHERE ${whereClauses} RETURNING *`,
                     allValues
                 );
 

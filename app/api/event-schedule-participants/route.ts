@@ -1,4 +1,8 @@
 import { withApiProtection } from '@/lib/api-protection';
+import {
+  rejectIfDatasourceLookupForbidden,
+  requireBearerSession,
+} from '@/lib/datasource-api-auth';
 import pool from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -118,6 +122,9 @@ export const GET = withApiProtection(async (request: NextRequest) => {
 
 export const POST = withApiProtection(async (request: NextRequest) => {
   try {
+    const auth = await requireBearerSession(request);
+    if (!auth.ok) return auth.response;
+
     const body = await request.json();
     const {
       event_id,
@@ -141,6 +148,15 @@ export const POST = withApiProtection(async (request: NextRequest) => {
         { status: 400 }
       );
     }
+
+    const isAdmin = Boolean(auth.resolvedAccess.isAdmin);
+    const denied = await rejectIfDatasourceLookupForbidden(
+      auth.sessionEmail,
+      isAdmin,
+      '',
+      String(teacher_code),
+    );
+    if (denied) return denied;
 
     const result = await pool.query(
       `
@@ -167,7 +183,7 @@ export const POST = withApiProtection(async (request: NextRequest) => {
         String(event_id),
         normalizeTeacherCode(String(teacher_code)),
         teacher_name ? String(teacher_name) : null,
-        teacher_email ? String(teacher_email) : null,
+        isAdmin && teacher_email ? String(teacher_email) : auth.sessionEmail,
         String(response_status),
         note ? String(note) : null,
       ]

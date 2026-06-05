@@ -15,8 +15,6 @@ export async function GET(request: NextRequest) {
   if (rl) return rl
 
   try {
-    console.log('[check-admin] request start', request.nextUrl.pathname)
-
     const auth = await requireBearerSession(request)
     if (!auth.ok) return auth.response
 
@@ -34,64 +32,44 @@ export async function GET(request: NextRequest) {
       lookupEmail = target
     }
 
-    const access = await resolveAppUserAccessForEmail(lookupEmail)
+    // Tái sử dụng resolvedAccess từ requireBearerSession nếu là cùng email
+    // → tránh gọi resolveAppUserAccessForEmail lần 2 cho cùng user trong 1 request
+    const access =
+      lookupEmail === auth.sessionEmail
+        ? auth.resolvedAccess
+        : await resolveAppUserAccessForEmail(lookupEmail)
 
-    if (!access.found) {
-      console.log(
-        '[check-admin] resolved access',
-        JSON.stringify(
-          {
-            email: lookupEmail,
-            found: false,
-            role: 'teacher',
-            isAdmin: false,
-            assignedCenters: [],
-          },
-          null,
-          2,
-        ),
-      )
-
-      return NextResponse.json({
-        success: true,
-        email: lookupEmail,
-        isAdmin: false,
-        isAppUser: false,
-        role: 'teacher',
-        permissions: [],
-        userRoles: [],
-        assignedCenters: [],
-        message: 'Email not found',
-      })
-    }
-
-    console.log(
-      '[check-admin] resolved access',
-      JSON.stringify(
-        {
+    const responseBody = access.found
+      ? {
+          success: true,
           email: lookupEmail,
-          found: true,
-          role: access.role,
           isAdmin: access.isAdmin,
           isAppUser: access.isAppUser,
-          centerCount: access.assignedCenters.length,
+          role: access.role,
+          permissions: access.permissions,
+          userRoles: access.userRoles,
           assignedCenters: access.assignedCenters,
-        },
-        null,
-        2,
-      ),
-    )
+          message: 'Checked from app database',
+        }
+      : {
+          success: true,
+          email: lookupEmail,
+          isAdmin: false,
+          isAppUser: false,
+          role: 'teacher',
+          permissions: [],
+          userRoles: [],
+          assignedCenters: [],
+          message: 'Email not found',
+        }
 
-    return NextResponse.json({
-      success: true,
-      email: lookupEmail,
-      isAdmin: access.isAdmin,
-      isAppUser: access.isAppUser,
-      role: access.role,
-      permissions: access.permissions,
-      userRoles: access.userRoles,
-      assignedCenters: access.assignedCenters,
-      message: 'Checked from app database',
+    // Cache 30s ở browser cho user thường (permissions ít thay đổi)
+    // Admin không cache để luôn lấy quyền mới nhất
+    const cacheSeconds = access.isAdmin ? 0 : 30
+    return NextResponse.json(responseBody, {
+      headers: cacheSeconds > 0
+        ? { 'Cache-Control': `private, max-age=${cacheSeconds}` }
+        : { 'Cache-Control': 'no-store' },
     })
   } catch (error) {
     console.error('Admin check error:', error)

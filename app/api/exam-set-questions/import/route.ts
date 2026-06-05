@@ -1,22 +1,26 @@
 import pool from '@/lib/db';
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const setId = formData.get('set_id') as string;
 
     if (!file) {
       return NextResponse.json(
-        { success: false, error: 'Không tìm thấy file' },
+        { success: false, error: 'KhÃ´ng tÃ¬m tháº¥y file' },
         { status: 400 }
       );
     }
 
     if (!setId) {
       return NextResponse.json(
-        { success: false, error: 'Thiếu set_id' },
+        { success: false, error: 'Thiáº¿u set_id' },
         { status: 400 }
       );
     }
@@ -29,7 +33,7 @@ export async function POST(request: NextRequest) {
 
     if (lines.length < 2) {
       return NextResponse.json(
-        { success: false, error: 'File CSV rỗng hoặc không hợp lệ' },
+        { success: false, error: 'File CSV rá»—ng hoáº·c khÃ´ng há»£p lá»‡' },
         { status: 400 }
       );
     }
@@ -59,7 +63,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Header không đúng định dạng. Vui lòng sử dụng file mẫu.',
+          error: 'Header khÃ´ng Ä‘Ãºng Ä‘á»‹nh dáº¡ng. Vui lÃ²ng sá»­ dá»¥ng file máº«u.',
           expected: expectedHeaders,
           received: headers,
         },
@@ -91,7 +95,7 @@ export async function POST(request: NextRequest) {
         const normalizedQuestionText = row.question_text?.trim() || '[Tam] Chua dan noi dung tu doc';
 
         if (!row.question_type?.trim()) {
-          const msg = `Dòng ${i + 1}: Thiếu loại câu hỏi`;
+          const msg = `DÃ²ng ${i + 1}: Thiáº¿u loáº¡i cÃ¢u há»i`;
           console.warn(`[Import] ${msg}`);
           errors.push(msg);
           continue;
@@ -99,7 +103,7 @@ export async function POST(request: NextRequest) {
 
         const validTypes = ['multiple_choice', 'true_false', 'short_answer', 'essay'];
         if (!validTypes.includes(row.question_type)) {
-          const msg = `Dòng ${i + 1}: Loại câu hỏi không hợp lệ (${row.question_type})`;
+          const msg = `DÃ²ng ${i + 1}: Loáº¡i cÃ¢u há»i khÃ´ng há»£p lá»‡ (${row.question_type})`;
           console.warn(`[Import] ${msg}`);
           errors.push(msg);
           continue;
@@ -115,17 +119,17 @@ export async function POST(request: NextRequest) {
 
         if (row.question_type === 'multiple_choice' || row.question_type === 'true_false') {
           if (!optionsArray || optionsArray.length < 2) {
-            errors.push(`Dòng ${i + 1}: Câu hỏi ${row.question_type} cần ít nhất 2 đáp án`);
+            errors.push(`DÃ²ng ${i + 1}: CÃ¢u há»i ${row.question_type} cáº§n Ã­t nháº¥t 2 Ä‘Ã¡p Ã¡n`);
             continue;
           }
           if (!row.correct_answer?.trim()) {
-            const msg = `Dòng ${i + 1}: Thiếu đáp án đúng (cột correct_answer trống)`;
+            const msg = `DÃ²ng ${i + 1}: Thiáº¿u Ä‘Ã¡p Ã¡n Ä‘Ãºng (cá»™t correct_answer trá»‘ng)`;
             console.warn(`[Import] ${msg}`);
             errors.push(msg);
             continue;
           }
           if (!optionsArray.includes(row.correct_answer.trim())) {
-            const msg = `Dòng ${i + 1}: Đáp án đúng "${row.correct_answer.trim()}" không có trong danh sách đáp án [${optionsArray.join(', ')}]`;
+            const msg = `DÃ²ng ${i + 1}: ÄÃ¡p Ã¡n Ä‘Ãºng "${row.correct_answer.trim()}" khÃ´ng cÃ³ trong danh sÃ¡ch Ä‘Ã¡p Ã¡n [${optionsArray.join(', ')}]`;
             console.warn(`[Import] ${msg}`);
             errors.push(msg);
             continue;
@@ -134,7 +138,7 @@ export async function POST(request: NextRequest) {
 
         const points = parseFloat(row.points || '1');
         if (Number.isNaN(points) || points < 0) {
-          errors.push(`Dòng ${i + 1}: Điểm số không hợp lệ`);
+          errors.push(`DÃ²ng ${i + 1}: Äiá»ƒm sá»‘ khÃ´ng há»£p lá»‡`);
           continue;
         }
 
@@ -172,13 +176,13 @@ export async function POST(request: NextRequest) {
         });
       } catch (error: any) {
         console.error(`Error parsing line ${i + 1}:`, error);
-        errors.push(`Dòng ${i + 1}: ${error.message}`);
+        errors.push(`DÃ²ng ${i + 1}: ${error.message}`);
       }
     }
 
     return NextResponse.json({
       success: true,
-      message: `Import thành công ${imported.length} câu hỏi`,
+      message: `Import thÃ nh cÃ´ng ${imported.length} cÃ¢u há»i`,
       imported: imported.length,
       errors: errors.length > 0 ? errors : undefined,
       data: imported,
@@ -186,7 +190,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error importing exam set questions:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Lỗi khi import câu hỏi' },
+      { success: false, error: error.message || 'Lá»—i khi import cÃ¢u há»i' },
       { status: 500 }
     );
   }

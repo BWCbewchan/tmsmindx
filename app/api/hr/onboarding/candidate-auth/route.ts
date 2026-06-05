@@ -1,10 +1,12 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { getJwtSecret } from '@/lib/jwt-secret';
 import { setSessionCookieOnResponse } from '@/lib/session-cookie';
+import { clientIpFromRequest, rateLimitOr429Async } from '@/lib/rate-limit-memory';
 
+<<<<<<< HEAD
 const CANDIDATE_DEFAULT_PERMISSIONS = [
   '/candidate-portal',
   '/admin/hr-onboarding/videos',
@@ -13,7 +15,13 @@ const CANDIDATE_DEFAULT_PERMISSIONS = [
 ];
 
 export async function POST(request: Request) {
+=======
+export async function POST(request: NextRequest) {
+>>>>>>> 0b120d1173727e78d60d68ef2a7022543485ca0b
   try {
+    const limited = await rateLimitOr429Async(`candidate-login:${clientIpFromRequest(request)}`, 10, 60_000);
+    if (limited) return limited;
+
     const { username, password } = await request.json();
 
     if (!username || !password) {

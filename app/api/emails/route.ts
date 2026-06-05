@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { renderTemplate } from './render';
 import { sendMail } from './transporter';
+import type { NextRequest } from 'next/server';
 
 type LeaveApprovedPayload = {
   teacher_name: string;
@@ -78,8 +79,29 @@ function ccExcludingTo(
   );
 }
 
-export async function POST(request: Request) {
+function requireInternalEmailSecret(request: NextRequest): NextResponse | null {
+  const configuredSecret = process.env.INTERNAL_API_SECRET || process.env.EMAIL_INTERNAL_API_SECRET || '';
+  if (!configuredSecret) {
+    return NextResponse.json(
+      { success: false, error: 'INTERNAL_API_SECRET is not configured' },
+      { status: 500 },
+    );
+  }
+  const providedSecret = request.headers.get('x-internal-api-secret') || '';
+  if (providedSecret !== configuredSecret) {
+    return NextResponse.json(
+      { success: false, error: 'Unauthorized email request' },
+      { status: 401 },
+    );
+  }
+  return null;
+}
+
+export async function POST(request: NextRequest) {
   try {
+    const denied = requireInternalEmailSecret(request);
+    if (denied) return denied;
+
     const body = await request.json();
     const { type, data } = body as {
       type?: string;

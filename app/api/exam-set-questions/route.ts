@@ -1,5 +1,9 @@
 import pool from '@/lib/db';
 import {
+  requireBearerAdminOrSuper,
+  requireBearerAdminOrSuperMutation,
+} from '@/lib/auth-server';
+import {
   deleteQuestionImagesSilently,
   deleteRemovedQuestionImagesSilently,
   persistEmbeddedQuestionImages,
@@ -66,9 +70,12 @@ async function selectStoredQuestion(client: any, id: unknown) {
   );
 }
 
-// ─── GET ─────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ GET â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function GET(request: NextRequest) {
+  const authGate = await requireBearerAdminOrSuper(request);
+  if (!authGate.ok) return authGate.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const setId = searchParams.get('set_id');
@@ -114,10 +121,13 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// ─── POST ────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ POST â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function POST(request: NextRequest) {
-  // Persist ảnh base64/blob TRƯỚC khi pool.connect() để tránh deadlock (pool.max=1)
+  const authGate = await requireBearerAdminOrSuperMutation(request);
+  if (!authGate.ok) return authGate.response;
+
+  // Persist áº£nh base64/blob TRÆ¯á»šC khi pool.connect() Ä‘á»ƒ trÃ¡nh deadlock (pool.max=1)
   const body = await request.json();
   const {
     set_id,
@@ -136,7 +146,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'set_id is required' }, { status: 400 });
   }
 
-  // Tất cả persist/upload ảnh xảy ra TRƯỚC khi lấy DB connection
+  // Táº¥t cáº£ persist/upload áº£nh xáº£y ra TRÆ¯á»šC khi láº¥y DB connection
   const persistedText = await persistHtmlValue(question_text);
   const normalizedText = persistedText?.trim() || '[Chua co noi dung]';
   const persistedCorrectAnswer = await persistHtmlValue(correct_answer);
@@ -148,7 +158,7 @@ export async function POST(request: NextRequest) {
   try {
     await client.query('BEGIN');
 
-    // Dùng client cho tất cả queries — không gọi pool.query() khi client đang giữ connection
+    // DÃ¹ng client cho táº¥t cáº£ queries â€” khÃ´ng gá»i pool.query() khi client Ä‘ang giá»¯ connection
     const questionResult = await client.query(
       `INSERT INTO chuyen_sau_cauhoi (
          loai_cau_hoi, noi_dung_cau_hoi,
@@ -218,9 +228,12 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// ─── PUT ─────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ PUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function PUT(request: NextRequest) {
+  const authGate = await requireBearerAdminOrSuperMutation(request);
+  if (!authGate.ok) return authGate.response;
+
   let client: any = null;
   let previousRow: ExamQuestionStorageRow | null = null;
   let updatedRow: ExamQuestionStorageRow | null = null;
@@ -354,9 +367,12 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// ─── DELETE ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ DELETE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function DELETE(request: NextRequest) {
+  const authGate = await requireBearerAdminOrSuperMutation(request);
+  if (!authGate.ok) return authGate.response;
+
   let client: any = null;
   let existingRow: ExamQuestionStorageRow | null = null;
 

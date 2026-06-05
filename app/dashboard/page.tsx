@@ -8,7 +8,7 @@ import { useEffect } from 'react'
 
 export default function DashboardRedirect() {
   const router = useRouter()
-  const { user, token, isLoading } = useAuth()
+  const { user, isLoading } = useAuth()
 
   useEffect(() => {
     if (isLoading) {
@@ -17,7 +17,7 @@ export default function DashboardRedirect() {
     }
 
     // Chưa đăng nhập → redirect đến login
-    if (!token || !user) {
+    if (!user) {
       logger.info('Dashboard: No auth found, redirecting to login')
       router.replace('/login')
       return
@@ -38,7 +38,7 @@ export default function DashboardRedirect() {
       logger.success('Dashboard: Redirecting to user portal')
       router.replace('/user/thong-tin-giao-vien')
     }
-  }, [user, token, isLoading, router])
+  }, [user, isLoading, router])
 
   return <PageSkeleton variant="default" itemCount={3} showHeader={false} />
 }

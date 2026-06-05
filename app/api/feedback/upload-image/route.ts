@@ -1,5 +1,7 @@
 import { createSupabaseS3Client, getSignedObjectUrl, isSupabaseS3Configured } from '@/lib/supabase-s3';
 import { withApiProtection } from '@/lib/api-protection';
+import { requireBearerSession } from '@/lib/datasource-api-auth';
+import { clientIpFromRequest, rateLimitOr429Async } from '@/lib/rate-limit-memory';
 import { CreateBucketCommand, HeadBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -16,6 +18,12 @@ async function ensureBucket() {
 
 export const POST = withApiProtection(async (request: NextRequest) => {
   try {
+    const auth = await requireBearerSession(request);
+    if (!auth.ok) return auth.response;
+
+    const rl = await rateLimitOr429Async(`feedback-upload:${clientIpFromRequest(request)}`, 30, 60_000);
+    if (rl) return rl;
+
     if (!isSupabaseS3Configured()) {
       return NextResponse.json({ success: false, error: 'Chưa cấu hình Supabase S3 Storage' }, { status: 500 });
     }

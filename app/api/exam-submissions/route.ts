@@ -9,6 +9,17 @@
  *
  * Không còn dùng: chuyen_sau_phancong, chuyen_sau_dangky, chuyen_sau_submissions (legacy)
  */
+/**
+ * exam-submissions/route.ts
+ *
+ * Flow nộp bài MỚI (schema V60):
+ *   1. User nộp answers kèm result_id (đã có trên chuyen_sau_results)
+ *   2. Server tính điểm từ chuyen_sau_cauhoi
+ *   3. Lưu từng câu vào chuyen_sau_baithi_cauhoi
+ *   4. Cập nhật chuyen_sau_results: so_diem, so_cau_dung, tong_cau, trang_thai='da_nop'
+ *
+ * Không còn dùng: chuyen_sau_phancong, chuyen_sau_dangky, chuyen_sau_submissions (legacy)
+ */
 
 import {
     rejectIfChuyenSauResultNotOwned,
@@ -16,12 +27,20 @@ import {
     requireBearerSession,
 } from '@/lib/datasource-api-auth';
 import pool from '@/lib/db';
+import { createNotification } from '@/lib/notification-service';
 import { NextRequest, NextResponse } from 'next/server';
 
 interface AnswerPayload {
   question_id: number | string;
   answer: string | null;
 }
+
+type ExamSubmissionQuestionRow = {
+  id: number;
+  dap_an_dung: string | null;
+  loai_cau_hoi: string | null;
+  diem: number | string | null;
+};
 
 // ─── GET: Xem kết quả bài thi ────────────────────────────────────────────────
 
@@ -121,6 +140,15 @@ export async function GET(request: NextRequest) {
 
     // Kèm chi tiết từng câu nếu yêu cầu
     if (includeAnswers && resultId) {
+      const canReadSubmittedAnswers =
+        auth.privileged || String(result.rows[0]?.status || '') === 'da_nop';
+      if (!canReadSubmittedAnswers) {
+        return NextResponse.json(
+          { success: false, error: 'Chỉ được xem đáp án sau khi bài thi đã nộp' },
+          { status: 403 },
+        );
+      }
+
       const answers = await pool.query(
         `SELECT
            btc.id,
@@ -163,7 +191,10 @@ export async function GET(request: NextRequest) {
 // ─── POST: Nộp bài ────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
-  const client = await pool.connect();
+  const auth = await requireBearerSession(request);
+  if (!auth.ok) return auth.response;
+
+  let client: any = null;
   try {
     const body = await request.json();
     // Chấp nhận assignment_id là alias của result_id (chuyen_sau_results.id)
@@ -177,6 +208,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const denied = await rejectIfChuyenSauResultNotOwned(
+      auth.sessionEmail,
+      auth.privileged,
+      String(result_id),
+    );
+    if (denied) return denied;
+
+    client = await pool.connect();
     await client.query('BEGIN');
 
     // Tìm result record — xác nhận tồn tại và lấy bộ đề
@@ -315,18 +354,21 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    await client.query('ROLLBACK');
+    if (client) await client.query('ROLLBACK').catch(() => undefined);
     console.error('Error starting exam:', error);
     return NextResponse.json({ success: false, error: 'Failed to start exam' }, { status: 500 });
   } finally {
-    client.release();
+    client?.release();
   }
 }
 
 // ─── PUT: Nộp bài + chấm điểm ────────────────────────────────────────────────
 
 export async function PUT(request: NextRequest) {
-  const client = await pool.connect();
+  const auth = await requireBearerSession(request);
+  if (!auth.ok) return auth.response;
+
+  let client: any = null;
   try {
     const body = await request.json();
     // Chấp nhận assignment_id là alias của result_id
@@ -337,6 +379,14 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Cần result_id hoặc assignment_id' }, { status: 400 });
     }
 
+    const denied = await rejectIfChuyenSauResultNotOwned(
+      auth.sessionEmail,
+      auth.privileged,
+      String(result_id),
+    );
+    if (denied) return denied;
+
+    client = await pool.connect();
     await client.query('BEGIN');
 
     // Tìm result kèm bộ đề
@@ -379,16 +429,17 @@ export async function PUT(request: NextRequest) {
       [resolvedSetId]
     );
 
-    const questionMap = new Map(questionsResult.rows.map((q) => [String(q.id), q]));
+    const questionRows = questionsResult.rows as ExamSubmissionQuestionRow[];
+    const questionMap = new Map(questionRows.map((q) => [String(q.id), q]));
 
     // Tính điểm
     let correctCount = 0;
     let totalPoints = 0;
     let earnedPoints = 0;
-    const totalQuestions = questionsResult.rows.length;
+    const totalQuestions = questionRows.length;
 
     // Cộng điểm tối đa theo bộ đề
-    for (const q of questionsResult.rows) {
+    for (const q of questionRows) {
       totalPoints += Number(q.diem || 1);
     }
 
@@ -490,12 +541,21 @@ export async function PUT(request: NextRequest) {
       `UPDATE chuyen_sau_results SET
          diem         = $1,
          cau_dung     = $2,
+         trang_thai   = 'da_nop',
+         thoi_gian_nop = NOW(),
          xu_ly_diem   = 'đã hoàn thành'
        WHERE id = $3`,
       [score10, correctCount, result_id]
     );
 
     await client.query('COMMIT');
+    await createNotification({
+      recipientEmail: auth.sessionEmail,
+      title: 'Kết quả kiểm tra chuyên môn',
+      content: `Bài thi chuyên sâu của bạn đã được chấm tự động. Điểm số: ${score10}/10. Tỷ lệ: ${percentage}%. Số câu đúng: ${correctCount}/${totalQuestions}.`,
+      type: 'exam_result',
+      link: '/user/assignments',
+    }).catch(err => console.error('Notification error:', err));
 
     return NextResponse.json({
       success: true,
@@ -511,10 +571,10 @@ export async function PUT(request: NextRequest) {
       },
     });
   } catch (error) {
-    await client.query('ROLLBACK');
+    if (client) await client.query('ROLLBACK').catch(() => undefined);
     console.error('Error submitting exam:', error);
     return NextResponse.json({ success: false, error: 'Failed to submit exam' }, { status: 500 });
   } finally {
-    client.release();
+    client?.release();
   }
 }

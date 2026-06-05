@@ -1,46 +1,71 @@
-const BLOCK_TAGS = ['script', 'style', 'iframe', 'object', 'embed'];
-const VOID_TAGS = ['link', 'meta', 'base', 'form', 'input', 'button', 'textarea', 'select', 'option', 'svg', 'math'];
+import DOMPurify from 'isomorphic-dompurify';
 
-function stripDangerousTags(html: string): string {
-  let sanitized = html;
+const ALLOWED_TAGS = [
+  'a',
+  'blockquote',
+  'br',
+  'code',
+  'div',
+  'em',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'hr',
+  'img',
+  'li',
+  'ol',
+  'p',
+  'pre',
+  'span',
+  'strong',
+  'table',
+  'tbody',
+  'td',
+  'th',
+  'thead',
+  'tr',
+  'u',
+  'ul',
+];
 
-  for (const tag of BLOCK_TAGS) {
-    sanitized = sanitized.replace(
-      new RegExp(`<${tag}[^>]*>[\\s\\S]*?<\/${tag}>`, 'gi'),
-      '',
-    );
-  }
-
-  for (const tag of VOID_TAGS) {
-    sanitized = sanitized.replace(
-      new RegExp(`<${tag}\\b[^>]*?/?>`, 'gi'),
-      '',
-    );
-  }
-
-  return sanitized;
-}
-
-function stripDangerousAttributes(html: string): string {
-  return html
-    .replace(/\son[a-z-]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/\sstyle\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/\ssrcdoc\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(
-      /\s(href|src|xlink:href)\s*=\s*("|')\s*javascript:[^"']*(\2)/gi,
-      ' $1="#"',
-    )
-    .replace(/\s(href|src|xlink:href)\s*=\s*javascript:[^\s>]+/gi, ' $1="#"');
-}
+const ALLOWED_ATTR = [
+  'alt',
+  'colspan',
+  'href',
+  'rel',
+  'rowspan',
+  'src',
+  'target',
+  'title',
+];
 
 export function sanitizeHtml(html: string): string {
   if (!html) return '';
 
-  return stripDangerousAttributes(stripDangerousTags(html));
+  return String(
+    DOMPurify.sanitize(html, {
+      ALLOWED_TAGS,
+      ALLOWED_ATTR,
+      ALLOW_DATA_ATTR: false,
+      FORBID_ATTR: ['style', 'srcdoc'],
+      FORBID_TAGS: ['base', 'button', 'embed', 'form', 'iframe', 'input', 'link', 'math', 'meta', 'object', 'script', 'select', 'svg', 'textarea'],
+      ALLOWED_URI_REGEXP:
+        /^(?:(?:https?|mailto|tel):|data:image\/(?:png|jpeg|jpg|gif|webp);base64,|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+    }),
+  );
 }
 
 export function sanitizeText(value: string): string {
   if (!value) return '';
 
-  return value.replace(/<[^>]*>/g, '').replace(/[\u0000-\u001F\u007F]/g, '').trim();
+  return String(
+    DOMPurify.sanitize(value, {
+      ALLOWED_TAGS: [],
+      ALLOWED_ATTR: [],
+      KEEP_CONTENT: true,
+    }),
+  )
+    .replace(/[\u0000-\u001F\u007F]/g, '')
+    .trim();
 }

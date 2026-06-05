@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server'
 import fs from 'fs'
 import path from 'path'
 
 // API to run migration for comments tables
 export async function GET(request: NextRequest) {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
     return runMigration()
 }
 
 export async function POST(request: NextRequest) {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
     return runMigration()
 }
 

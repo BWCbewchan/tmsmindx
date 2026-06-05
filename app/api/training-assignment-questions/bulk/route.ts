@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
 import pool from '@/lib/db';
 
 // POST: Bulk create questions from CSV data
 export async function POST(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const { assignment_id, questions } = body;
 
@@ -61,7 +65,7 @@ export async function POST(request: NextRequest) {
             } else {
               // Default options for true/false
               if (q.question_type === 'true_false') {
-                parsedOptions = ['Đúng', 'Sai'];
+                parsedOptions = ['ÄÃºng', 'Sai'];
               }
             }
           }

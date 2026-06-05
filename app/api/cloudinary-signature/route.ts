@@ -3,7 +3,8 @@
  * Nay chuyển sang tạo presigned PUT URL cho Supabase S3.
  * Client (UploadVideoContext) gọi API này để lấy URL upload trực tiếp lên S3.
  */
-import { requireBearerSession } from '@/lib/datasource-api-auth';
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
+import { clientIpFromRequest, rateLimitOr429Async } from '@/lib/rate-limit-memory';
 import { createSupabaseS3Client, getPublicObjectUrl, isSupabaseS3Configured } from '@/lib/supabase-s3';
 import { CreateBucketCommand, HeadBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -28,8 +29,15 @@ async function ensureBucket() {
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireBearerSession(req);
+    const auth = await requireBearerAdminOrSuperMutation(req);
     if (!auth.ok) return auth.response;
+
+    const rateLimited = await rateLimitOr429Async(
+      `upload-signature:${clientIpFromRequest(req)}`,
+      20,
+      60_000,
+    );
+    if (rateLimited) return rateLimited;
 
     if (!isSupabaseS3Configured()) {
       return NextResponse.json({ error: 'Chưa cấu hình Supabase S3 Storage' }, { status: 500 });

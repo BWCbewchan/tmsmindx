@@ -1,7 +1,11 @@
-import { NextResponse } from 'next/server';
+import { requireBearerAdminOrSuper } from '@/lib/auth-server';
 import pool from '@/lib/db';
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const gate = await requireBearerAdminOrSuper(request);
+  if (!gate.ok) return gate.response;
+
   let client;
   
   try {
@@ -13,7 +17,12 @@ export async function GET() {
     console.log('Database connected at:', testQuery.rows[0]);
     
     // Query data từ bảng teachers
-    const result = await client.query('SELECT * FROM teachers');
+    const result = await client.query(`
+      SELECT code, full_name, user_name, work_email, main_centre, course_line, status
+      FROM teachers
+      ORDER BY full_name ASC NULLS LAST
+      LIMIT 500
+    `);
     
     return NextResponse.json({
       success: true,
@@ -28,8 +37,7 @@ export async function GET() {
     
     return NextResponse.json({
       success: false,
-      error: error.message,
-      details: error.stack
+      error: error.message
     }, { status: 500 });
     
   } finally {

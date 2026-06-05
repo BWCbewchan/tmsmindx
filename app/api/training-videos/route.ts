@@ -1,14 +1,33 @@
-import { NextResponse } from 'next/server';
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
 import pool from '@/lib/db';
 import { deleteObject, parsePublicUrl } from '@/lib/supabase-s3';
+import { NextRequest, NextResponse } from 'next/server';
+
+const VIDEO_UPDATE_COLUMNS: Record<string, string> = {
+  title: 'title',
+  video_link: 'video_link',
+  unified_stream_url: 'unified_stream_url',
+  duration_seconds: 'duration_seconds',
+  start_date: 'start_date',
+  duration_minutes: 'duration_minutes',
+  description: 'description',
+  thumbnail_url: 'thumbnail_url',
+  lesson_number: 'lesson_number',
+  video_group_id: 'video_group_id',
+  chunk_index: 'chunk_index',
+  chunk_total: 'chunk_total',
+  original_filename: 'original_filename',
+  original_size_bytes: 'original_size_bytes',
+  status: 'status',
+};
 
 /**
- * Xóa file khỏi S3 một cách an toàn (không throw error nếu thất bại)
+ * XÃ³a file khá»i S3 má»™t cÃ¡ch an toÃ n (khÃ´ng throw error náº¿u tháº¥t báº¡i)
  */
 async function deleteS3FileSilently(url: string | null) {
   if (!url) return;
   const parsed = parsePublicUrl(url);
-  if (!parsed) return; // Không phải URL S3 hoặc không parse được -> bỏ qua
+  if (!parsed) return; // KhÃ´ng pháº£i URL S3 hoáº·c khÃ´ng parse Ä‘Æ°á»£c -> bá» qua
   try {
     await deleteObject(parsed.bucket, parsed.key);
     console.log(`[S3 Cleanup] Deleted: ${parsed.bucket}/${parsed.key}`);
@@ -17,7 +36,7 @@ async function deleteS3FileSilently(url: string | null) {
   }
 }
 
-// GET: Lấy danh sách videos
+// GET: Láº¥y danh sÃ¡ch videos
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -26,7 +45,7 @@ export async function GET(request: Request) {
     const videoGroupId = searchParams.get('video_group_id');
     const maxLessonNumber = searchParams.get('maxLessonNumber');
 
-    // Lightweight query chỉ lấy max lesson_number
+    // Lightweight query chá»‰ láº¥y max lesson_number
     if (maxLessonNumber === 'true') {
       const r = await pool.query('SELECT COALESCE(MAX(lesson_number), 0) AS max FROM training_videos');
       return NextResponse.json({ success: true, max: r.rows[0].max });
@@ -82,9 +101,12 @@ export async function GET(request: Request) {
   }
 }
 
-// POST: Tạo video mới
-export async function POST(request: Request) {
+// POST: Táº¡o video má»›i
+export async function POST(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const {
       title,
@@ -169,9 +191,12 @@ export async function POST(request: Request) {
   }
 }
 
-// PUT: Cập nhật video
-export async function PUT(request: Request) {
+// PUT: Cáº­p nháº­t video
+export async function PUT(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const { id, ...updateData } = body;
 
@@ -194,7 +219,9 @@ export async function PUT(request: Request) {
     const groupId = currentVideo.video_group_id;
 
     // Build dynamic update query
-    const fields = Object.keys(updateData).filter(key => updateData[key] !== undefined);
+    const fields = Object.keys(updateData).filter(
+      key => updateData[key] !== undefined && VIDEO_UPDATE_COLUMNS[key],
+    );
     if (fields.length === 0) {
       return NextResponse.json(
         { success: false, error: 'No fields to update' },
@@ -215,11 +242,12 @@ export async function PUT(request: Request) {
       let paramIndex = 2;
 
       for (const field of groupFields) {
+        const column = VIDEO_UPDATE_COLUMNS[field];
         if (field === 'title') {
            setClauses.push(`title = $${paramIndex}`);
            setClauses.push(`original_filename = $${paramIndex}`);
         } else {
-           setClauses.push(`${field} = $${paramIndex}`);
+           setClauses.push(`${column} = $${paramIndex}`);
         }
         values.push(updateData[field]);
         paramIndex++;
@@ -234,7 +262,7 @@ export async function PUT(request: Request) {
 
       result = await pool.query(query, values);
     } else {
-      const setClause = fields.map((field, index) => `${field} = $${index + 2}`).join(', ');
+      const setClause = fields.map((field, index) => `${VIDEO_UPDATE_COLUMNS[field]} = $${index + 2}`).join(', ');
       const query = `
         UPDATE training_videos 
         SET ${setClause}
@@ -267,9 +295,12 @@ export async function PUT(request: Request) {
   }
 }
 
-// DELETE: Xóa video
-export async function DELETE(request: Request) {
+// DELETE: XÃ³a video
+export async function DELETE(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const { id } = body;
 
@@ -306,11 +337,11 @@ export async function DELETE(request: Request) {
 
     // --- Cleanup S3 Files ---
     for (const row of result.rows) {
-      // 1. Xóa video file
+      // 1. XÃ³a video file
       if (row.video_link) {
         await deleteS3FileSilently(row.video_link);
       }
-      // 2. Xóa thumbnail file
+      // 2. XÃ³a thumbnail file
       if (row.thumbnail_url) {
         await deleteS3FileSilently(row.thumbnail_url);
       }

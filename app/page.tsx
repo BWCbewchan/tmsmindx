@@ -12,13 +12,27 @@ export default function Home() {
   const { user, token, isLoading } = useAuth()
 
   useEffect(() => {
+    // 1. Kiểm tra nhanh localStorage để redirect đến login ngay lập tức cho guest user
+    try {
+      const storedUser = localStorage.getItem('user')
+      if (!storedUser) {
+        logger.info('Root: No cached user in localStorage, redirecting to login immediately')
+        router.replace('/login')
+        return
+      }
+    } catch (err) {
+      router.replace('/login')
+      return
+    }
+
+    // 2. Chờ tải thông tin phiên đăng nhập nếu đã có dữ liệu cache trong localStorage
     if (isLoading) {
       logger.info('Root: Waiting for auth context to load...')
       return
     }
 
-    // Chưa đăng nhập → redirect đến login
-    if (!token || !user) {
+    // 3. Dự phòng: Nếu đã load xong auth context mà vẫn không có user hợp lệ
+    if (!user) {
       logger.info('Root: No auth found, redirecting to login')
       router.replace('/login')
       return

@@ -1,16 +1,32 @@
 import pool from '@/lib/db';
 import { checkTeacherExistsByEmail, isDatabaseUnavailableError } from '@/lib/db-helpers';
 import { getJwtSecret } from '@/lib/jwt-secret';
-import { clientIpFromRequest, rateLimitOr429 } from '@/lib/rate-limit-memory';
+import { clientIpFromRequest, rateLimitOr429Async } from '@/lib/rate-limit-memory';
 import { setSessionCookieOnResponse } from '@/lib/session-cookie';
+import { logLoginFailed, logLoginSuccess } from '@/lib/audit-logger';
+import { filterManagementPermissions } from '@/lib/admin-permission-routes';
+import { checkAndRecordThreat, isIpBlocked } from '@/lib/brute-force-guard';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
+  const ip        = clientIpFromRequest(request) ?? 'unknown';
+  const userAgent = request.headers.get('user-agent') ?? '';
+  const endpoint  = 'POST /api/app-auth/login';
+
   try {
-    const rl = rateLimitOr429(
-      `app-auth-login:${clientIpFromRequest(request)}`,
+    // ── Kiểm tra IP có đang bị block do brute force không ──
+    const blockStatus = await isIpBlocked(ip);
+    if (blockStatus.blocked) {
+      return NextResponse.json(
+        { error: 'Quá nhiều lần thử đăng nhập. Vui lòng thử lại sau.' },
+        { status: 429 },
+      );
+    }
+
+    const rl = await rateLimitOr429Async(
+      `app-auth-login:${ip}`,
       40,
       60_000,
     );
@@ -60,21 +76,28 @@ export async function POST(request: NextRequest) {
     }
 
     if (userResult.rows.length === 0) {
+      // Not a final failed login yet: the UI can still fall back to Firebase auth.
       return NextResponse.json({ appUser: false });
     }
 
     const user = userResult.rows[0];
 
-    if (user.auth_type === 'firebase') {
+    const authType = String(user.auth_type ?? '').trim().toLowerCase();
+    if (authType === 'firebase' || !user.password_hash) {
       return NextResponse.json({ appUser: false });
-    }
-
-    if (!user.password_hash) {
-      return NextResponse.json({ error: 'Tài khoản không có mật khẩu hợp lệ.' }, { status: 401 });
     }
 
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     if (!isValidPassword) {
+      // Ghi log thất bại + kiểm tra brute force
+      logLoginFailed({ email: normalizedInput, ip, userAgent, reason: 'wrong_password' });
+      const threat = await checkAndRecordThreat(ip, 'LOGIN_FAIL');
+      if (threat.blocked) {
+        return NextResponse.json(
+          { error: `Quá nhiều lần thử. IP bị block 30 phút.` },
+          { status: 429 },
+        );
+      }
       return NextResponse.json({ error: 'Email hoặc mật khẩu không chính xác' }, { status: 401 });
     }
 
@@ -89,7 +112,9 @@ export async function POST(request: NextRequest) {
          ) permissions`,
         [user.id]
       );
-      permissions = permissionsResult.rows.map((row: { route_path: string }) => row.route_path);
+      permissions = filterManagementPermissions(
+        permissionsResult.rows.map((row: { route_path: string }) => row.route_path),
+      );
     } catch (permErr) {
       console.error('App auth: permissions query failed', permErr);
     }
@@ -120,9 +145,6 @@ export async function POST(request: NextRequest) {
 
     const res = NextResponse.json({
       appUser: true,
-      idToken: token,
-      /** JWT nội bộ HS256 — alias của idToken (cùng giá trị), dùng làm Bearer cho /api/check-admin */
-      accessToken: token,
       email: user.email,
       localId: `app_${user.id}`,
       displayName: user.display_name,
@@ -132,6 +154,20 @@ export async function POST(request: NextRequest) {
       teacherSync: { foundInDatabase: teacherFoundInDb },
     });
     setSessionCookieOnResponse(res, token);
+
+    // ── Ghi audit log đăng nhập thành công ──
+    logLoginSuccess({
+      email:     user.email,
+      role:      user.role,
+      ip,
+      userAgent,
+    });
+
+    // ── Kiểm tra lưu lượng session so với số lượng Mentor ──
+    import('@/lib/session-monitor').then(({ checkSessionTraffic }) => {
+      checkSessionTraffic();
+    }).catch(() => {/* non-blocking */});
+
     return res;
   } catch (error: unknown) {
     console.error('App auth login error:', error);

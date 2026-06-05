@@ -1,5 +1,5 @@
-import { requireBearerSession } from '@/lib/datasource-api-auth';
-import { clientIpFromRequest, rateLimitOr429 } from '@/lib/rate-limit-memory';
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
+import { clientIpFromRequest, rateLimitOr429Async } from '@/lib/rate-limit-memory';
 import { createSupabaseS3Client, isSupabaseS3Configured } from '@/lib/supabase-s3';
 import { CreateBucketCommand, HeadBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { NextRequest, NextResponse } from 'next/server';
@@ -24,10 +24,10 @@ function makeProxyUrl(bucket: string, key: string): string {
 
 export async function POST(req: NextRequest): Promise<Response> {
   try {
-    const auth = await requireBearerSession(req);
+    const auth = await requireBearerAdminOrSuperMutation(req);
     if (!auth.ok) return auth.response;
 
-    const rl = rateLimitOr429(
+    const rl = await rateLimitOr429Async(
       `upload-video:${clientIpFromRequest(req)}`,
       20,
       60_000,

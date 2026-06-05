@@ -3,6 +3,11 @@ import {
   isSupabaseS3Configured,
 } from '@/lib/supabase-s3';
 import {
+  rejectCandidateIdMismatch,
+  requireCandidateSession,
+} from '@/lib/candidate-session';
+import { clientIpFromRequest, rateLimitOr429Async } from '@/lib/rate-limit-memory';
+import {
   CreateBucketCommand,
   HeadBucketCommand,
   PutObjectCommand,
@@ -48,6 +53,12 @@ function safeFilename(filename: string) {
 
 export async function POST(request: NextRequest) {
   try {
+    const candidateAuth = await requireCandidateSession(request);
+    if (!candidateAuth.ok) return candidateAuth.response;
+
+    const rl = await rateLimitOr429Async(`candidate-harvest:${clientIpFromRequest(request)}`, 20, 60_000);
+    if (rl) return rl;
+
     if (!isSupabaseS3Configured()) {
       return NextResponse.json(
         { success: false, error: 'Chưa cấu hình Supabase S3 Storage' },
@@ -56,8 +67,12 @@ export async function POST(request: NextRequest) {
     }
 
     const formData = await request.formData();
-    const candidateId = String(formData.get('candidate_id') || '').trim();
+    const candidateId = String(candidateAuth.candidateId);
+    const requestedCandidateId = formData.get('candidate_id');
     const file = formData.get('file');
+
+    const mismatch = rejectCandidateIdMismatch(candidateAuth.candidateId, requestedCandidateId || candidateId);
+    if (mismatch) return mismatch;
 
     if (!candidateId) {
       return NextResponse.json(

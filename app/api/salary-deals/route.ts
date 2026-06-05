@@ -3,6 +3,7 @@ import {
   requireBearerSession,
 } from '@/lib/datasource-api-auth';
 import pool from '@/lib/db';
+import { createNotification } from '@/lib/notification-service';
 import { NextRequest, NextResponse } from 'next/server';
 
 // GET: Lấy danh sách salary deals
@@ -160,10 +161,32 @@ export async function POST(request: NextRequest) {
       ],
     );
 
+    const newDeal = result.rows[0];
+
+    // Gửi thông báo trong app cho người tạo
+    await createNotification({
+      recipientEmail: submitter_email,
+      title: 'Đã gửi yêu cầu thỏa thuận lương',
+      content: `Yêu cầu thỏa thuận lương cho giáo viên ${teacher_name} đã được gửi thành công. Trạng thái: Chờ duyệt.`,
+      type: 'salary_deal',
+      link: '/user/profile',
+    }).catch(err => console.error('Notification error:', err));
+
+    // Nếu giáo viên có email và khác người tạo, gửi thông báo cho giáo viên đó
+    if (teacher_email && teacher_email.trim().toLowerCase() !== submitter_email.trim().toLowerCase()) {
+      await createNotification({
+        recipientEmail: teacher_email,
+        title: 'Có đề xuất điều chỉnh lương mới',
+        content: `Một đề xuất điều chỉnh lương đã được tạo cho bạn bởi ${submitter_name}.`,
+        type: 'salary_deal',
+        link: '/user/profile',
+      }).catch(err => console.error('Notification error:', err));
+    }
+
     return NextResponse.json({
       success: true,
       message: 'Tạo yêu cầu thành công',
-      data: result.rows[0],
+      data: newDeal,
     });
   } catch (error: unknown) {
     console.error('Salary deals POST error:', error);
@@ -271,11 +294,45 @@ export async function PATCH(request: NextRequest) {
       updateValues,
     );
 
+    const updatedDeal = result.rows[0];
     const statusLabel = action === 'approve' ? 'duyệt' : 'từ chối';
+
+    // Xác định nội dung thông báo dựa trên trạng thái mới
+    let notificationContent = '';
+    if (newStatus === 'tegl_approved') {
+      notificationContent = `Yêu cầu thỏa thuận lương cho ${updatedDeal.teacher_name} đã được TEGL duyệt. Đang chờ Super Admin phê duyệt cuối cùng.`;
+    } else if (newStatus === 'tegl_rejected') {
+      notificationContent = `Yêu cầu thỏa thuận lương cho ${updatedDeal.teacher_name} đã bị TEGL từ chối.`;
+    } else if (newStatus === 'admin_approved') {
+      notificationContent = `Yêu cầu thỏa thuận lương cho ${updatedDeal.teacher_name} đã được phê duyệt thành công.`;
+    } else if (newStatus === 'admin_rejected') {
+      notificationContent = `Yêu cầu thỏa thuận lương cho ${updatedDeal.teacher_name} đã bị từ chối phê duyệt.`;
+    }
+
+    // 1. Gửi thông báo cho người tạo yêu cầu (submitter)
+    await createNotification({
+      recipientEmail: updatedDeal.submitter_email,
+      title: `Cập nhật yêu cầu thỏa thuận lương`,
+      content: notificationContent,
+      type: 'salary_deal',
+      link: '/user/profile',
+    }).catch(err => console.error('Notification error:', err));
+
+    // 2. Gửi thông báo cho giáo viên được đề xuất (nếu có email và khác người tạo)
+    if (updatedDeal.teacher_email && updatedDeal.teacher_email.trim().toLowerCase() !== updatedDeal.submitter_email.trim().toLowerCase()) {
+      await createNotification({
+        recipientEmail: updatedDeal.teacher_email,
+        title: `Cập nhật đề xuất điều chỉnh lương`,
+        content: notificationContent,
+        type: 'salary_deal',
+        link: '/user/profile',
+      }).catch(err => console.error('Notification error:', err));
+    }
+
     return NextResponse.json({
       success: true,
       message: `Đã ${statusLabel} yêu cầu thành công`,
-      data: result.rows[0],
+      data: updatedDeal,
     });
   } catch (error: unknown) {
     console.error('Salary deals PATCH error:', error);

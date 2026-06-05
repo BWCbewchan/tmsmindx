@@ -3,11 +3,14 @@ import type { NextConfig } from "next";
 process.env.BASELINE_BROWSER_MAPPING_IGNORE_OLD_DATA ??= 'true';
 process.env.BROWSERSLIST_IGNORE_OLD_DATA ??= 'true';
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 const scriptSrc = [
   "'self'",
   "'unsafe-inline'",
-  ...(process.env.NODE_ENV === 'production' ? [] : ["'unsafe-eval'"]),
+  ...(isProduction ? [] : ["'unsafe-eval'"]),
 ];
+
 
 const contentSecurityPolicy = [
   "default-src 'self'",
@@ -15,6 +18,7 @@ const contentSecurityPolicy = [
   "frame-ancestors 'self'",
   "object-src 'none'",
   `script-src ${scriptSrc.join(' ')}`,
+  "script-src-attr 'none'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data: https:",
@@ -22,6 +26,7 @@ const contentSecurityPolicy = [
   "frame-src 'self' https:",
   "media-src 'self' blob: https:",
   "form-action 'self'",
+  ...(isProduction ? ["upgrade-insecure-requests"] : []),
 ].join('; ');
 
 const securityHeaders = [
@@ -37,6 +42,16 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  async redirects() {
+    return [
+      {
+        source: '/',
+        destination: '/login',
+        permanent: false,
+      },
+    ];
+  },
+
   async headers() {
     return [
       {
@@ -64,6 +79,7 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+
   experimental: {
     webpackBuildWorker: false,
     serverSourceMaps: false,

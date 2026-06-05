@@ -95,6 +95,14 @@ function buildTeacherCenterExpr(columns: Set<string>): string {
   return parts.length > 0 ? `COALESCE(${parts.join(', ')})` : 'NULL'
 }
 
+function buildTeacherEmailExpr(columns: Set<string>): string {
+  const parts: string[] = []
+  if (columns.has('work_email')) parts.push("NULLIF(t.work_email, '')")
+  if (columns.has('work email')) parts.push("NULLIF(t.\"Work email\", '')")
+  if (columns.has('email')) parts.push("NULLIF(t.email, '')")
+  return parts.length > 0 ? `COALESCE(${parts.join(', ')})` : 'NULL'
+}
+
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireBearerSession(request)
@@ -108,6 +116,7 @@ export async function GET(request: NextRequest) {
     const hasRoom = columns.has('room')
     const hasCenterId = columns.has('center_id')
     const teacherCenterExpr = buildTeacherCenterExpr(teacherColumns)
+    const teacherEmailExpr = buildTeacherEmailExpr(teacherColumns)
     const centerJoin = hasCenterId ? 'LEFT JOIN centers c ON c.id = es.center_id' : ''
 
     const values: any[] = []
@@ -134,7 +143,7 @@ export async function GET(request: NextRequest) {
         ${hasCenterId && centerColumns.has('full_address') ? 'c.full_address' : 'NULL::VARCHAR AS center_full_address'},
         ${hasCenterId && centerColumns.has('map_url') ? 'c.map_url' : 'NULL::TEXT AS center_map_url'},
         COALESCE(NULLIF(t.full_name, ''), NULLIF(t."Full name", ''), t.code) AS teacher_name,
-        COALESCE(NULLIF(t.work_email, ''), NULLIF(t."Work email", '')) AS teacher_email,
+        ${teacherEmailExpr} AS teacher_email,
         ${teacherCenterExpr} AS teacher_center
       FROM lecture_review_registrations lrr
       JOIN event_schedules es ON es.id = lrr.event_id
@@ -156,7 +165,7 @@ export async function GET(request: NextRequest) {
     const teacherEmail = request.nextUrl.searchParams.get('teacher_email')
     if (teacherEmail) {
       values.push(teacherEmail)
-      query += ` AND LOWER(COALESCE(t.work_email, t.email, '')) = LOWER($${values.length})`
+      query += ` AND LOWER(COALESCE(${teacherEmailExpr}, '')) = LOWER($${values.length})`
     }
 
     query += ' ORDER BY es.bat_dau_luc ASC, lrr.created_at DESC'

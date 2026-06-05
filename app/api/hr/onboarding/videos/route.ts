@@ -1,12 +1,13 @@
-import { NextResponse } from 'next/server';
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
 import pool from '@/lib/db';
+import { NextRequest, NextResponse } from 'next/server';
 
 /**
- * API quản lý Video Đào tạo đầu vào (Onboarding Videos)
- * Tách biệt với thư viện video chuyên môn thông qua video_category = 'onboarding'
+ * API quáº£n lÃ½ Video ÄÃ o táº¡o Ä‘áº§u vÃ o (Onboarding Videos)
+ * TÃ¡ch biá»‡t vá»›i thÆ° viá»‡n video chuyÃªn mÃ´n thÃ´ng qua video_category = 'onboarding'
  */
 
-// GET: Lấy danh sách video đào tạo đầu vào
+// GET: Láº¥y danh sÃ¡ch video Ä‘Ã o táº¡o Ä‘áº§u vÃ o
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -36,13 +37,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: true, data: result.rows });
   } catch (error) {
     console.error('[Onboarding Videos GET]', error);
-    return NextResponse.json({ success: false, error: 'Lỗi khi tải danh sách video đào tạo' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'Lá»—i khi táº£i danh sÃ¡ch video Ä‘Ã o táº¡o' }, { status: 500 });
   }
 }
 
-// POST: Thêm video đào tạo đầu vào
-export async function POST(request: Request) {
+// POST: ThÃªm video Ä‘Ã o táº¡o Ä‘áº§u vÃ o
+export async function POST(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const {
       title,
@@ -62,7 +66,7 @@ export async function POST(request: Request) {
     } = body;
 
     if (!title || !video_link) {
-      return NextResponse.json({ success: false, error: 'Tiêu đề và đường dẫn video là bắt buộc' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'TiÃªu Ä‘á» vÃ  Ä‘Æ°á»ng dáº«n video lÃ  báº¯t buá»™c' }, { status: 400 });
     }
 
     const result = await pool.query(
@@ -107,13 +111,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, data: result.rows[0] });
   } catch (error) {
     console.error('[Onboarding Videos POST]', error);
-    return NextResponse.json({ success: false, error: 'Lỗi khi thêm video đào tạo' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'Lá»—i khi thÃªm video Ä‘Ã o táº¡o' }, { status: 500 });
   }
 }
 
-// PATCH: Cập nhật video đào tạo đầu vào
-export async function PATCH(request: Request) {
+// PATCH: Cáº­p nháº­t video Ä‘Ã o táº¡o Ä‘áº§u vÃ o
+export async function PATCH(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const {
       id,
@@ -130,7 +137,7 @@ export async function PATCH(request: Request) {
     } = body;
 
     if (!id) {
-      return NextResponse.json({ success: false, error: 'ID video là bắt buộc' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'ID video lÃ  báº¯t buá»™c' }, { status: 400 });
     }
 
     // Verify it's an onboarding video
@@ -139,7 +146,7 @@ export async function PATCH(request: Request) {
       [id]
     );
     if (checkResult.rows.length === 0) {
-      return NextResponse.json({ success: false, error: 'Không tìm thấy video đào tạo' }, { status: 404 });
+      return NextResponse.json({ success: false, error: 'KhÃ´ng tÃ¬m tháº¥y video Ä‘Ã o táº¡o' }, { status: 404 });
     }
 
     const result = await pool.query(
@@ -174,18 +181,21 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ success: true, data: result.rows[0] });
   } catch (error) {
     console.error('[Onboarding Videos PATCH]', error);
-    return NextResponse.json({ success: false, error: 'Lỗi khi cập nhật video đào tạo' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'Lá»—i khi cáº­p nháº­t video Ä‘Ã o táº¡o' }, { status: 500 });
   }
 }
 
-// DELETE: Xóa video đào tạo đầu vào
-export async function DELETE(request: Request) {
+// DELETE: XÃ³a video Ä‘Ã o táº¡o Ä‘áº§u vÃ o
+export async function DELETE(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 
     if (!id) {
-      return NextResponse.json({ success: false, error: 'ID video là bắt buộc' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'ID video lÃ  báº¯t buá»™c' }, { status: 400 });
     }
 
     // Verify it's an onboarding video before delete
@@ -194,13 +204,13 @@ export async function DELETE(request: Request) {
       [id]
     );
     if (checkResult.rows.length === 0) {
-      return NextResponse.json({ success: false, error: 'Không tìm thấy video đào tạo' }, { status: 404 });
+      return NextResponse.json({ success: false, error: 'KhÃ´ng tÃ¬m tháº¥y video Ä‘Ã o táº¡o' }, { status: 404 });
     }
 
     await pool.query('DELETE FROM training_videos WHERE id = $1', [id]);
-    return NextResponse.json({ success: true, message: 'Đã xóa video đào tạo' });
+    return NextResponse.json({ success: true, message: 'ÄÃ£ xÃ³a video Ä‘Ã o táº¡o' });
   } catch (error) {
     console.error('[Onboarding Videos DELETE]', error);
-    return NextResponse.json({ success: false, error: 'Lỗi khi xóa video đào tạo' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'Lá»—i khi xÃ³a video Ä‘Ã o táº¡o' }, { status: 500 });
   }
 }

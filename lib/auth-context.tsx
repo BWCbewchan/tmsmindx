@@ -1,6 +1,7 @@
 'use client'
 
 import { toast } from '@/lib/app-toast'
+import { filterManagementPermissions } from '@/lib/admin-permission-routes'
 import { authHeaders } from '@/lib/auth-headers'
 import { logger } from '@/lib/logger'
 import { useRouter } from 'next/navigation'
@@ -90,6 +91,13 @@ function isStoredUserShapeValid(value: unknown): value is User {
   )
 }
 
+function sanitizeUserPermissions(user: User): User {
+  return {
+    ...user,
+    permissions: filterManagementPermissions(user.permissions || []),
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [token, setToken] = useState<string | null>(null)
@@ -114,9 +122,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           const parsedUser = JSON.parse(storedUser)
           if (isStoredUserShapeValid(parsedUser)) {
-            cachedUser = parsedUser
+            cachedUser = sanitizeUserPermissions(parsedUser)
             if (!cancelled) {
-              setUser(parsedUser)
+              setUser(cachedUser)
             }
             logger.success('Auth restored from localStorage user cache')
           } else {
@@ -133,7 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (response.ok) {
         const data = await response.json()
         if (data?.success) {
-          const nextUser: User = {
+          const nextUser: User = sanitizeUserPermissions({
             email: data.email ?? cachedUser?.email ?? '',
             displayName:
               cachedUser?.displayName ??
@@ -153,15 +161,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             assignedCenters: Array.isArray(data.assignedCenters)
               ? data.assignedCenters
               : cachedUser?.assignedCenters ?? [],
-          }
+          })
 
           setUser(nextUser)
           localStorage.setItem('user', JSON.stringify(nextUser))
           logger.success('Auth restored from session cookie')
-        } else if (!cachedUser) {
+        } else {
+          localStorage.removeItem('user')
           setUser(null)
+          setToken(null)
+          logger.info('Auth session verification failed')
         }
-      } else if (response.status === 401 || response.status === 403) {
+      } else {
         localStorage.removeItem('user')
         setUser(null)
         setToken(null)
@@ -169,9 +180,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (error: any) {
       logger.error('Error initializing auth', { error: error.message })
-      if (!cachedUser) {
-        setUser(null)
-      }
+      localStorage.removeItem('user')
+      setUser(null)
+      setToken(null)
     } finally {
       if (!cancelled) {
         setIsLoading(false)
@@ -212,10 +223,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       logger.info('Updating user in auth context')
 
-      localStorage.setItem('user', JSON.stringify(newUser))
+      const safeUser = sanitizeUserPermissions(newUser)
+      localStorage.setItem('user', JSON.stringify(safeUser))
       localStorage.removeItem('token')
       localStorage.removeItem('refreshToken')
-      setUser(newUser)
+      setUser(safeUser)
       setToken(newToken)
 
       logger.success('Auth context updated successfully')

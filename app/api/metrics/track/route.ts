@@ -1,4 +1,6 @@
 import pool from '@/lib/db'
+import { requireBearerSession } from '@/lib/datasource-api-auth'
+import { clientIpFromRequest, rateLimitOr429Async } from '@/lib/rate-limit-memory'
 import { withTracking } from '@/lib/withTracking'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -16,6 +18,16 @@ interface TrackEventPayload {
  */
 async function postTrack(request: NextRequest) {
   try {
+    const auth = await requireBearerSession(request)
+    if (!auth.ok) return auth.response
+
+    const limited = await rateLimitOr429Async(
+      `metrics-track:${auth.sessionEmail}:${clientIpFromRequest(request)}`,
+      120,
+      60_000,
+    )
+    if (limited) return limited
+
     const body = await request.json()
     const events: TrackEventPayload[] = Array.isArray(body.events)
       ? body.events
@@ -49,7 +61,7 @@ async function postTrack(request: NextRequest) {
       )
       values.push(
         (evt.event_name || '').slice(0, 100),
-        (evt.user_id || '').slice(0, 255) || null,
+        auth.sessionEmail.slice(0, 255),
         (evt.session_id || '').slice(0, 100) || null,
         JSON.stringify(evt.properties || {}),
         userAgent.slice(0, 500),

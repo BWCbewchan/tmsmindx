@@ -4,14 +4,15 @@ import {
   rowToRegistrationPayload,
 } from "@/lib/csv-registration-import";
 import pool from "@/lib/db";
+import { requireBearerAdminOrSuperMutation } from "@/lib/auth-server";
 import type { Pool } from "pg";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 type RowResult =
   | { line: number; ok: true; id: unknown }
   | { line: number; ok: false; error: string; result_id?: number };
 
-/** Song song một số dòng — tăng tốc khi DB_POOL_MAX > 1 (pool size 1 vẫn an toàn, chỉ xếp hàng). */
+/** Song song má»™t sá»‘ dÃ²ng â€” tÄƒng tá»‘c khi DB_POOL_MAX > 1 (pool size 1 váº«n an toÃ n, chá»‰ xáº¿p hÃ ng). */
 function importConcurrency(): number {
   const n = parseInt(process.env.IMPORT_ROW_CONCURRENCY || "4", 10);
   return Math.max(1, Math.min(16, n));
@@ -23,12 +24,12 @@ async function processOneRow(
   line: number
 ): Promise<RowResult> {
   if (!row || typeof row !== "object") {
-    return { line, ok: false, error: "Dòng không hợp lệ" };
+    return { line, ok: false, error: "DÃ²ng khÃ´ng há»£p lá»‡" };
   }
   const normalized = normalizeImportRow(row as Record<string, string>);
   const payload = rowToRegistrationPayload(normalized);
   if (!payload.ma_giao_vien && !payload.teacher_code) {
-    return { line, ok: false, error: "Thiếu Mã GV (ma_giao_vien)" };
+    return { line, ok: false, error: "Thiáº¿u MÃ£ GV (ma_giao_vien)" };
   }
 
   const res = await insertExamRegistration(pool, payload);
@@ -43,7 +44,7 @@ async function processOneRow(
   };
 }
 
-/** Chạy tối đa `concurrency` tác vụ insert cùng lúc (theo chỗ trống trong pool). */
+/** Cháº¡y tá»‘i Ä‘a `concurrency` tÃ¡c vá»¥ insert cÃ¹ng lÃºc (theo chá»— trá»‘ng trong pool). */
 async function runRowsWithConcurrency(
   pool: Pool,
   rawRows: unknown[],
@@ -70,18 +71,21 @@ async function runRowsWithConcurrency(
 
 /**
  * POST JSON: { rows: Record<string, string>[], lineStart?: number }
- * — mỗi row giống body POST /api/exam-registrations (sau khi map header CSV).
- * lineStart: số dòng trên file của phần tử đầu tiên trong `rows` (mặc định 2 = dòng dữ liệu đầu sau header).
+ * â€” má»—i row giá»‘ng body POST /api/exam-registrations (sau khi map header CSV).
+ * lineStart: sá»‘ dÃ²ng trÃªn file cá»§a pháº§n tá»­ Ä‘áº§u tiÃªn trong `rows` (máº·c Ä‘á»‹nh 2 = dÃ²ng dá»¯ liá»‡u Ä‘áº§u sau header).
  */
 export const maxDuration = 300;
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const rawRows = body?.rows;
     if (!Array.isArray(rawRows) || rawRows.length === 0) {
       return NextResponse.json(
-        { success: false, error: "Cần mảng rows (ít nhất 1 dòng)." },
+        { success: false, error: "Cáº§n máº£ng rows (Ã­t nháº¥t 1 dÃ²ng)." },
         { status: 400 }
       );
     }
@@ -104,6 +108,6 @@ export async function POST(request: Request) {
     });
   } catch (e) {
     console.error("exam-registrations/import:", e);
-    return NextResponse.json({ success: false, error: "Không xử lý được yêu cầu import" }, { status: 400 });
+    return NextResponse.json({ success: false, error: "KhÃ´ng xá»­ lÃ½ Ä‘Æ°á»£c yÃªu cáº§u import" }, { status: 400 });
   }
 }

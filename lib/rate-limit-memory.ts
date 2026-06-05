@@ -30,3 +30,66 @@ export function rateLimitOr429(
   }
   return null;
 }
+
+type UpstashPipelineItem = { result?: unknown; error?: string };
+
+function redisConfig() {
+  const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
+  if (!url || !token) return null;
+  return { url: url.replace(/\/+$/, ''), token };
+}
+
+async function redisFixedWindowCount(
+  key: string,
+  windowMs: number,
+): Promise<number | null> {
+  const cfg = redisConfig();
+  if (!cfg) return null;
+
+  const windowBucket = Math.floor(Date.now() / windowMs);
+  const redisKey = `rl:${key}:${windowBucket}`;
+
+  try {
+    const response = await fetch(`${cfg.url}/pipeline`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${cfg.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify([
+        ['INCR', redisKey],
+        ['PEXPIRE', redisKey, Math.ceil(windowMs * 1.2)],
+      ]),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(1500),
+    });
+
+    if (!response.ok) return null;
+    const data = (await response.json()) as UpstashPipelineItem[];
+    const count = Number(data?.[0]?.result);
+    return Number.isFinite(count) ? count : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Distributed limiter when Upstash Redis is configured; falls back to in-memory locally. */
+export async function rateLimitOr429Async(
+  key: string,
+  limit: number,
+  windowMs: number,
+): Promise<NextResponse | null> {
+  const redisCount = await redisFixedWindowCount(key, windowMs);
+  if (redisCount != null) {
+    if (redisCount > limit) {
+      return NextResponse.json(
+        { success: false, error: 'Qua nhieu yeu cau. Vui long thu lai sau.' },
+        { status: 429 },
+      );
+    }
+    return null;
+  }
+
+  return rateLimitOr429(key, limit, windowMs);
+}

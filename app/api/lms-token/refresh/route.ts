@@ -4,11 +4,18 @@
  * Được gọi server-side khi lms_firebase_token hết hạn.
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSameOriginMutation } from '@/lib/api-security';
+import { requireBearerSession } from '@/lib/datasource-api-auth';
 
 const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '';
 const FIREBASE_REFRESH_URL = `https://securetoken.googleapis.com/v1/token?key=${FIREBASE_API_KEY}`;
 
 export async function POST(request: NextRequest) {
+  const originDenied = requireSameOriginMutation(request);
+  if (originDenied) return originDenied;
+  const auth = await requireBearerSession(request);
+  if (!auth.ok) return auth.response;
+
   const refreshToken = request.cookies.get('lms_firebase_refresh')?.value;
 
   if (!refreshToken) {

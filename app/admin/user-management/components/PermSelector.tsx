@@ -1,5 +1,6 @@
 "use client";
 import { useAuth } from "@/lib/auth-context";
+import { filterManagementPermissions, isManagementPermissionRoute } from "@/lib/admin-permission-routes";
 import { authHeaders } from "@/lib/auth-headers";
 import { DEFAULT_SCREEN_CATALOG, type ScreenCatalogItem } from "@/lib/default-screen-catalog";
 import { ChevronDown, ChevronUp, Loader2, Search } from "lucide-react";
@@ -22,13 +23,14 @@ export default function PermSelector({ perms, setPerms }: { perms: string[]; set
                     headers: authHeaders(token),
                 });
                 const data = await res.json();
-                const nextScreens = Array.isArray(data.screens) && data.screens.length > 0 ? data.screens : DEFAULT_SCREEN_CATALOG;
+                const nextScreens = (Array.isArray(data.screens) && data.screens.length > 0 ? data.screens : DEFAULT_SCREEN_CATALOG)
+                    .filter((screen: ScreenCatalogItem) => isManagementPermissionRoute(screen.route_path));
                 if (!cancelled) {
                     setScreens(nextScreens);
                 }
             } catch {
                 if (!cancelled) {
-                    setScreens(DEFAULT_SCREEN_CATALOG);
+                    setScreens(DEFAULT_SCREEN_CATALOG.filter((screen) => isManagementPermissionRoute(screen.route_path)));
                 }
             } finally {
                 if (!cancelled) {
@@ -59,6 +61,13 @@ export default function PermSelector({ perms, setPerms }: { perms: string[]; set
             }))
             .sort((a, b) => a.order - b.order || a.groupName.localeCompare(b.groupName));
     }, [screens]);
+
+    useEffect(() => {
+        const safePerms = filterManagementPermissions(perms);
+        if (safePerms.length !== perms.length) {
+            setPerms(safePerms);
+        }
+    }, [perms, setPerms]);
 
     useEffect(() => {
         if (expanded.length === 0 && groups.length > 0) {

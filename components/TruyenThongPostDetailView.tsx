@@ -92,8 +92,7 @@ export function TruyenThongPostDetailView({ mode }: TruyenThongPostDetailViewPro
         const fetchPost = async () => {
             if (!params?.slug) return
             try {
-                const userIdParam = user?.localId ? `?userId=${user.localId}` : ''
-                const res = await fetch(`/api/truyenthong/posts/${params.slug}${userIdParam}`)
+                const res = await fetch(`/api/truyenthong/posts/${params.slug}`)
                 if (!res.ok) throw new Error('Failed to fetch post')
                 const data = await res.json()
                 setPost(data)
@@ -174,7 +173,7 @@ export function TruyenThongPostDetailView({ mode }: TruyenThongPostDetailViewPro
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ userId: user.localId })
+                body: JSON.stringify({})
             })
 
             if (res.ok) {
@@ -256,7 +255,7 @@ export function TruyenThongPostDetailView({ mode }: TruyenThongPostDetailViewPro
             const res = await fetch(`/api/truyenthong/posts/${post?.slug}/like`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: user.localId, reaction: reactionType, userName: user.displayName || user.email })
+                body: JSON.stringify({ reaction: reactionType })
             })
 
             if (res.ok) {
@@ -622,7 +621,7 @@ export function TruyenThongPostDetailView({ mode }: TruyenThongPostDetailViewPro
                 <div className="mt-5">
                     <Comments
                         postSlug={post.slug}
-                        currentUserId={user?.localId}
+                        currentUserId={user?.email?.trim().toLowerCase()}
                         currentUserName={user?.displayName || user?.email}
                         currentUserEmail={user?.email}
                         isAdmin={isAdmin}

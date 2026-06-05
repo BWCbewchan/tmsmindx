@@ -1,4 +1,5 @@
 import { requireBearerDbRoles, requireBearerSuperAdmin } from '@/lib/auth-server';
+import { filterManagementPermissions } from '@/lib/admin-permission-routes';
 import pool from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -37,7 +38,9 @@ export async function GET(request: NextRequest) {
         }
 
         const result = await pool.query(query, params);
-        const permissions = result.rows.map((r: { route_path: string }) => r.route_path);
+        const permissions = filterManagementPermissions(
+            result.rows.map((r: { route_path: string }) => r.route_path)
+        );
 
         return NextResponse.json({ permissions });
     } catch (error: any) {
@@ -69,12 +72,14 @@ export async function POST(request: NextRequest) {
             // Remove all existing permissions
             await client.query('DELETE FROM app_permissions WHERE user_id = $1', [userId]);
 
+            const safePermissions = filterManagementPermissions(permissions);
+
             // Insert new permissions
-            if (permissions.length > 0) {
-                const values = permissions
+            if (safePermissions.length > 0) {
+                const values = safePermissions
                     .map((_: string, i: number) => `($1, $${i + 2}, true)`)
                     .join(', ');
-                const params = [userId, ...permissions];
+                const params = [userId, ...safePermissions];
                 await client.query(
                     `INSERT INTO app_permissions (user_id, route_path, can_access) VALUES ${values}`,
                     params
@@ -82,7 +87,7 @@ export async function POST(request: NextRequest) {
             }
 
             await client.query('COMMIT');
-            return NextResponse.json({ success: true, count: permissions.length });
+            return NextResponse.json({ success: true, count: safePermissions.length });
         } catch (err) {
             await client.query('ROLLBACK');
             throw err;

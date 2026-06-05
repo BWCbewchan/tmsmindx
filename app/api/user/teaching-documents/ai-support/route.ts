@@ -8,6 +8,7 @@ import {
   type TeachingDocument,
 } from '@/lib/teaching-documents'
 import { TPS_SESSION_COOKIE, verifySessionCookieValue } from '@/lib/session-cookie'
+import { requireSameOriginMutation } from '@/lib/api-security'
 
 type StudentAttendance = {
   status?: string
@@ -680,6 +681,9 @@ ${JSON.stringify({
 }
 
 export async function POST(request: NextRequest) {
+  const originDenied = requireSameOriginMutation(request)
+  if (originDenied) return originDenied
+
   const sessionCookie = request.cookies.get(TPS_SESSION_COOKIE)?.value
   if (!sessionCookie) {
     return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })

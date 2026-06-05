@@ -10,8 +10,6 @@ export interface GraphQLRequest {
  * Core function to call LMS API directly from the server.
  */
 export async function callLmsApi<T>(request: GraphQLRequest, authHeader?: string): Promise<T> {
-  console.log(`[LMS-API] Sending request to ${LMS_API_URL}...`);
-  
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000); // Timeout sau 10s
 
@@ -28,19 +26,16 @@ export async function callLmsApi<T>(request: GraphQLRequest, authHeader?: string
     });
 
     clearTimeout(timeoutId);
-    console.log(`[LMS-API] Response received. Status: ${response.status}`);
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[LMS-API] Error Body: ${errorText}`);
-      throw new Error(`LMS API responded with status ${response.status}: ${errorText}`);
+      await response.text().catch(() => '');
+      throw new Error(`LMS API responded with status ${response.status}`);
     }
 
     const result = await response.json();
 
     if (result.errors?.length) {
       const messages = result.errors.map((e: any) => e.message).join('; ');
-      console.error(`[LMS-API] GraphQL Errors: ${messages}`);
       throw new Error(`GraphQL error: ${messages}`);
     }
 
@@ -48,7 +43,6 @@ export async function callLmsApi<T>(request: GraphQLRequest, authHeader?: string
   } catch (error: any) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
-      console.error(`[LMS-API] Request timed out after 10 seconds`);
       throw new Error('LMS API request timed out');
     }
     throw error;

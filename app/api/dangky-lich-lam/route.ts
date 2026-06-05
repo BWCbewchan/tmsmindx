@@ -1,4 +1,9 @@
 import pool from '@/lib/db'
+import { requireSameOriginMutation } from '@/lib/api-security'
+import {
+  rejectIfDatasourceLookupForbidden,
+  requireBearerSession,
+} from '@/lib/datasource-api-auth'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Chuyển "HH:MM" thành số phút
@@ -13,10 +18,16 @@ function fromMinutes(m: number) {
 
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireBearerSession(request)
+    if (!auth.ok) return auth.response
+
     const { searchParams } = new URL(request.url)
     const maGv = searchParams.get('ma_gv')?.trim()
     const thang = searchParams.get('thang')
     if (!maGv) return NextResponse.json({ success: false, error: 'Thiếu ma_gv' }, { status: 400 })
+
+    const denied = await rejectIfDatasourceLookupForbidden(auth.sessionEmail, Boolean(auth.resolvedAccess.isAdmin), '', maGv)
+    if (denied) return denied
 
     let query = `SELECT id, ma_gv, TO_CHAR(ngay, 'YYYY-MM-DD') as ngay, gio_bat_dau, gio_ket_thuc, co_so_uu_tien, linh_hoat, kieu_lap FROM dangky_lich_lam WHERE LOWER(TRIM(ma_gv)) = LOWER(TRIM($1))`
     const values: unknown[] = [maGv]
@@ -33,12 +44,20 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const client = await pool.connect()
   try {
+    const originDenied = requireSameOriginMutation(request)
+    if (originDenied) return originDenied
+    const auth = await requireBearerSession(request)
+    if (!auth.ok) return auth.response
+
     const body = await request.json()
     const { ma_gv, ngay, gio_bat_dau, gio_ket_thuc, co_so_uu_tien, linh_hoat, lap_lai_tu_ngay, lap_lai_den_ngay, kieu_lap } = body
 
     if (!ma_gv || !ngay || !gio_bat_dau || !gio_ket_thuc) {
       return NextResponse.json({ success: false, error: 'Thiếu thông tin bắt buộc' }, { status: 400 })
     }
+
+    const denied = await rejectIfDatasourceLookupForbidden(auth.sessionEmail, Boolean(auth.resolvedAccess.isAdmin), '', ma_gv)
+    if (denied) return denied
 
     await client.query('BEGIN')
 
@@ -100,10 +119,25 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const originDenied = requireSameOriginMutation(request)
+    if (originDenied) return originDenied
+    const auth = await requireBearerSession(request)
+    if (!auth.ok) return auth.response
+
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
     const maGv = searchParams.get('ma_gv')?.trim()
     const ngay = searchParams.get('ngay')
+
+    if (maGv) {
+      const denied = await rejectIfDatasourceLookupForbidden(auth.sessionEmail, Boolean(auth.resolvedAccess.isAdmin), '', maGv)
+      if (denied) return denied
+    } else if (id && !Boolean(auth.resolvedAccess.isAdmin)) {
+      const owner = await pool.query('SELECT ma_gv FROM dangky_lich_lam WHERE id = $1 LIMIT 1', [id])
+      if (owner.rows.length === 0) return NextResponse.json({ success: false, error: 'KhÃ´ng tÃ¬m tháº¥y lá»‹ch' }, { status: 404 })
+      const denied = await rejectIfDatasourceLookupForbidden(auth.sessionEmail, false, '', String(owner.rows[0].ma_gv || ''))
+      if (denied) return denied
+    }
 
     if (id) {
       await pool.query(`DELETE FROM dangky_lich_lam WHERE id = $1`, [id])

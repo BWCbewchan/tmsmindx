@@ -1,4 +1,6 @@
 import pool from '@/lib/db';
+import { requireSameOriginMutation } from '@/lib/api-security';
+import { clientIpFromRequest, rateLimitOr429Async } from '@/lib/rate-limit-memory';
 import { verifySessionCookieValue } from '@/lib/session-cookie';
 import { findCommunicationPostByIdentifier } from '@/lib/truyenthong-posts';
 import { NextRequest, NextResponse } from 'next/server';
@@ -8,6 +10,11 @@ export async function POST(
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
+        const originDenied = requireSameOriginMutation(request);
+        if (originDenied) return originDenied;
+        const limited = await rateLimitOr429Async(`post-view:${clientIpFromRequest(request)}`, 300, 60_000);
+        if (limited) return limited;
+
         const { id } = await params;
         const client = await pool.connect();
         try {

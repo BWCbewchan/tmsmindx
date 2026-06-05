@@ -1,14 +1,21 @@
 import pool from '@/lib/db'
+import { rejectIfEmailNotSelf, requireBearerSession } from '@/lib/datasource-api-auth'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Trả về danh sách khu vực (areas) mà admin này quản lý
 // Lấy từ teaching_leaders.areas (JSONB array) theo work_email
 export async function GET(request: NextRequest) {
   try {
-    const email = request.nextUrl.searchParams.get('email')?.trim().toLowerCase()
+    const auth = await requireBearerSession(request)
+    if (!auth.ok) return auth.response
+
+    const email = (request.nextUrl.searchParams.get('email') || auth.sessionEmail).trim().toLowerCase()
     if (!email) return NextResponse.json({ success: false, error: 'Thiếu email' }, { status: 400 })
 
     // super_admin → quản lý tất cả
+    const denied = rejectIfEmailNotSelf(auth.sessionEmail, auth.privileged, email)
+    if (denied) return denied
+
     const adminCheck = await pool.query(
       `SELECT role FROM app_users WHERE LOWER(TRIM(email)) = $1 AND is_active = true LIMIT 1`,
       [email]

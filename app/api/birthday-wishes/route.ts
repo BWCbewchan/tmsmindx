@@ -1,4 +1,6 @@
-import { NextResponse } from 'next/server'
+import { requireSameOriginMutation } from '@/lib/api-security'
+import { requireBearerSession } from '@/lib/datasource-api-auth'
+import { NextRequest, NextResponse } from 'next/server'
 
 import pool from '@/lib/db'
 
@@ -64,8 +66,13 @@ export async function GET(request: Request) {
     }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
     try {
+        const originDenied = requireSameOriginMutation(request)
+        if (originDenied) return originDenied
+        const auth = await requireBearerSession(request)
+        if (!auth.ok) return auth.response
+
         const body = await request.json()
 
         const month = Number(body?.month)
@@ -73,7 +80,7 @@ export async function POST(request: Request) {
         const year = Number(body?.year)
         const area = normalizeArea(body?.area)
         const senderName = String(body?.senderName || '').trim() || 'Giáo viên MindX'
-        const senderEmail = String(body?.senderEmail || '').trim().toLowerCase()
+        const senderEmail = auth.sessionEmail.trim().toLowerCase()
         const message = String(body?.message || '').trim()
         const birthdayNames = Array.isArray(body?.birthdayNames)
             ? body.birthdayNames

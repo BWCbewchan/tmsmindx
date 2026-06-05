@@ -1,32 +1,47 @@
 /**
  * exam-assignment-questions/route.ts
  *
- * Flow mới:
- *   - Câu hỏi được phân công dựa trên chuyen_sau_results (result_id) chứ không phải bảng phân công cũ.
- *   - GET  → lấy câu hỏi được phân cho result_id (từ bộ đề đã gán: ma_de trong chuyen_sau_results)
- *   - POST → phân công bộ đề cho result → cập nhật ma_de + tạo câu hỏi trong chuyen_sau_baithi_cauhoi
- *   - PUT  → cập nhật thông tin phân công (ma_de)
+ * Flow má»›i:
+ *   - CÃ¢u há»i Ä‘Æ°á»£c phÃ¢n cÃ´ng dá»±a trÃªn chuyen_sau_results (result_id) chá»© khÃ´ng pháº£i báº£ng phÃ¢n cÃ´ng cÅ©.
+ *   - GET  â†’ láº¥y cÃ¢u há»i Ä‘Æ°á»£c phÃ¢n cho result_id (tá»« bá»™ Ä‘á» Ä‘Ã£ gÃ¡n: ma_de trong chuyen_sau_results)
+ *   - POST â†’ phÃ¢n cÃ´ng bá»™ Ä‘á» cho result â†’ cáº­p nháº­t ma_de + táº¡o cÃ¢u há»i trong chuyen_sau_baithi_cauhoi
+ *   - PUT  â†’ cáº­p nháº­t thÃ´ng tin phÃ¢n cÃ´ng (ma_de)
  */
 
 import pool from '@/lib/db';
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
+import {
+  rejectIfChuyenSauResultNotOwned,
+  requireBearerSession,
+} from '@/lib/datasource-api-auth';
 import { NextRequest, NextResponse } from 'next/server';
 
-// ─── GET: Lấy câu hỏi theo result_id / assignment_id ─────────────────────────
+// â”€â”€â”€ GET: Láº¥y cÃ¢u há»i theo result_id / assignment_id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireBearerSession(request);
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(request.url);
-    // Chấp nhận cả result_id và assignment_id (cùng là chuyen_sau_results.id)
+    // Cháº¥p nháº­n cáº£ result_id vÃ  assignment_id (cÃ¹ng lÃ  chuyen_sau_results.id)
     const resultId = searchParams.get('result_id') || searchParams.get('assignment_id');
 
     if (!resultId) {
       return NextResponse.json(
-        { success: false, error: 'Cần result_id hoặc assignment_id' },
+        { success: false, error: 'Cáº§n result_id hoáº·c assignment_id' },
         { status: 400 }
       );
     }
 
-    // Tìm result kèm thông tin bộ đề (fallback từ chonde_thang nếu id_de_thi chưa set)
+    // TÃ¬m result kÃ¨m thÃ´ng tin bá»™ Ä‘á» (fallback tá»« chonde_thang náº¿u id_de_thi chÆ°a set)
+    const denied = await rejectIfChuyenSauResultNotOwned(
+      auth.sessionEmail,
+      Boolean(auth.resolvedAccess.isAdmin),
+      resultId,
+    );
+    if (denied) return denied;
+
     const resultRow = await pool.query(
       `SELECT
          r.id,
@@ -46,7 +61,7 @@ export async function GET(request: NextRequest) {
          mh.ma_khoi,
          mh.loai_ky_thi,
          mh.thoi_gian_thi_phut,
-         -- Thời gian làm bài thực tế từ event_schedules (ket_thuc - bat_dau), fallback từ môn học
+         -- Thá»i gian lÃ m bÃ i thá»±c táº¿ tá»« event_schedules (ket_thuc - bat_dau), fallback tá»« mÃ´n há»c
          COALESCE(ev_dur.duration_min, mh.thoi_gian_thi_phut, 90)::int AS event_duration_minutes,
          ev_dur.event_open_at,
          ev_dur.event_close_at,
@@ -65,10 +80,10 @@ export async function GET(request: NextRequest) {
          LIMIT 1
        ) ct_sub ON (r.id_de_thi IS NULL)
        LEFT JOIN chuyen_sau_bode bd ON bd.id = COALESCE(r.id_de_thi, ct_sub.id_de)
-       -- Lấy thời gian làm bài từ event_schedules:
-       -- Ưu tiên 1: id_su_kien trỏ đến sự kiện 'exam' → dùng bat_dau_luc/ket_thuc_luc của exam
-       -- Ưu tiên 2: id_su_kien trỏ đến sự kiện 'registration' (bổ sung) → close_at = ket_thuc_luc của registration
-       -- Ưu tiên 3: fallback tìm exam theo tháng/năm/môn
+       -- Láº¥y thá»i gian lÃ m bÃ i tá»« event_schedules:
+       -- Æ¯u tiÃªn 1: id_su_kien trá» Ä‘áº¿n sá»± kiá»‡n 'exam' â†’ dÃ¹ng bat_dau_luc/ket_thuc_luc cá»§a exam
+       -- Æ¯u tiÃªn 2: id_su_kien trá» Ä‘áº¿n sá»± kiá»‡n 'registration' (bá»• sung) â†’ close_at = ket_thuc_luc cá»§a registration
+       -- Æ¯u tiÃªn 3: fallback tÃ¬m exam theo thÃ¡ng/nÄƒm/mÃ´n
        LEFT JOIN LATERAL (
          SELECT
            CASE
@@ -81,7 +96,7 @@ export async function GET(request: NextRequest) {
                THEN es.bat_dau_luc AT TIME ZONE 'Asia/Ho_Chi_Minh'
              ELSE NULL
            END AS event_open_at,
-           -- close_at: với registration (bổ sung) → đóng theo ket_thuc_luc của sự kiện đăng ký
+           -- close_at: vá»›i registration (bá»• sung) â†’ Ä‘Ã³ng theo ket_thuc_luc cá»§a sá»± kiá»‡n Ä‘Äƒng kÃ½
            es.ket_thuc_luc AT TIME ZONE 'Asia/Ho_Chi_Minh' AS event_close_at
          FROM event_schedules es
          WHERE (
@@ -105,7 +120,7 @@ export async function GET(request: NextRequest) {
     );
 
     if (resultRow.rows.length === 0) {
-      return NextResponse.json({ success: false, error: 'Không tìm thấy kết quả đăng ký' }, { status: 404 });
+      return NextResponse.json({ success: false, error: 'KhÃ´ng tÃ¬m tháº¥y káº¿t quáº£ Ä‘Äƒng kÃ½' }, { status: 404 });
     }
 
     const row = resultRow.rows[0];
@@ -114,15 +129,15 @@ export async function GET(request: NextRequest) {
     if (!resolvedSetId) {
       return NextResponse.json({
         success: false,
-        error: 'Chưa có bộ đề nào được phân công cho lần thi này',
+        error: 'ChÆ°a cÃ³ bá»™ Ä‘á» nÃ o Ä‘Æ°á»£c phÃ¢n cÃ´ng cho láº§n thi nÃ y',
       }, { status: 404 });
     }
 
-    // Tính open_at / close_at:
-    // - Đợt CHÍNH THỨC (loai_su_kien='exam'): event_open_at VÀ event_close_at đều có → dùng cả hai
-    // - Đợt BỔ SUNG (loai_su_kien='registration'): chỉ có event_close_at (deadline đóng bài)
-    //   → open_at tính từ thoi_gian_kiem_tra hoặc fallback, close_at = ket_thuc_luc sự kiện đăng ký
-    // - Fallback: không có event → dùng thoi_gian_kiem_tra hoặc tháng/năm
+    // TÃ­nh open_at / close_at:
+    // - Äá»£t CHÃNH THá»¨C (loai_su_kien='exam'): event_open_at VÃ€ event_close_at Ä‘á»u cÃ³ â†’ dÃ¹ng cáº£ hai
+    // - Äá»£t Bá»” SUNG (loai_su_kien='registration'): chá»‰ cÃ³ event_close_at (deadline Ä‘Ã³ng bÃ i)
+    //   â†’ open_at tÃ­nh tá»« thoi_gian_kiem_tra hoáº·c fallback, close_at = ket_thuc_luc sá»± kiá»‡n Ä‘Äƒng kÃ½
+    // - Fallback: khÃ´ng cÃ³ event â†’ dÃ¹ng thoi_gian_kiem_tra hoáº·c thÃ¡ng/nÄƒm
     const timeLimitMinutes = Number(row.event_duration_minutes) || 90;
     const durationMs = timeLimitMinutes * 60_000;
 
@@ -130,18 +145,18 @@ export async function GET(request: NextRequest) {
     let closeAtTs: string;
 
     if (row.event_open_at && row.event_close_at) {
-      // Đợt CHÍNH THỨC: có cả open và close từ sự kiện exam
+      // Äá»£t CHÃNH THá»¨C: cÃ³ cáº£ open vÃ  close tá»« sá»± kiá»‡n exam
       openAtTs  = new Date(row.event_open_at).toISOString();
       closeAtTs = new Date(row.event_close_at).toISOString();
     } else if (!row.event_open_at && row.event_close_at) {
-      // Đợt BỔ SUNG: chỉ có close_at từ sự kiện registration
-      // open_at = dang_ky_luc (thời điểm tạo assignment), không dùng thoi_gian_kiem_tra
+      // Äá»£t Bá»” SUNG: chá»‰ cÃ³ close_at tá»« sá»± kiá»‡n registration
+      // open_at = dang_ky_luc (thá»i Ä‘iá»ƒm táº¡o assignment), khÃ´ng dÃ¹ng thoi_gian_kiem_tra
       openAtTs = row.dang_ky_luc
         ? new Date(row.dang_ky_luc).toISOString()
         : new Date().toISOString();
       closeAtTs = new Date(row.event_close_at).toISOString();
     } else {
-      // Đợt BỔ SUNG hoặc không có sự kiện: tính open_at từ thoi_gian_kiem_tra / fallback
+      // Äá»£t Bá»” SUNG hoáº·c khÃ´ng cÃ³ sá»± kiá»‡n: tÃ­nh open_at tá»« thoi_gian_kiem_tra / fallback
       const THOI_GIAN_REGEX = /^[0-9]{1,2}:[0-9]{2} [0-9]{2}\/[0-9]{2}\/[0-9]{4}$/;
       const hasStartedTime =
         typeof row.thoi_gian_kiem_tra === 'string' &&
@@ -153,13 +168,13 @@ export async function GET(request: NextRequest) {
         const [dd, mo, yyyy] = datePart.split('/').map(Number);
         const startMs = Date.UTC(yyyy, mo - 1, dd, hh - 7, mm, 0, 0);
         openAtTs = new Date(startMs).toISOString();
-        // close_at: nếu có event_close_at (bổ sung) → dùng deadline sự kiện, không dùng startMs + duration
+        // close_at: náº¿u cÃ³ event_close_at (bá»• sung) â†’ dÃ¹ng deadline sá»± kiá»‡n, khÃ´ng dÃ¹ng startMs + duration
         closeAtTs = row.event_close_at
           ? new Date(row.event_close_at).toISOString()
           : new Date(startMs + durationMs).toISOString();
       } else if (row.thang_dk && row.nam_dk) {
         openAtTs  = new Date(row.nam_dk, row.thang_dk - 1, 1).toISOString();
-        // close_at: nếu có event_close_at (bổ sung) → dùng deadline sự kiện
+        // close_at: náº¿u cÃ³ event_close_at (bá»• sung) â†’ dÃ¹ng deadline sá»± kiá»‡n
         closeAtTs = row.event_close_at
           ? new Date(row.event_close_at).toISOString()
           : new Date(row.nam_dk, row.thang_dk, 1).toISOString();
@@ -176,7 +191,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Build assignment object đúng format mà exam page cần
+    // Build assignment object Ä‘Ãºng format mÃ  exam page cáº§n
     const assignment = {
       id: row.id,
       teacher_code: row.ma_giao_vien || '',
@@ -193,7 +208,8 @@ export async function GET(request: NextRequest) {
       time_limit_minutes: timeLimitMinutes,
     };
 
-    // Lấy câu hỏi từ bộ đề
+    // Láº¥y cÃ¢u há»i tá»« bá»™ Ä‘á»
+    const canReadAnswers = ['super_admin', 'admin'].includes(auth.resolvedAccess.role);
     const questions = await pool.query(
       `SELECT
          cq.id                                              AS id,
@@ -207,8 +223,8 @@ export async function GET(request: NextRequest) {
            THEN jsonb_build_array(cq.lua_chon_a, cq.lua_chon_b, cq.lua_chon_c, cq.lua_chon_d)
            ELSE NULL
          END                                               AS options,
-         cq.dap_an_dung                                    AS correct_answer,
-         cq.giai_thich                                     AS explanation,
+         ${canReadAnswers ? 'cq.dap_an_dung' : 'NULL::text'} AS correct_answer,
+         ${canReadAnswers ? 'cq.giai_thich' : 'NULL::text'} AS explanation,
          cq.image_url                                      AS image_url,
          cq.diem                                           AS points,
          cq.do_kho                                         AS difficulty,
@@ -233,11 +249,14 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// ─── POST: Phân công bộ đề cho result ────────────────────────────────────────
+// â”€â”€â”€ POST: PhÃ¢n cÃ´ng bá»™ Ä‘á» cho result â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function POST(request: NextRequest) {
   const client = await pool.connect();
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const { result_id, set_code, set_id } = body;
 
@@ -245,23 +264,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'result_id is required' }, { status: 400 });
     }
     if (!set_code && !set_id) {
-      return NextResponse.json({ success: false, error: 'set_code hoặc set_id là bắt buộc' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'set_code hoáº·c set_id lÃ  báº¯t buá»™c' }, { status: 400 });
     }
 
     await client.query('BEGIN');
 
-    // Xác định bộ đề
+    // XÃ¡c Ä‘á»‹nh bá»™ Ä‘á»
     let resolvedSetCode = set_code;
     if (!resolvedSetCode) {
       const setRow = await client.query('SELECT ma_de FROM chuyen_sau_bode WHERE id = $1', [set_id]);
       if (setRow.rows.length === 0) {
         await client.query('ROLLBACK');
-        return NextResponse.json({ success: false, error: 'Bộ đề không tồn tại' }, { status: 404 });
+        return NextResponse.json({ success: false, error: 'Bá»™ Ä‘á» khÃ´ng tá»“n táº¡i' }, { status: 404 });
       }
       resolvedSetCode = setRow.rows[0].ma_de;
     }
 
-    // Cập nhật ma_de và trạng thái trên results
+    // Cáº­p nháº­t ma_de vÃ  tráº¡ng thÃ¡i trÃªn results
     const updated = await client.query(
       `UPDATE chuyen_sau_results
        SET ma_de = $1, trang_thai = 'da_phan_cong'
@@ -272,14 +291,14 @@ export async function POST(request: NextRequest) {
 
     if (updated.rows.length === 0) {
       await client.query('ROLLBACK');
-      return NextResponse.json({ success: false, error: 'Không tìm thấy result' }, { status: 404 });
+      return NextResponse.json({ success: false, error: 'KhÃ´ng tÃ¬m tháº¥y result' }, { status: 404 });
     }
 
     await client.query('COMMIT');
     return NextResponse.json({
       success: true,
       data: updated.rows[0],
-      message: `Đã phân công bộ đề ${resolvedSetCode}`,
+      message: `ÄÃ£ phÃ¢n cÃ´ng bá»™ Ä‘á» ${resolvedSetCode}`,
     }, { status: 201 });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -290,15 +309,18 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// ─── PUT: Đổi bộ đề cho result ───────────────────────────────────────────────
+// â”€â”€â”€ PUT: Äá»•i bá»™ Ä‘á» cho result â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function PUT(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const { result_id, set_code } = body;
 
     if (!result_id || !set_code) {
-      return NextResponse.json({ success: false, error: 'result_id và set_code là bắt buộc' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'result_id vÃ  set_code lÃ  báº¯t buá»™c' }, { status: 400 });
     }
 
     const result = await pool.query(
@@ -309,7 +331,7 @@ export async function PUT(request: NextRequest) {
 
     if (result.rows.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'Không thể đổi bộ đề - kết quả không tồn tại hoặc đã thi xong.' },
+        { success: false, error: 'KhÃ´ng thá»ƒ Ä‘á»•i bá»™ Ä‘á» - káº¿t quáº£ khÃ´ng tá»“n táº¡i hoáº·c Ä‘Ã£ thi xong.' },
         { status: 409 }
       );
     }

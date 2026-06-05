@@ -1,37 +1,44 @@
-/**
- * Proxy API để serve ảnh/video từ Supabase S3 private buckets.
- * Dùng khi bucket chưa được set public.
- *
- * Usage: /api/storage-image?bucket=mindx-thumbnails&key=thumbnails/xxx.png
- *
- * Cũng hỗ trợ parse Supabase public URL format:
- * /api/storage-image?url=https://xxx.supabase.co/storage/v1/object/public/bucket/key
- *
- * Hỗ trợ HTTP Range Requests để video streaming hoạt động đúng.
- */
+import { requireCandidateSession } from '@/lib/candidate-session';
 import { requireBearerSession } from '@/lib/datasource-api-auth';
-import {
-  TPS_SESSION_COOKIE,
-  verifySessionCookieValue,
-} from '@/lib/session-cookie';
+import { clientIpFromRequest, rateLimitOr429Async } from '@/lib/rate-limit-memory';
 import { createSupabaseS3Client, isSupabaseS3Configured } from '@/lib/supabase-s3';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { NextRequest, NextResponse } from 'next/server';
 
-/** Cho phép đọc ẩn danh (vd. <img> trang công khai) — bucket còn lại cần phiên đăng nhập. */
 const ANONYMOUS_READ_BUCKETS = new Set([
   'mindx-posts-content',
   'mindx-thumbnails',
-  'mindx-videos',
-  'mindx-question-images',
 ]);
 
-async function isAuthenticatedRequest(request: NextRequest): Promise<boolean> {
+function parseStorageUrl(rawUrl: string): { bucket: string; key: string } | null {
+  const match = rawUrl.match(/\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/);
+  if (!match) return null;
+  return { bucket: match[1], key: match[2] };
+}
+
+function isSafeObjectKey(key: string): boolean {
+  return Boolean(key) && !key.includes('..') && !key.startsWith('/');
+}
+
+async function requireReadAccess(
+  request: NextRequest,
+  bucket: string,
+  key: string,
+): Promise<NextResponse | null> {
+  if (ANONYMOUS_READ_BUCKETS.has(bucket)) return null;
+
+  if (bucket === 'mindx-candidate-harvest') {
+    const candidateAuth = await requireCandidateSession(request);
+    if (!candidateAuth.ok) return candidateAuth.response;
+    if (!key.startsWith(`harvest/${candidateAuth.candidateId}/`)) {
+      return new NextResponse('Forbidden', { status: 403 });
+    }
+    return null;
+  }
+
   const auth = await requireBearerSession(request);
-  if (auth.ok) return true;
-  const raw = request.cookies.get(TPS_SESSION_COOKIE)?.value;
-  if (!raw) return false;
-  return (await verifySessionCookieValue(raw)) !== null;
+  if (!auth.ok) return auth.response;
+  return null;
 }
 
 export async function GET(request: NextRequest) {
@@ -39,6 +46,9 @@ export async function GET(request: NextRequest) {
   let key: string | null = null;
 
   try {
+    const rl = await rateLimitOr429Async(`storage-image:${clientIpFromRequest(request)}`, 300, 60_000);
+    if (rl) return rl;
+
     if (!isSupabaseS3Configured()) {
       return new NextResponse('Storage not configured', { status: 500 });
     }
@@ -47,95 +57,70 @@ export async function GET(request: NextRequest) {
     bucket = searchParams.get('bucket');
     key = searchParams.get('key');
 
-    // Hỗ trợ parse từ Supabase public URL
     const rawUrl = searchParams.get('url');
     if (rawUrl && (!bucket || !key)) {
-      const match = rawUrl.match(/\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/);
-      if (match) {
-        bucket = match[1];
-        key = match[2];
+      const parsed = parseStorageUrl(rawUrl);
+      if (parsed) {
+        bucket = parsed.bucket;
+        key = parsed.key;
       }
     }
 
-    if (!bucket || !key) {
-      return new NextResponse('Missing bucket or key', { status: 400 });
+    if (!bucket || !key || !isSafeObjectKey(key)) {
+      return new NextResponse('Missing or invalid bucket/key', { status: 400 });
     }
 
-    if (
-      !ANONYMOUS_READ_BUCKETS.has(bucket) &&
-      !(await isAuthenticatedRequest(request))
-    ) {
-      return new NextResponse('Unauthorized', { status: 401 });
-    }
+    const denied = await requireReadAccess(request, bucket, key);
+    if (denied) return denied;
 
-    const isVideo = key.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i);
+    const isVideo = /\.(mp4|webm|ogg|mov|avi|mkv)$/i.test(key);
     const rangeHeader = request.headers.get('range');
-
     const client = createSupabaseS3Client();
-
-    // Với video + range request: forward range header tới S3
     const getObjectParams: any = { Bucket: bucket, Key: key };
     if (isVideo && rangeHeader) {
       getObjectParams.Range = rangeHeader;
     }
 
     const result = await client.send(new GetObjectCommand(getObjectParams));
-
     if (!result.Body) {
       return new NextResponse('Not found', { status: 404 });
     }
 
-    const contentType = result.ContentType || (isVideo ? 'video/mp4' : 'application/octet-stream');
-    const contentLength = result.ContentLength;
-    const contentRange = result.ContentRange;
-
-    // Stream body trực tiếp thay vì buffer toàn bộ vào memory
     const stream = result.Body.transformToWebStream();
-
     const headers: Record<string, string> = {
-      'Content-Type': contentType,
+      'Content-Type': result.ContentType || (isVideo ? 'video/mp4' : 'application/octet-stream'),
       'Accept-Ranges': 'bytes',
-      'Cache-Control': isVideo
-        ? 'public, max-age=3600, s-maxage=3600'
-        : 'public, max-age=604800, s-maxage=86400',
+      'Cache-Control': ANONYMOUS_READ_BUCKETS.has(bucket)
+        ? 'public, max-age=604800, s-maxage=86400'
+        : 'private, max-age=3600',
+      'X-Content-Type-Options': 'nosniff',
     };
 
-    if (contentLength != null) {
-      headers['Content-Length'] = String(contentLength);
+    if (result.ContentLength != null) {
+      headers['Content-Length'] = String(result.ContentLength);
+    }
+    if (result.ContentRange) {
+      headers['Content-Range'] = result.ContentRange;
     }
 
-    if (contentRange) {
-      headers['Content-Range'] = contentRange;
-    }
-
-    // 206 Partial Content khi có range, 200 khi full
-    const status = isVideo && rangeHeader && contentRange ? 206 : 200;
-
-    return new NextResponse(stream, { status, headers });
+    return new NextResponse(stream, {
+      status: isVideo && rangeHeader && result.ContentRange ? 206 : 200,
+      headers,
+    });
   } catch (error: any) {
-    // S3 trả về 416 nếu range không hợp lệ
     if (error?.name === 'InvalidRange' || error?.$metadata?.httpStatusCode === 416) {
       return new NextResponse('Range Not Satisfiable', { status: 416 });
     }
-
-    // File không tồn tại trong S3 → trả về placeholder SVG thay vì 404 trắng
     if (error?.name === 'NoSuchKey' || error?.$metadata?.httpStatusCode === 404) {
       console.warn(`[storage-proxy] NoSuchKey: ${bucket}/${key}`);
-      const placeholder = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
-        <rect width="400" height="300" fill="#f3f4f6"/>
-        <text x="200" y="140" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#9ca3af">Ảnh không tồn tại</text>
-        <text x="200" y="165" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#d1d5db">${key?.split('/').pop() ?? ''}</text>
-      </svg>`;
-      return new NextResponse(placeholder, {
-        status: 200,
-        headers: {
-          'Content-Type': 'image/svg+xml',
-          'Cache-Control': 'no-store',
-        },
+      return new NextResponse('Not found', {
+        status: 404,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' },
       });
     }
 
-    console.error('Storage proxy error:', error);
+    console.error('Storage proxy error:', error?.message || error);
     return new NextResponse('Not found', { status: 404 });
   }
 }
+

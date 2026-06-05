@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import pool from '@/lib/db'
-import { isAppAdminByEmail } from '@/lib/is-app-admin'
+import { requireCommunicationActor } from '@/lib/communication-actor'
 
 // Edit comment
 export async function PUT(
@@ -9,9 +9,12 @@ export async function PUT(
 ) {
     try {
         const { commentId } = await params
-        const { content, userId } = await request.json()
+        const actor = await requireCommunicationActor(request)
+        if (!actor.ok) return actor.response
 
-        if (!content?.trim() || !userId) {
+        const { content } = await request.json()
+
+        if (!content?.trim()) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
         }
 
@@ -23,7 +26,7 @@ export async function PUT(
              RETURNING 
                 id, content,
                 to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at`,
-            [content.trim(), commentId, userId]
+            [content.trim(), commentId, actor.userId]
         )
 
         if (result.rows.length === 0) {
@@ -50,19 +53,11 @@ export async function DELETE(
 ) {
     try {
         const { commentId } = await params
-        const { searchParams } = new URL(request.url)
-        const userId = searchParams.get('userId')
-        const userEmail = searchParams.get('userEmail')
-
-        if (!userId) {
-            return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
-        }
-
-        // Check if user is admin
-        const adminStatus = await isAppAdminByEmail(userEmail || undefined)
+        const actor = await requireCommunicationActor(request)
+        if (!actor.ok) return actor.response
         
         let result
-        if (adminStatus) {
+        if (actor.isAdmin) {
             // Admin can delete any comment from truyenthong_comments
             result = await pool.query(
                 `DELETE FROM truyenthong_comments WHERE id = $1 RETURNING id`,
@@ -72,7 +67,7 @@ export async function DELETE(
             // Regular user can only delete their own comments
             result = await pool.query(
                 `DELETE FROM truyenthong_comments WHERE id = $1 AND user_id = $2 RETURNING id`,
-                [commentId, userId]
+                [commentId, actor.userId]
             )
         }
 
@@ -97,18 +92,14 @@ export async function PATCH(
 ) {
     try {
         const { commentId } = await params
-        const body = await request.json()
-        const userEmail = body?.userEmail as string | undefined
-        const hiddenRaw = body?.hidden
-
-        if (!userEmail?.trim()) {
-            return NextResponse.json({ error: 'Missing userEmail' }, { status: 400 })
-        }
-
-        const adminStatus = await isAppAdminByEmail(userEmail)
-        if (!adminStatus) {
+        const actor = await requireCommunicationActor(request)
+        if (!actor.ok) return actor.response
+        if (!actor.isAdmin) {
             return NextResponse.json({ error: 'Unauthorized - Admin only' }, { status: 403 })
         }
+
+        const body = await request.json()
+        const hiddenRaw = body?.hidden
 
         const hiddenFlag = hiddenRaw === true || hiddenRaw === 'true'
 

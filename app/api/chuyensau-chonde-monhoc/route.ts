@@ -1,7 +1,8 @@
 import pool from '@/lib/db';
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
 import { NextRequest, NextResponse } from 'next/server';
 
-// ─── GET: Lấy danh sách môn học / bộ đề ──────────────────────────────────────
+// â”€â”€â”€ GET: Láº¥y danh sÃ¡ch mÃ´n há»c / bá»™ Ä‘á» â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function GET(request: NextRequest) {
   try {
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ success: true, data: subjectsResult.rows });
       }
 
-      // type === 'all': gom cả bộ đề
+      // type === 'all': gom cáº£ bá»™ Ä‘á»
       const setsResult = await pool.query(
         `SELECT
            bd.id,
@@ -123,7 +124,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: result.rows });
     }
 
-    // Default: trả về thống kê tổng quan
+    // Default: tráº£ vá» thá»‘ng kÃª tá»•ng quan
     const overview = await pool.query(
       `SELECT
          loai_ky_thi   AS exam_type,
@@ -140,10 +141,13 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// ─── POST: Tạo môn học ───────────────────────────────────────────────────────
+// â”€â”€â”€ POST: Táº¡o mÃ´n há»c â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function POST(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const {
       exam_type,
@@ -157,7 +161,7 @@ export async function POST(request: NextRequest) {
 
     if (!exam_type || !block_code || !subject_code || !subject_name) {
       return NextResponse.json(
-        { success: false, error: 'Thiếu thông tin bắt buộc: exam_type, block_code, subject_code, subject_name' },
+        { success: false, error: 'Thiáº¿u thÃ´ng tin báº¯t buá»™c: exam_type, block_code, subject_code, subject_name' },
         { status: 400 }
       );
     }
@@ -191,10 +195,13 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// ─── PUT: Cập nhật môn học ───────────────────────────────────────────────────
+// â”€â”€â”€ PUT: Cáº­p nháº­t mÃ´n há»c â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function PUT(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const { id, subject_name, is_active, duration_minutes, set_selection_mode } = body;
 
@@ -243,10 +250,13 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// ─── DELETE: Xóa môn học (chỉ khi chưa có bộ đề) ────────────────────────────
+// â”€â”€â”€ DELETE: XÃ³a mÃ´n há»c (chá»‰ khi chÆ°a cÃ³ bá»™ Ä‘á») â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function DELETE(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 
@@ -263,12 +273,12 @@ export async function DELETE(request: NextRequest) {
 
     if (result.rows.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'Không thể xóa - môn học đang có bộ đề hoặc không tồn tại.' },
+        { success: false, error: 'KhÃ´ng thá»ƒ xÃ³a - mÃ´n há»c Ä‘ang cÃ³ bá»™ Ä‘á» hoáº·c khÃ´ng tá»“n táº¡i.' },
         { status: 409 }
       );
     }
 
-    return NextResponse.json({ success: true, message: 'Đã xóa môn học thành công' });
+    return NextResponse.json({ success: true, message: 'ÄÃ£ xÃ³a mÃ´n há»c thÃ nh cÃ´ng' });
   } catch (error) {
     console.error('Error deleting subject:', error);
     return NextResponse.json({ success: false, error: 'Failed to delete subject' }, { status: 500 });

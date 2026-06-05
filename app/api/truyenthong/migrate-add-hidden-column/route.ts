@@ -1,12 +1,16 @@
-import { NextResponse } from 'next/server';
+import { requireBearerAdminOrSuper } from '@/lib/auth-server';
+import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 
 /**
  * Add hidden column to truyenthong_comments
  * GET /api/truyenthong/migrate-add-hidden-column
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
     try {
+        const gate = await requireBearerAdminOrSuper(request);
+        if (!gate.ok) return gate.response;
+
         const client = await pool.connect();
 
         try {

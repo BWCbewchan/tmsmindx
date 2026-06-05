@@ -13,26 +13,24 @@ const SAVED_LOGIN_KEY = 'tps_saved_login_account';
 type LandingRole = 'teacher' | 'manager' | 'candidate';
 type AppRole = 'teacher' | 'manager' | 'super_admin' | 'admin' | 'hr';
 
-const ADMIN_LANDING_ROLES = new Set<AppRole>(['super_admin', 'admin', 'hr']);
-
 function resolveTeacherLanding(teacherSync?: { foundInDatabase?: boolean }): string {
   return teacherSync?.foundInDatabase ? '/user/truyenthong' : '/checkdatasource'
 }
 
 function resolvePostLoginPath(options: {
-  accountRole?: AppRole;
   selectedRole: LandingRole;
   isAdmin: boolean;
   teacherSync?: { foundInDatabase?: boolean };
 }): { redirectPath: string; isAdminLanding: boolean } {
-  const { accountRole, selectedRole, isAdmin, teacherSync } = options;
-  const isAdminLanding =
-    Boolean(accountRole && ADMIN_LANDING_ROLES.has(accountRole)) ||
-    (selectedRole === 'manager' && isAdmin);
+  const { selectedRole, isAdmin, teacherSync } = options;
+  const isAdminLanding = selectedRole === 'manager' && isAdmin;
+  const isTeacherLandingForPrivilegedUser = selectedRole === 'teacher' && isAdmin;
 
   return {
     redirectPath: isAdminLanding
       ? '/admin/dashboard'
+      : isTeacherLandingForPrivilegedUser
+        ? '/user/truyenthong'
       : resolveTeacherLanding(teacherSync),
     isAdminLanding,
   };
@@ -97,7 +95,6 @@ export default function LoginPage() {
       hasCheckedAuth.current = true;
       if (user) {
         const { redirectPath } = resolvePostLoginPath({
-          accountRole: user.role as AppRole | undefined,
           selectedRole: role,
           isAdmin: Boolean(user.isAdmin),
         });
@@ -179,8 +176,6 @@ export default function LoginPage() {
         appUser?: boolean;
         error?: string;
         dbUnavailable?: boolean;
-        idToken?: string;
-        accessToken?: string;
         email?: string;
         displayName?: string;
         role?: string;
@@ -196,7 +191,7 @@ export default function LoginPage() {
       }
 
       if (appAuthData.appUser === true) {
-        if (!appAuthData.idToken || !appAuthData.localId) {
+        if (!appAuthData.localId) {
           throw new Error('Phản hồi đăng nhập app không đầy đủ. Vui lòng thử lại.');
         }
 
@@ -211,11 +206,9 @@ export default function LoginPage() {
           permissions: appAuthData.permissions ?? [],
         };
 
-        // Ưu tiên dùng accessToken (JWT nội bộ) làm Bearer; fallback idToken Firebase
-        updateUser(userData, appAuthData.accessToken || appAuthData.idToken);
+        updateUser(userData, '');
 
         const landing = resolvePostLoginPath({
-          accountRole: appAuthData.role as AppRole | undefined,
           selectedRole: role,
           isAdmin: Boolean(appAuthData.isAdmin),
           teacherSync: appAuthData.teacherSync,
@@ -284,7 +277,6 @@ export default function LoginPage() {
       logger.success('Firebase login successful', { email: userData.email, role: userData.role });
 
       const landing = resolvePostLoginPath({
-        accountRole: serverRole,
         selectedRole: role,
         isAdmin: Boolean(userData.isAdmin),
         teacherSync: data?.teacherSync,
@@ -309,8 +301,7 @@ export default function LoginPage() {
       }
 
       persistRememberedAccount(trimmedEmail, role);
-      // Ưu tiên dùng accessToken (JWT nội bộ HS256) làm Bearer; fallback idToken Firebase
-      updateUser(userData, data.accessToken || data.idToken);
+      updateUser(userData, '');
 
       logger.info('Redirecting to', { path: finalRedirectPath });
       setTimeout(() => { router.replace(finalRedirectPath); }, 500);

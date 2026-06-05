@@ -2,7 +2,12 @@ import {
   requireBearerDbRoles,
   requireBearerSuperAdmin,
 } from '@/lib/auth-server';
+import {
+  filterManagementPermissions,
+  isManagementPermissionRoute,
+} from '@/lib/admin-permission-routes';
 import pool from '@/lib/db';
+import { logCreate, logDelete, logRoleChange, logUpdate, getRequestMeta } from '@/lib/audit-logger';
 import bcrypt from 'bcryptjs';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -37,7 +42,16 @@ export async function GET(request: NextRequest) {
       ORDER BY u.created_at DESC
     `);
 
-    return NextResponse.json({ users: result.rows });
+    return NextResponse.json({
+      users: result.rows.map((row) => ({
+        ...row,
+        permissions: Array.isArray(row.permissions)
+          ? row.permissions.filter((permission: { route_path: string }) =>
+              isManagementPermissionRoute(permission.route_path),
+            )
+          : [],
+      })),
+    });
   } catch (error: unknown) {
     console.error('Error listing users:', error);
     return NextResponse.json({ error: 'Lỗi server' }, { status: 500 });
@@ -95,11 +109,15 @@ export async function POST(request: NextRequest) {
 
     const newUser = userResult.rows[0];
 
-    if (permissions && Array.isArray(permissions) && permissions.length > 0) {
-      const permValues = permissions
+    const safePermissions = Array.isArray(permissions)
+      ? filterManagementPermissions(permissions)
+      : [];
+
+    if (safePermissions.length > 0) {
+      const permValues = safePermissions
         .map((_: string, i: number) => `($1, $${i + 2}, true)`)
         .join(', ');
-      const permParams = [newUser.id, ...permissions];
+      const permParams = [newUser.id, ...safePermissions];
       await pool.query(
         `INSERT INTO app_permissions (user_id, route_path, can_access) VALUES ${permValues}
          ON CONFLICT (user_id, route_path) DO UPDATE SET can_access = true`,
@@ -117,6 +135,16 @@ export async function POST(request: NextRequest) {
         roleParams,
       );
     }
+
+    // ── Log: tạo user mới ──
+    logCreate({
+      actorEmail:  gate.sessionEmail,
+      actorRole:   gate.role,
+      table:       'app_users',
+      recordId:    newUser.id,
+      newRecord:   { email: newUser.email, display_name: newUser.display_name, role: newUser.role, auth_type: newUser.auth_type },
+      ...getRequestMeta(request),
+    });
 
     return NextResponse.json({ success: true, user: newUser });
   } catch (error: unknown) {
@@ -137,6 +165,16 @@ export async function PUT(request: NextRequest) {
     if (!id) {
       return NextResponse.json({ error: 'User ID là bắt buộc' }, { status: 400 });
     }
+
+    // Lấy thông tin user cũ trước khi UPDATE để phục vụ logging chính xác
+    const oldUserResult = await pool.query(
+      'SELECT email, display_name, role, is_active FROM app_users WHERE id = $1',
+      [id]
+    );
+    if (oldUserResult.rows.length === 0) {
+      return NextResponse.json({ error: 'Không tìm thấy user' }, { status: 404 });
+    }
+    const oldUser = oldUserResult.rows[0];
 
     const updates: string[] = [];
     const params: unknown[] = [];
@@ -183,7 +221,36 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Không tìm thấy user' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, user: result.rows[0] });
+    const updatedUser = result.rows[0];
+    const meta = getRequestMeta(request);
+
+    // ── Log: nếu có thay đổi role → dùng logRoleChange chuyên biệt ──
+    if (role !== undefined && oldUser.role !== role) {
+      logRoleChange({
+        actorEmail:  gate.sessionEmail,
+        actorRole:   gate.role,
+        targetEmail: updatedUser.email,
+        targetId:    id,
+        oldRole:     oldUser.role,
+        newRole:     role,
+        endpoint:    meta.endpoint,
+        ip:          meta.ip,
+        userAgent:   meta.userAgent,
+      });
+    } else {
+      // Ghi log cập nhật thông thường với đầy đủ before/after
+      logUpdate({
+        actorEmail:  gate.sessionEmail,
+        actorRole:   gate.role,
+        table:       'app_users',
+        recordId:    id,
+        oldRecord:   { display_name: oldUser.display_name, role: oldUser.role, is_active: oldUser.is_active },
+        newRecord:   { display_name: displayName ?? oldUser.display_name, role: role ?? oldUser.role, is_active: isActive ?? oldUser.is_active, password_changed: !!password },
+        ...meta,
+      });
+    }
+
+    return NextResponse.json({ success: true, user: updatedUser });
   } catch (error: unknown) {
     console.error('Error updating user:', error);
     return NextResponse.json({ error: 'Lỗi server' }, { status: 500 });
@@ -203,15 +270,31 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'User ID là bắt buộc' }, { status: 400 });
     }
 
-    const userCheck = await pool.query('SELECT role FROM app_users WHERE id = $1', [id]);
+    const userCheck = await pool.query(
+      'SELECT id, email, role, display_name FROM app_users WHERE id = $1', [id]
+    );
     if (userCheck.rows.length > 0 && userCheck.rows[0].role === 'super_admin') {
       return NextResponse.json({ error: 'Không thể xóa tài khoản Super Admin' }, { status: 403 });
     }
+
+    const targetUser = userCheck.rows[0];
 
     await pool.query(
       'UPDATE app_users SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
       [id],
     );
+
+    // ── Log: deactivate user ──
+    if (targetUser) {
+      logDelete({
+        actorEmail:    gate.sessionEmail,
+        actorRole:     gate.role,
+        table:         'app_users',
+        recordId:      id,
+        deletedRecord: { email: targetUser.email, role: targetUser.role, display_name: targetUser.display_name, action: 'deactivated' },
+        ...getRequestMeta(request),
+      });
+    }
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

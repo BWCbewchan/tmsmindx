@@ -1,4 +1,8 @@
 import { requireBearerDbRoles } from '@/lib/auth-server';
+import {
+  filterManagementPermissions,
+  isManagementPermissionRoute,
+} from '@/lib/admin-permission-routes';
 import pool from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -104,10 +108,26 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      roles: rolesRes.rows,
+      roles: rolesRes.rows.map((row) => {
+        const permissions = filterManagementPermissions(
+          Array.isArray(row.permissions) ? row.permissions : [],
+        )
+        return {
+          ...row,
+          permissions,
+          permission_count: permissions.length,
+        }
+      }),
       centers: centersRes.rows,
       areas: areasRes.rows.map((r: { area: string }) => r.area),
-      users: usersRes.rows,
+      users: usersRes.rows.map((row) => ({
+        ...row,
+        permissions: Array.isArray(row.permissions)
+          ? row.permissions.filter((permission: { route_path: string }) =>
+              isManagementPermissionRoute(permission.route_path),
+            )
+          : [],
+      })),
     })
   } catch (error: unknown) {
     console.error('Error getting reference-data:', error)

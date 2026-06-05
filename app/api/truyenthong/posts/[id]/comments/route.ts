@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { requireCommunicationActor } from '@/lib/communication-actor';
 
 interface Comment {
     id: number;
@@ -99,16 +100,19 @@ export async function GET(
  * POST /api/truyenthong/posts/[id]/comments
  */
 export async function POST(
-    request: Request,
+    request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
     try {
         const { id } = await params;
         const postSlug = id;
-        const body = await request.json();
-        const { userId, userName, userEmail, content, parentId } = body;
+        const actor = await requireCommunicationActor(request);
+        if (!actor.ok) return actor.response;
 
-        if (!userId || !userName || !content) {
+        const body = await request.json();
+        const { content, parentId } = body;
+
+        if (!content?.trim()) {
             return NextResponse.json({ 
                 error: 'Missing required fields' 
             }, { status: 400 });
@@ -124,7 +128,7 @@ export async function POST(
                     id, post_slug, user_id, user_name, user_email, content, parent_id, hidden,
                     to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
                     to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at`,
-                [postSlug, userId, userName, userEmail, content, parentId || null]
+                [postSlug, actor.userId, actor.userName, actor.userEmail, content.trim(), parentId || null]
             );
 
             return NextResponse.json(result.rows[0], { status: 201 });

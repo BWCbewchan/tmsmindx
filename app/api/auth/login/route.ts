@@ -1,8 +1,10 @@
 import { resolveAppUserAccessForEmail } from '@/lib/app-user-access';
+import { logLoginFailed, logLoginSuccess } from '@/lib/audit-logger';
+import { checkAndRecordThreat, isIpBlocked } from '@/lib/brute-force-guard';
 import pool from '@/lib/db';
 import { checkTeacherExistsByEmail } from '@/lib/db-helpers';
 import { getJwtSecret } from '@/lib/jwt-secret';
-import { clientIpFromRequest, rateLimitOr429 } from '@/lib/rate-limit-memory';
+import { clientIpFromRequest, rateLimitOr429Async } from '@/lib/rate-limit-memory';
 import { setSessionCookieOnResponse } from '@/lib/session-cookie';
 import jwt from 'jsonwebtoken';
 import { NextRequest, NextResponse } from 'next/server';
@@ -38,9 +40,20 @@ async function tryFirebaseLogin(email: string, password: string) {
 }
 
 export async function POST(request: NextRequest) {
+  const ip = clientIpFromRequest(request) ?? 'unknown';
+  const userAgent = request.headers.get('user-agent') ?? '';
+
   try {
-    const rl = rateLimitOr429(
-      `auth-login:${clientIpFromRequest(request)}`,
+    const blockStatus = await isIpBlocked(ip);
+    if (blockStatus.blocked) {
+      return NextResponse.json(
+        { error: 'Quá nhiều lần thử đăng nhập. Vui lòng thử lại sau.' },
+        { status: 429 },
+      );
+    }
+
+    const rl = await rateLimitOr429Async(
+      `auth-login:${ip}`,
       40,
       60_000,
     );
@@ -116,6 +129,21 @@ export async function POST(request: NextRequest) {
             errorMessage = lastError;
         }
       }
+      logLoginFailed({
+        email: inputEmail.trim().toLowerCase(),
+        ip,
+        userAgent,
+        reason: lastError || 'firebase_login_failed',
+      });
+
+      const threat = await checkAndRecordThreat(ip, 'LOGIN_FAIL');
+      if (threat.blocked) {
+        return NextResponse.json(
+          { error: 'Quá nhiều lần thử. IP bị block tạm thời.' },
+          { status: 429 },
+        );
+      }
+
       return NextResponse.json({ error: errorMessage }, { status: 401 });
     }
 
@@ -163,14 +191,10 @@ export async function POST(request: NextRequest) {
     );
 
     const res = NextResponse.json({
-      idToken: successData.idToken,
-      /** JWT nội bộ HS256 — dùng làm Bearer cho /api/check-admin và các API bảo vệ thay vì Firebase idToken */
-      accessToken: edgeSessionJwt,
       email: successData.email,
       localId: successData.localId,
       displayName: finalDisplayName || String(successData.email || '').split('@')[0],
       expiresIn: successData.expiresIn,
-      refreshToken: successData.refreshToken,
       role: access.role,
       isAdmin: access.isAdmin,
       permissions: access.permissions,
@@ -202,6 +226,13 @@ export async function POST(request: NextRequest) {
         maxAge: 60 * 60 * 24 * 30, // 30 ngày — refresh token sống lâu hơn
       });
     }
+
+    logLoginSuccess({
+      email: loginEmail,
+      role: access.role,
+      ip,
+      userAgent,
+    });
 
     return res;
   } catch (error: unknown) {

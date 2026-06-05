@@ -1,10 +1,11 @@
-﻿import { withApiProtection } from '@/lib/api-protection';
+import { withApiProtection } from '@/lib/api-protection';
 import {
   EVENT_SCHEDULE_WALL_IANA,
   eventScheduleTsAsTimestamptz,
   parseToVnWallStorage,
   vnWallStorageSqlToInstantMs,
 } from '@/lib/event-schedule-time';
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
 import pool from '@/lib/db';
 import { isDegradedDatabaseQueryError } from '@/lib/db-unavailable';
 import { NextRequest, NextResponse } from 'next/server';
@@ -380,6 +381,9 @@ export const GET = withApiProtection(async (request: NextRequest) => {
 
 export const POST = withApiProtection(async (request: NextRequest) => {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const columns = await getEventScheduleColumns();
 
@@ -512,6 +516,9 @@ export const POST = withApiProtection(async (request: NextRequest) => {
 
 export const PUT = withApiProtection(async (request: NextRequest) => {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const columns = await getEventScheduleColumns();
     const { id } = body;
@@ -673,6 +680,9 @@ export const PUT = withApiProtection(async (request: NextRequest) => {
 
 export const DELETE = withApiProtection(async (request: NextRequest) => {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const { id } = body;
 

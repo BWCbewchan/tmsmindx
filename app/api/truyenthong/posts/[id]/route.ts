@@ -1,5 +1,6 @@
 import pool from '@/lib/db';
 import { sanitizeHtml, sanitizeText } from '@/lib/server-sanitize-html';
+import { TPS_SESSION_COOKIE, verifySessionCookieValue } from '@/lib/session-cookie';
 import {
     createSupabaseS3Client,
     deleteObject,
@@ -129,8 +130,6 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId');
     const client = await pool.connect();
 
     try {
@@ -145,8 +144,8 @@ export async function GET(
       const post = lookup.post;
 
       if (post.status !== 'published') {
-        const rawSession = request.cookies.get('tps_session')?.value;
-        const session = rawSession ? await import('@/lib/session-cookie').then(({ verifySessionCookieValue }) => verifySessionCookieValue(rawSession)) : null;
+        const rawSession = request.cookies.get(TPS_SESSION_COOKIE)?.value;
+        const session = rawSession ? await verifySessionCookieValue(rawSession) : null;
         if (!session?.canAdminPortal) {
           return NextResponse.json({ error: 'Post not found' }, { status: 404 });
         }
@@ -155,6 +154,9 @@ export async function GET(
       let isLiked = false;
       let reaction: string | null = null;
       const reaction_counts: Record<string, number> = {};
+      const rawSession = request.cookies.get(TPS_SESSION_COOKIE)?.value;
+      const session = rawSession ? await verifySessionCookieValue(rawSession) : null;
+      const userId = session?.email?.trim().toLowerCase();
 
       if (userId) {
         const likeCheck = await client.query(

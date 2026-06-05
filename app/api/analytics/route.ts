@@ -1,14 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSameOriginMutation } from '@/lib/api-security';
+import { requireBearerSession } from '@/lib/datasource-api-auth';
+import { clientIpFromRequest, rateLimitOr429Async } from '@/lib/rate-limit-memory';
 
 // Google Apps Script Web App URL for analytics
 const ANALYTICS_SCRIPT_URL = process.env.NEXT_PUBLIC_ANALYTICS_SCRIPT_URL || '';
 
 export async function POST(request: NextRequest) {
   try {
+    const originDenied = requireSameOriginMutation(request);
+    if (originDenied) return originDenied;
+    const auth = await requireBearerSession(request);
+    if (!auth.ok) return auth.response;
+
+    const limited = await rateLimitOr429Async(`analytics:${clientIpFromRequest(request)}`, 120, 60_000);
+    if (limited) return limited;
+
     const body = await request.json();
     const { action, searchCode } = body;
 
     // Track visits and searches
+    if (!ANALYTICS_SCRIPT_URL) {
+      return NextResponse.json({ success: true, skipped: true });
+    }
+
     const response = await fetch(ANALYTICS_SCRIPT_URL, {
       method: 'POST',
       headers: {

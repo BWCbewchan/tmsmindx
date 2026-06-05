@@ -1,8 +1,12 @@
 import { revalidatePath } from 'next/cache'
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     // Revalidate the K12 docs pages
     revalidatePath('/user/quy-trinh-quy-dinh')
     revalidatePath('/admin/page2')

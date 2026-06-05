@@ -1,15 +1,19 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { rejectCandidateIdMismatch, requireCandidateSession } from '@/lib/candidate-session';
 import pool from '@/lib/db';
+import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(request: NextRequest) {
-  const candidateId = Number(request.nextUrl.searchParams.get('candidate_id'));
+  const candidateAuth = await requireCandidateSession(request);
+  if (!candidateAuth.ok) return candidateAuth.response;
 
-  if (!Number.isInteger(candidateId) || candidateId <= 0) {
-    return NextResponse.json(
-      { success: false, error: 'candidate_id không hợp lệ.' },
-      { status: 400 }
-    );
-  }
+  const requestedCandidateId = request.nextUrl.searchParams.get('candidate_id');
+  const mismatch = rejectCandidateIdMismatch(
+    candidateAuth.candidateId,
+    requestedCandidateId || candidateAuth.candidateId,
+  );
+  if (mismatch) return mismatch;
+
+  const candidateId = candidateAuth.candidateId;
 
   try {
     const candidateResult = await pool.query(
@@ -21,13 +25,13 @@ export async function GET(request: NextRequest) {
        FROM hr_candidates c
        LEFT JOIN hr_gen_catalog g ON g.id = COALESCE(c.current_gen_id, c.gen_id)
        WHERE c.id = $1 AND c.is_deleted = false`,
-      [candidateId]
+      [candidateId],
     );
 
     if (candidateResult.rows.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'Không tìm thấy ứng viên.' },
-        { status: 404 }
+        { success: false, error: 'Khong tim thay ung vien.' },
+        { status: 404 },
       );
     }
 
@@ -54,7 +58,7 @@ export async function GET(request: NextRequest) {
        LEFT JOIN training_videos tv ON tv.id = s.video_id
        WHERE s.gen_id = $1
        ORDER BY s.session_date ASC NULLS LAST, s.session_number ASC`,
-      [candidate.current_gen_id]
+      [candidate.current_gen_id],
     );
 
     return NextResponse.json({
@@ -80,8 +84,9 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('[Candidate Portal Training Sessions] error:', error);
     return NextResponse.json(
-      { success: false, error: 'Không thể tải lịch training.' },
-      { status: 500 }
+      { success: false, error: 'Khong the tai lich training.' },
+      { status: 500 },
     );
   }
 }
+

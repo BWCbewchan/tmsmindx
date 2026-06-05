@@ -1,4 +1,5 @@
 import { withApiProtection } from '@/lib/api-protection';
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
 import pool from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -64,6 +65,9 @@ export const GET = withApiProtection(async (request: NextRequest) => {
 
 async function upsertReviewerMeeting(request: NextRequest) {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const reviewerName = normalizeReviewerName(body.reviewer_name ?? body.reviewerName);
     const meetingUrl = normalizeMeetingUrl(body.meeting_url ?? body.meetingUrl);

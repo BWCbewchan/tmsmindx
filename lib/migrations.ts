@@ -2182,6 +2182,25 @@ const migrations: Migration[] = [
       FROM ai_analysis_cache;
     `,
   },
+  {
+    name: 'V90_app_notifications',
+    version: 90,
+    sql: `
+      CREATE TABLE IF NOT EXISTS notifications (
+        id SERIAL PRIMARY KEY,
+        recipient_email VARCHAR(255) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        content TEXT NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        link VARCHAR(255),
+        is_read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        read_at TIMESTAMP WITH TIME ZONE
+      );
+      CREATE INDEX IF NOT EXISTS idx_notifications_recipient_email ON notifications(recipient_email);
+      CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
+    `,
+  },
 ]
 
 // ========== HÀM CHẠY MIGRATIONS ==========

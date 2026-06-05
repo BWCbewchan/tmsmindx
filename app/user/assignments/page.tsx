@@ -242,6 +242,20 @@ export default function TeacherAssignmentPage() {
   const [selectedExamInfo, setSelectedExamInfo] =
     useState<ExamAssignment | null>(null)
 
+  const debounceTimersRef = useRef<Record<number, NodeJS.Timeout>>({})
+
+  useEffect(() => {
+    return () => {
+      const timers = debounceTimersRef.current
+      if (timers) {
+        Object.values(timers).forEach(clearTimeout)
+      }
+    }
+  }, [])
+
+  const getTrainingDraftKey = (assignmentIdValue: number | string, teacherCodeValue: string) =>
+    `training_draft_v1:${String(assignmentIdValue)}:${String(teacherCodeValue || 'unknown').trim().toLowerCase()}`;
+
   const submitAssignment = useCallback(
     async (skipConfirm?: boolean | React.MouseEvent) => {
       if (!submission) return
@@ -396,6 +410,13 @@ export default function TeacherAssignmentPage() {
         if (data.success) {
           setSubmission(data.data)
           setView('result')
+          // Clear localStorage on submit
+          try {
+            if (currentAssignment?.id) {
+              const draftKey = getTrainingDraftKey(currentAssignment.id, teacherCode)
+              window.localStorage.removeItem(draftKey)
+            }
+          } catch (e) {}
         } else {
           toast.error('Lỗi khi nộp bài: ' + data.error)
         }
@@ -489,8 +510,25 @@ export default function TeacherAssignmentPage() {
         setQuestions(questionsData.data)
         setSubmission(submissionData.data)
 
-        // Load saved answers if this is a continuing submission
-        if (
+        // Restore from localStorage first, fallback to DB existing_answers
+        let restoredAnswers: Record<number, string> = {}
+        try {
+          const draftKey = getTrainingDraftKey(assignment.id, teacherCode)
+          const savedDraftRaw = window.localStorage.getItem(draftKey)
+          if (savedDraftRaw) {
+            const parsed = JSON.parse(savedDraftRaw)
+            if (parsed && typeof parsed.answers === 'object') {
+              restoredAnswers = parsed.answers
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to restore training draft from localStorage', e)
+        }
+
+        if (Object.keys(restoredAnswers).length > 0) {
+          setAnswers(restoredAnswers)
+          toast.success('Đã tải lại bài làm tạm thời từ trình duyệt của bạn')
+        } else if (
           submissionData.existing_answers &&
           Object.keys(submissionData.existing_answers).length > 0
         ) {
@@ -809,31 +847,64 @@ export default function TeacherAssignmentPage() {
     }
   }, [examAssignments, fetchExamAssignments, nowTs])
 
-  // Create debounced save function
-  const saveAnswerToDb = async (
+  // Save all answers to DB at once (draft sync)
+  const saveAllAnswersToDb = async (
     submissionId: number,
-    questionId: number,
-    answer: string,
+    currentAnswers: Record<number, string>
   ) => {
     try {
+      const answersPayload = Object.entries(currentAnswers).map(([qid, val]) => ({
+        question_id: Number(qid),
+        answer_text: String(val || ''),
+      }))
+
+      if (answersPayload.length === 0) return
+
       await fetch('/api/training-submissions', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: submissionId,
           action: 'save_draft',
-          answers: [{ question_id: questionId, answer_text: answer }],
+          answers: answersPayload,
         }),
       })
     } catch (e) {
-      console.error('Failed to auto-save answer', e)
+      console.error('Failed to auto-save answers to DB', e)
     }
   }
 
   const handleAnswerChange = (questionId: number, answer: string) => {
-    setAnswers((prev) => ({ ...prev, [questionId]: answer }))
+    const newAnswers = { ...answers, [questionId]: answer }
+    setAnswers(newAnswers)
+
+    // 1. Save to window.localStorage immediately
+    if (currentAssignment?.id) {
+      try {
+        const draftKey = getTrainingDraftKey(currentAssignment.id, teacherCode)
+        window.localStorage.setItem(
+          draftKey,
+          JSON.stringify({
+            assignment_id: currentAssignment.id,
+            teacher_code: teacherCode,
+            updated_at: new Date().toISOString(),
+            answers: newAnswers,
+          })
+        )
+      } catch (e) {
+        console.error('Failed to save draft to localStorage', e)
+      }
+    }
+
+    // 2. Debounce sending all answers to DB (5 seconds)
     if (submission?.id) {
-      saveAnswerToDb(submission.id, questionId, answer)
+      if (debounceTimersRef.current[-1]) {
+        clearTimeout(debounceTimersRef.current[-1])
+      }
+      debounceTimersRef.current[-1] = setTimeout(() => {
+        saveAllAnswersToDb(submission.id, newAnswers)
+        delete debounceTimersRef.current[-1]
+      }, 5000)
     }
   }
 
@@ -986,7 +1057,9 @@ export default function TeacherAssignmentPage() {
   }
 
   function buildExplanationHref(item: ExamAssignment): string {
-    return `/user/giaitrinh?assignment_id=${item.id}&subject=${encodeURIComponent(item.subject_code)}&test_date=${encodeURIComponent(item.open_at)}&campus=${encodeURIComponent(item.block_code)}`
+    // Trim subject_code để loại bỏ ký tự thừa (CRLF, spaces) có thể có trong DB
+    const cleanSubject = (item.subject_code || '').trim()
+    return `/user/giaitrinh?assignment_id=${item.id}&subject=${encodeURIComponent(cleanSubject)}&test_date=${encodeURIComponent(item.open_at)}&campus=${encodeURIComponent(item.block_code)}`
   }
 
   function formatScoreSummary(

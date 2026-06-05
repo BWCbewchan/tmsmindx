@@ -1,7 +1,11 @@
 import pool from '@/lib/db';
+import { requireBearerAdminOrSuper } from '@/lib/auth-server';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(request: NextRequest) {
+  const gate = await requireBearerAdminOrSuper(request);
+  if (!gate.ok) return gate.response;
+
   try {
     const searchParams = request.nextUrl.searchParams;
     const assignmentId = searchParams.get('assignment_id');

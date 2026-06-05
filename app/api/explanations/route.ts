@@ -1,4 +1,4 @@
-﻿/**
+/**
  * /api/explanations
  *
  * HoĂ n toĂ n dĂ¹ng báº£ng má»›i, khĂ´ng cĂ²n báº£ng explanations cÅ©:
@@ -35,6 +35,7 @@ import {
 } from '@/lib/datasource-api-auth'
 import { isResultEligibleForGiaiTrinhThisMonth } from '@/lib/giaitrinh-eligibility'
 import pool from '@/lib/db'
+import { createNotification } from '@/lib/notification-service'
 import { eventScheduleTsInstantExpr } from '@/lib/event-schedule-time'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -303,11 +304,22 @@ export async function POST(request: Request) {
     // Mail giải trình kiểm tra chuyên sâu đã tắt — chỉ còn luồng mail xin nghỉ (/api/emails).
     const emailNotSent = true
 
+    const newGt = gtResult.rows[0];
+
+    // Gửi thông báo trong app cho GV giải trình
+    await createNotification({
+      recipientEmail: resolvedEmail,
+      title: 'Đã gửi yêu cầu giải trình',
+      content: `Yêu cầu giải trình điểm kiểm tra chuyên môn của bạn đã được gửi thành công. Trạng thái: Chờ duyệt.`,
+      type: 'exam',
+      link: '/user/giaitrinh',
+    }).catch(err => console.error('Notification error:', err));
+
     return NextResponse.json(
       {
         success: true,
         message: 'Gửi giải trình thành công',
-        data: gtResult.rows[0],
+        data: newGt,
         emailNotSent,
       },
       { status: 201 },
@@ -399,7 +411,29 @@ export async function PATCH(request: Request) {
       )
     }
 
+    let teacherEmail = '';
+    if (ketQuaId) {
+      const resQuery = await client.query(
+        `SELECT dia_chi_email, email_giai_trinh FROM chuyen_sau_results WHERE id = $1`,
+        [ketQuaId]
+      );
+      if (resQuery.rows.length > 0) {
+        teacherEmail = resQuery.rows[0].email_giai_trinh || resQuery.rows[0].dia_chi_email || '';
+      }
+    }
+
     await client.query('COMMIT')
+
+    // Gửi thông báo trong app cho GV giải trình
+    if (teacherEmail) {
+      await createNotification({
+        recipientEmail: teacherEmail,
+        title: 'Cập nhật yêu cầu giải trình',
+        content: `Yêu cầu giải trình điểm kiểm tra chuyên môn của bạn đã được ${status === 'accepted' ? 'chấp nhận' : 'từ chối'}.`,
+        type: 'exam',
+        link: '/user/giaitrinh',
+      }).catch(err => console.error('Notification error:', err));
+    }
 
     // Mail giải trình kiểm tra chuyên sâu đã tắt — chỉ còn luồng mail xin nghỉ (/api/emails).
     const emailNotSent = true

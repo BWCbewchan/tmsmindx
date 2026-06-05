@@ -251,7 +251,9 @@ function CheckDataSourceContent() {
   useEffect(() => {
     if (!user) return;
     if (user.role !== "teacher") {
-      router.replace("/user/truyenthong");
+      router.replace(user.isAdmin || ["super_admin", "admin", "manager"].includes(user.role)
+        ? "/admin/dashboard"
+        : "/user/truyenthong");
       return;
     }
 

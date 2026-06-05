@@ -31,18 +31,14 @@ export async function getCachedAnalysis<T = any>(cacheKey: string): Promise<T | 
       return null;
     }
 
-    // Update hit count and last accessed time
-    await pool.query(
-      `
-      UPDATE ai_analysis_cache
-      SET hit_count = hit_count + 1,
-          last_accessed_at = CURRENT_TIMESTAMP
-      WHERE cache_key = $1
-      `,
-      [cacheKey]
-    );
-
     console.log(`[ai-cache] Cache HIT: ${cacheKey}`);
+
+    // Update hit count fire-and-forget (không block response)
+    pool.query(
+      `UPDATE ai_analysis_cache SET hit_count = hit_count + 1, last_accessed_at = CURRENT_TIMESTAMP WHERE cache_key = $1`,
+      [cacheKey]
+    ).catch(() => {});
+
     return result.rows[0].analysis_data as T;
   } catch (error) {
     console.error('[ai-cache] Error getting cache:', error);

@@ -1,5 +1,7 @@
 import { getAccessibleCenters } from '@/lib/center-access'
+import { filterManagementPermissions } from '@/lib/admin-permission-routes'
 import pool from '@/lib/db'
+import { getOrSetRequestCache } from '@/lib/request-cache'
 
 export type AppUserAccess = {
   found: boolean
@@ -27,7 +29,11 @@ export async function resolveAppUserAccessForEmail(
   rawEmail: string,
 ): Promise<AppUserAccess> {
   const normalized = rawEmail.trim().toLowerCase()
+  // Cache per-request: tránh gọi DB nhiều lần với cùng 1 email trong 1 request
+  return getOrSetRequestCache(`app-user-access:${normalized}`, () => _resolveAppUserAccess(normalized))
+}
 
+async function _resolveAppUserAccess(normalized: string): Promise<AppUserAccess> {
   try {
     const dbResult = await pool.query(
       'SELECT id, role, is_active, auth_type FROM app_users WHERE email = $1',
@@ -106,7 +112,7 @@ export async function resolveAppUserAccessForEmail(
       allPerms.add(r.route_path),
     )
 
-    const permissions = Array.from(allPerms)
+    const permissions = filterManagementPermissions(Array.from(allPerms))
     const roleCodes = userRoles.rows.map((r: { role_code: string }) =>
       (r.role_code || '').toUpperCase(),
     )

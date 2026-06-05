@@ -70,7 +70,7 @@ export function LeaveBuNotice({
   centerId,
   campusBuEmail,
 }: LeaveBuNoticeProps) {
-  const { token } = useAuth()
+  const { user, token } = useAuth()
   const [fromDb, setFromDb] = useState<{
     name: string | null
     email: string | null
@@ -78,7 +78,7 @@ export function LeaveBuNotice({
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!token) {
+    if (!user) {
       setFromDb(null)
       setLoading(false)
       return

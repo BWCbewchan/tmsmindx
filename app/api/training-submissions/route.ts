@@ -10,6 +10,63 @@ import {
 } from '@/lib/training-effective-video-completion';
 import { NextRequest, NextResponse } from 'next/server';
 
+const SUBMISSION_UPDATE_COLUMNS: Record<string, string> = {
+  status: 'status',
+  submitted_at: 'submitted_at',
+  graded_at: 'graded_at',
+  score: 'score',
+  percentage: 'percentage',
+  is_passed: 'is_passed',
+  time_spent_seconds: 'time_spent_seconds',
+  total_points: 'total_points',
+};
+
+function normalizeAnswerValue(value: unknown): string {
+  return String(value ?? '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function parseAnswerArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map(normalizeAnswerValue).filter(Boolean);
+  }
+
+  const text = String(value ?? '').trim();
+  if (!text) return [];
+
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      return parsed.map(normalizeAnswerValue).filter(Boolean);
+    }
+  } catch {
+  }
+
+  return text.split('|').map(normalizeAnswerValue).filter(Boolean);
+}
+
+function isTrainingAnswerCorrect(
+  question: { question_type?: string | null; correct_answer?: string | null },
+  userAnswer: unknown,
+): boolean {
+  const type = String(question.question_type || '').trim().toLowerCase();
+  const correctAnswer = question.correct_answer;
+  if (!correctAnswer || type === 'essay') return false;
+
+  if (type === 'multiple_select') {
+    const expected = parseAnswerArray(correctAnswer);
+    const actual = parseAnswerArray(userAnswer);
+    if (expected.length === 0 || actual.length !== expected.length) return false;
+    const actualSet = new Set(actual);
+    return expected.every((item) => actualSet.has(item));
+  }
+
+  return normalizeAnswerValue(userAnswer) === normalizeAnswerValue(correctAnswer);
+}
+
 // GET: Fetch teacher submissions with filters
 async function handleTrainingSubmissionsGet(request: NextRequest) {
   try {
@@ -150,7 +207,7 @@ export async function POST(request: NextRequest) {
           SELECT DISTINCT tva.video_id
           FROM training_assignment_submissions tas
           INNER JOIN training_video_assignments tva ON tva.id = tas.assignment_id
-          WHERE tas.teacher_code = $1
+          WHERE LOWER(TRIM(tas.teacher_code)) = $1
             AND tva.video_id IS NOT NULL
             AND (
               tas.status = 'graded'
@@ -215,7 +272,7 @@ export async function POST(request: NextRequest) {
                       COALESCE(server_time_seconds, 0) AS server_time_seconds,
                       last_heartbeat_at
                FROM training_teacher_video_scores
-               WHERE teacher_code = $1 AND video_id = ANY($2::int[])`,
+               WHERE LOWER(TRIM(teacher_code)) = $1 AND video_id = ANY($2::int[])`,
               [teacher_code, allScoreVideoIds],
             );
             scoresRes.rows.forEach(
@@ -323,7 +380,7 @@ export async function POST(request: NextRequest) {
     // Check if there's already an in-progress submission
     const existingQuery = `
       SELECT * FROM training_assignment_submissions 
-      WHERE teacher_code = $1 AND assignment_id = $2 AND status = 'in_progress'
+      WHERE LOWER(TRIM(teacher_code)) = $1 AND assignment_id = $2 AND status = 'in_progress'
       ORDER BY created_at DESC
       LIMIT 1
     `;
@@ -379,7 +436,7 @@ export async function POST(request: NextRequest) {
     const attemptResult = await pool.query(
       `SELECT COALESCE(MAX(attempt_number), 0) + 1 as next_attempt
        FROM training_assignment_submissions
-       WHERE teacher_code = $1 AND assignment_id = $2`,
+       WHERE LOWER(TRIM(teacher_code)) = $1 AND assignment_id = $2`,
       [teacher_code, assignment_id]
     );
     const nextAttempt = attemptResult.rows[0].next_attempt;
@@ -467,6 +524,182 @@ export async function PUT(request: NextRequest) {
       `;
       values = [id];
     } else if (action === 'grade') {
+      {
+      const submittedAnswers: Array<{ question_id: number | string; answer_text?: string; answer?: string }> =
+        Array.isArray(updates.answers) ? updates.answers : [];
+
+      const submissionMetaResult = await pool.query(
+        `SELECT tas.id,
+                tas.teacher_code,
+                tas.assignment_id,
+                tas.total_points,
+                tva.video_id
+         FROM training_assignment_submissions tas
+         LEFT JOIN training_video_assignments tva ON tva.id = tas.assignment_id
+         WHERE tas.id = $1
+         LIMIT 1`,
+        [id],
+      );
+
+      if (submissionMetaResult.rows.length === 0) {
+        return NextResponse.json(
+          { error: 'Submission not found' },
+          { status: 404 },
+        );
+      }
+
+      const submissionMeta = submissionMetaResult.rows[0];
+      const questionsResult = await pool.query(
+        `SELECT id, question_type, correct_answer, points
+         FROM training_assignment_questions
+         WHERE assignment_id = $1`,
+        [submissionMeta.assignment_id],
+      );
+      const questionMap = new Map(questionsResult.rows.map((q) => [String(q.id), q]));
+
+      let earnedPoints = 0;
+      let maxPoints = 0;
+      let correctCount = 0;
+      const gradedAnswersPayload = submittedAnswers
+        .map((answer) => {
+          const question = questionMap.get(String(answer.question_id));
+          if (!question) return null;
+
+          const questionPoints = Number(question.points || 1);
+          const countedPoints = questionPoints > 0 ? questionPoints : 0;
+          maxPoints += countedPoints;
+
+          const answerText = answer.answer_text ?? answer.answer ?? '';
+          const isCorrect = countedPoints > 0 && isTrainingAnswerCorrect(question, answerText);
+          if (isCorrect) {
+            correctCount += 1;
+            earnedPoints += countedPoints;
+          }
+
+          return {
+            question_id: Number(question.id),
+            answer_text: String(answerText),
+            is_correct: isCorrect,
+            points_earned: isCorrect ? countedPoints : 0,
+          };
+        })
+        .filter((item): item is {
+          question_id: number;
+          answer_text: string;
+          is_correct: boolean;
+          points_earned: number;
+        } => Boolean(item));
+
+      if (maxPoints <= 0) {
+        maxPoints = questionsResult.rows.length || 1;
+      }
+
+      const passingScore = 7.00;
+      const normalizedScore = Math.round(Math.min(Math.max((earnedPoints / maxPoints) * 10, 0), 10) * 100) / 100;
+      const percentage = Math.round((earnedPoints / maxPoints) * 10000) / 100;
+      const isPassedStatus = normalizedScore >= passingScore;
+
+      const result = await pool.query(
+        `UPDATE training_assignment_submissions
+         SET score = $1,
+             percentage = $2,
+             is_passed = $3,
+             status = 'graded',
+             submitted_at = COALESCE(submitted_at, NOW()),
+             graded_at = NOW(),
+             time_spent_seconds = COALESCE(time_spent_seconds, EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER)
+         WHERE id = $4
+         RETURNING *`,
+        [normalizedScore, percentage, isPassedStatus, id],
+      );
+
+      const submission = {
+        ...result.rows[0],
+        video_id: submissionMeta.video_id,
+        teacher_code: submissionMeta.teacher_code,
+      };
+
+      if (submission.teacher_code && submission.video_id) {
+        await pool.query(
+          `INSERT INTO training_teacher_stats (teacher_code, full_name, work_email, status)
+           VALUES ($1, $1, '', 'Active')
+           ON CONFLICT (teacher_code) DO NOTHING`,
+          [submission.teacher_code],
+        );
+
+        await pool.query(
+          `INSERT INTO training_teacher_video_scores (
+             teacher_code,
+             video_id,
+             score,
+             completion_status,
+             completed_at
+           ) VALUES ($1, $2, $3, 'watched', NULL)
+           ON CONFLICT (teacher_code, video_id)
+           DO UPDATE SET
+             score = GREATEST(training_teacher_video_scores.score, $3),
+             completion_status = CASE
+               WHEN training_teacher_video_scores.completion_status = 'completed' THEN 'completed'
+               WHEN $4::boolean THEN 'completed'
+               ELSE training_teacher_video_scores.completion_status
+             END,
+             completed_at = CASE
+               WHEN training_teacher_video_scores.completion_status = 'completed' THEN training_teacher_video_scores.completed_at
+               WHEN $4::boolean THEN NOW()
+               ELSE training_teacher_video_scores.completed_at
+             END,
+             updated_at = NOW()`,
+          [submission.teacher_code, submission.video_id, normalizedScore, isPassedStatus],
+        );
+      }
+
+      if (gradedAnswersPayload.length > 0) {
+        const saveAnswersQuery = `
+          WITH incoming AS (
+            SELECT *
+            FROM jsonb_to_recordset($2::jsonb) AS x(
+              question_id INT,
+              answer_text TEXT,
+              is_correct BOOLEAN,
+              points_earned NUMERIC
+            )
+            WHERE question_id IS NOT NULL
+          )
+          INSERT INTO training_assignment_answers (
+            submission_id,
+            question_id,
+            answer_text,
+            is_correct,
+            points_earned
+          )
+          SELECT
+            $1,
+            incoming.question_id,
+            incoming.answer_text,
+            COALESCE(incoming.is_correct, false),
+            COALESCE(incoming.points_earned, 0)
+          FROM incoming
+          ON CONFLICT (submission_id, question_id) DO UPDATE SET
+            answer_text = EXCLUDED.answer_text,
+            is_correct = EXCLUDED.is_correct,
+            points_earned = EXCLUDED.points_earned,
+            answered_at = NOW()
+        `;
+
+        await pool.query(saveAnswersQuery, [id, JSON.stringify(gradedAnswersPayload)]);
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          ...submission,
+          correct_count: correctCount,
+          total_questions: questionsResult.rows.length,
+        },
+        message: 'Submission graded successfully',
+      });
+      }
+
       // System or admin grades assignment
       const { score, is_passed } = updates;
       
@@ -702,8 +935,10 @@ export async function PUT(request: NextRequest) {
 
       for (const [key, value] of Object.entries(updates)) {
         if (key === 'answers') continue;
+        const column = SUBMISSION_UPDATE_COLUMNS[key];
+        if (!column) continue;
         
-        setClauses.push(`${key} = $${paramIndex}`);
+        setClauses.push(`${column} = $${paramIndex}`);
         updateValues.push(value);
         paramIndex++;
       }

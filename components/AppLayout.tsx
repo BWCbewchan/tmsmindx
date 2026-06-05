@@ -1,6 +1,7 @@
 'use client'
 
 import { useAuth } from '@/lib/auth-context'
+import { filterManagementPermissions } from '@/lib/admin-permission-routes'
 import { authHeaders } from '@/lib/auth-headers'
 import { isUnauthorizedStatus, parseJsonSafe } from '@/lib/auth-error-handling'
 import { ArrowLeft, Mail, MessageCircle, ShieldAlert } from 'lucide-react'
@@ -294,7 +295,7 @@ export default function AppLayout({
       const isSuperAdmin = user.role === 'super_admin'
       const isAdminUser =
         user.isAdmin || ['super_admin', 'admin', 'manager'].includes(user.role)
-      const permissions = user.permissions || []
+      const permissions = filterManagementPermissions(user.permissions || [])
 
       if (!isAdminUser) {
         // Not an admin at all — redirect to user area

@@ -175,10 +175,6 @@ export default function AdminXinNghiMotBuoiPage() {
   }, [fetchData])
 
   useEffect(() => {
-    if (!token?.trim()) {
-      setCampusBuByKey(new Map())
-      return
-    }
     let cancelled = false
     void (async () => {
       try {

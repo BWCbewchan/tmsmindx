@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiProtection } from '@/lib/api-protection';
+import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
+import { requireBearerSession } from '@/lib/datasource-api-auth';
 import pool from '@/lib/db';
+import { sanitizeHtml } from '@/lib/server-sanitize-html';
 
 // GET: Fetch questions for a video (no authentication required for admin)
 export const GET = async (request: NextRequest) => {
   try {
+    const auth = await requireBearerSession(request);
+    if (!auth.ok) return auth.response;
+
     const searchParams = request.nextUrl.searchParams;
     const videoId = searchParams.get('video_id');
 
@@ -12,6 +18,7 @@ export const GET = async (request: NextRequest) => {
       return NextResponse.json({ error: 'Video ID is required' }, { status: 400 });
     }
 
+    const canReadAnswers = ['super_admin', 'admin'].includes(auth.resolvedAccess.role);
     const query = `
       SELECT 
         id,
@@ -19,7 +26,7 @@ export const GET = async (request: NextRequest) => {
         question_text,
         question_type,
         time_in_video,
-        correct_answer,
+        ${canReadAnswers ? 'correct_answer,' : ''}
         options,
         points,
         order_number
@@ -49,6 +56,9 @@ export const GET = async (request: NextRequest) => {
 // POST: Add a new question
 export const POST = withApiProtection(async (request: NextRequest) => {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const body = await request.json();
     const { 
       video_id, 
@@ -94,11 +104,15 @@ export const POST = withApiProtection(async (request: NextRequest) => {
 
     const result = await pool.query(query, [
       video_id,
-      question_text,
+      sanitizeHtml(String(question_text)),
       question_type,
       time_in_video,
-      correct_answer,
-      JSON.stringify(options),
+      correct_answer == null ? null : sanitizeHtml(String(correct_answer)),
+      JSON.stringify(
+        Array.isArray(options)
+          ? options.map((option) => sanitizeHtml(String(option)))
+          : options,
+      ),
       points,
       order_number
     ]);
@@ -122,6 +136,9 @@ export const POST = withApiProtection(async (request: NextRequest) => {
 // DELETE: Remove a question
 export const DELETE = withApiProtection(async (request: NextRequest) => {
   try {
+    const authGate = await requireBearerAdminOrSuperMutation(request);
+    if (!authGate.ok) return authGate.response;
+
     const searchParams = request.nextUrl.searchParams;
     const questionId = searchParams.get('id');
 
