@@ -31,7 +31,6 @@ import { Button } from '@/components/ui/button'
 import { Icon } from '@/components/ui/primitives/icon'
 import { authHeaders } from '@/lib/auth-headers'
 import useSWR from 'swr'
-import NotificationBell from '@/components/NotificationBell'
 
 export function Sidebar() {
   const { isOpen, setIsOpen, requestExpandLabels } = useSidebar()
@@ -629,16 +628,13 @@ export function Sidebar() {
                 </p>
               </div>
             </Link>
-            <div className="flex items-center gap-3">
-              <NotificationBell className="notification-bell-inline" />
-              <button
-                onClick={() => setIsOpen(true)}
-                aria-label="Mở sidebar"
-                className="rounded-md p-1.5 text-[#1f1f1f] transition-all duration-200 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a1001f] focus-visible:ring-offset-2"
-              >
-                <Menu className="h-3 w-5" />
-              </button>
-            </div>
+            <button
+              onClick={() => setIsOpen(true)}
+              aria-label="Mở sidebar"
+              className="rounded-md p-1.5 text-[#1f1f1f] transition-all duration-200 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a1001f] focus-visible:ring-offset-2"
+            >
+              <Menu className="h-3 w-5" />
+            </button>
           </div>
         </div>
       )}

@@ -1,7 +1,6 @@
 import pool from '@/lib/db';
 import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
 import { NextRequest, NextResponse } from 'next/server';
-import { createNotificationForEveryone } from '@/lib/notification-service';
 
 // â”€â”€â”€ GET: Láº¥y bá»™ Ä‘á» chá»n máº·c Ä‘á»‹nh cho thÃ¡ng â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -71,22 +70,6 @@ export async function POST(request: NextRequest) {
       [parseInt(subject_id, 10), parseInt(year, 10), parseInt(month, 10), parseInt(selected_set_id, 10)]
     );
 
-    // Notify everyone
-    try {
-      const subjectRes = await pool.query('SELECT ten_mon FROM chuyen_sau_monhoc WHERE id = $1', [parseInt(subject_id, 10)]);
-      const subjectName = subjectRes.rows[0]?.ten_mon || '';
-      createNotificationForEveryone({
-        title: `Mở đề kiểm tra chuyên sâu`,
-        content: `Đã mở đề kiểm tra chuyên sâu môn "${subjectName}" cho tháng ${month}/${year}. Vui lòng đăng ký tham gia.`,
-        type: 'exam',
-        link: '/user/assignments',
-      }).catch((err) =>
-        console.error('Failed to notify everyone of monthly exam set open:', err)
-      );
-    } catch (err) {
-      console.error('Error fetching subject name for monthly set selection:', err);
-    }
-
     return NextResponse.json({ success: true, data: res.rows[0] });
   } catch (error) {
     console.error('Error saving manual selection:', error);
@@ -142,22 +125,6 @@ export async function PATCH(request: NextRequest) {
        RETURNING *`,
       [parseInt(subject_id, 10), parseInt(year, 10), parseInt(month, 10), chosenSet.id]
     );
-
-    // Notify everyone
-    try {
-      const subjectRes = await pool.query('SELECT ten_mon FROM chuyen_sau_monhoc WHERE id = $1', [parseInt(subject_id, 10)]);
-      const subjectName = subjectRes.rows[0]?.ten_mon || '';
-      createNotificationForEveryone({
-        title: `Mở đề kiểm tra chuyên sâu`,
-        content: `Đã mở đề kiểm tra chuyên sâu môn "${subjectName}" cho tháng ${month}/${year}. Vui lòng đăng ký tham gia.`,
-        type: 'exam',
-        link: '/user/assignments',
-      }).catch((err) =>
-        console.error('Failed to notify everyone of monthly exam set open:', err)
-      );
-    } catch (err) {
-      console.error('Error fetching subject name for monthly set selection:', err);
-    }
 
     return NextResponse.json({ success: true, data: { ...res.rows[0], chosenSet } });
   } catch (error) {

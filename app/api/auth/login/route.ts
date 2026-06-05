@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
         ap: access.isAdmin === true,
       },
       getJwtSecret(),
-      { expiresIn: '30d' }, // 30 ngày để giữ phiên đăng nhập lâu dài
+      { expiresIn: '1h' }, // Khớp thời hạn Firebase idToken — giảm rủi ro nếu bị đánh cắp
     );
 
     const res = NextResponse.json({
@@ -223,10 +223,9 @@ export async function POST(request: NextRequest) {
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         path: '/',
-        maxAge: 60 * 60 * 24 * 30, // 30 ngày — giữ refresh token lâu dài
+        maxAge: 60 * 60 * 24 * 30, // 30 ngày — refresh token sống lâu hơn
       });
     }
-
 
     logLoginSuccess({
       email: loginEmail,
