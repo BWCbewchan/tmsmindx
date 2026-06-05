@@ -1,7 +1,8 @@
-﻿'use client'
+'use client'
 
 import { Modal } from '@/components/ui/modal'
 import { PageHeader } from '@/components/PageHeader'
+import { useSearchParams } from 'next/navigation'
 import { PageSkeleton } from '@/components/skeletons/PageSkeleton'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -271,6 +272,7 @@ interface XinNghiProps {
 export default function XinNghiContent({ initialLeaveDate, externalOpen, onCreated }: XinNghiProps) {
   const { user, token } = useAuth()
   const { teacherProfile } = useTeacher()
+  const searchParams = useSearchParams()
   const campusPickerRef = useRef<HTMLDivElement | null>(null)
 
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([])
@@ -723,6 +725,18 @@ export default function XinNghiContent({ initialLeaveDate, externalOpen, onCreat
       fetchLeaveRequests()
     }
   }, [fetchLeaveRequests, user?.email])
+
+  // Auto-open detail modal if id is passed in search query params
+  useEffect(() => {
+    const targetIdStr = searchParams.get('id') || searchParams.get('requestId') || searchParams.get('leaveId')
+    if (targetIdStr && leaveRequests.length > 0) {
+      const targetId = Number(targetIdStr)
+      const found = leaveRequests.find((r) => r.id === targetId)
+      if (found) {
+        setSelectedRequest(found)
+      }
+    }
+  }, [searchParams, leaveRequests])
 
   // If parent requests opening modal externally, show modal and prefill date
   useEffect(() => {

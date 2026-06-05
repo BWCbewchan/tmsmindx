@@ -1,3 +1,41 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ * lib/datasource-api-auth.ts — Xác thực phiên & kiểm soát quyền sở hữu dữ liệu
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * ## HAI PHƯƠNG THỨC XÁC THỰC
+ *
+ * ### 1. Bearer Token (Authorization: Bearer <jwt>)
+ *   - Ưu tiên hơn cookie
+ *   - Không bị CSRF vì kẻ tấn công không thể thêm header Authorization từ cross-site
+ *   - Dùng cho: mobile app, API client, server-to-server calls
+ *
+ * ### 2. Cookie phiên `tps_session` (httpOnly, sameSite=lax)
+ *   - Chỉ chấp nhận khi request có Sec-Fetch-Site: same-origin/same-site
+ *     HOẶC Origin header khớp với domain của app
+ *   - Cơ chế này (`canUseCookieSession`) là tuyến phòng thủ CSRF đầu tiên
+ *   - Các mutation route (POST/PUT/PATCH/DELETE) cần thêm `requireSameOriginMutation`
+ *     vì `canUseCookieSession` không đủ mạnh với tất cả browser configurations
+ *
+ * ## CÁC HÀM KIỂM SOÁT QUYỀN SỞ HỮU
+ *
+ * ### `rejectIfEmailNotSelf(sessionEmail, privileged, targetEmail)`
+ *   - Ngăn user thường xem/sửa dữ liệu của người khác
+ *   - `privileged = true` (super_admin) → bypass mọi kiểm tra
+ *   - Dùng cho: profile, privacy settings, feedback, leave requests
+ *
+ * ### `rejectIfDatasourceLookupForbidden(sessionEmail, privileged, email, code)`
+ *   - Kiểm tra sâu hơn: tra cứu DB để xác nhận quyền sở hữu bản ghi
+ *   - Cho phép manager xem dữ liệu giáo viên thuộc cơ sở mình quản lý
+ *
+ * ### `rejectIfChuyenSauResultNotOwned(sessionEmail, privileged, resultId)`
+ *   - Chuyên biệt cho bảng `chuyen_sau_results`
+ *   - User chỉ xem được kết quả của chính mình (qua email match)
+ *
+ * ### `rejectIfAnyTeacherCodeForbidden(sessionEmail, privileged, codes)`
+ *   - Kiểm tra danh sách mã giáo viên
+ *   - Dùng khi một request chứa nhiều mã GV (ví dụ: báo cáo lương)
+ */
 import {
   resolveAppUserAccessForEmail,
   type AppUserAccess,

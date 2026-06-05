@@ -1,6 +1,7 @@
 'use client'
 
 import { Modal } from '@/components/ui/modal'
+import { useSearchParams } from 'next/navigation'
 import { Tabs } from '@/components/Tabs'
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton'
 import { Badge } from '@/components/ui/badge'
@@ -63,6 +64,7 @@ interface TabNhanLopProps {
 
 export default function TabNhanLop({ onRefreshBadge }: TabNhanLopProps) {
   const { user, token } = useAuth()
+  const searchParams = useSearchParams()
   const [items, setItems] = useState<LeaveRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingError, setLoadingError] = useState<string | null>(null)
@@ -100,6 +102,18 @@ export default function TabNhanLop({ onRefreshBadge }: TabNhanLopProps) {
   }, [user?.email, token])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // Auto-open detail modal if id is passed in search query params
+  useEffect(() => {
+    const targetIdStr = searchParams.get('id') || searchParams.get('requestId') || searchParams.get('leaveId')
+    if (targetIdStr && items.length > 0) {
+      const targetId = Number(targetIdStr)
+      const found = items.find((item) => item.id === targetId)
+      if (found) {
+        setSelected(found)
+      }
+    }
+  }, [searchParams, items])
 
   const campusOptions = useMemo(() => {
     const set = new Set<string>()

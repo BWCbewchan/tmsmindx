@@ -56,7 +56,7 @@ export default function RootLayout({
         </ErrorBoundary>
         <Toaster
           position="top-right"
-          containerStyle={{ top: 24, right: 24 }}
+          containerStyle={{ top: 24, right: 24, zIndex: 10000 }}
           gutter={12}
           toastOptions={{
             duration: 4000,

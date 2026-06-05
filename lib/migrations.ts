@@ -2201,6 +2201,18 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
     `,
   },
+  {
+    name: 'V91_notifications_user_lookup_indexes',
+    version: 91,
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_notifications_recipient_created_at
+      ON notifications(recipient_email, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_notifications_unread_by_recipient
+      ON notifications(recipient_email)
+      WHERE is_read = FALSE;
+    `,
+  },
 ]
 
 // ========== HÀM CHẠY MIGRATIONS ==========

@@ -1,5 +1,24 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ * app/api/feedback/route.ts — API phản hồi / báo lỗi từ người dùng
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * ## PHÂN QUYỀN
+ *   GET (scope='mine')  : Bearer/cookie hợp lệ, chỉ xem feedback của CHÍNH MÌNH
+ *   GET (scope='all')   : Chỉ admin/super_admin mới được xem tất cả
+ *   POST                : Bearer/cookie hợp lệ + CSRF check — gửi feedback mới
+ *   PATCH               : Chỉ admin/super_admin + CSRF check — cập nhật trạng thái
+ *
+ * ## BẢO MẬT
+ *   - CSRF protection (requireSameOriginMutation) cho POST và PATCH:
+ *     Cookie phiên tự động được browser gửi kèm — nếu không có CSRF check,
+ *     trang web độc hại có thể khiến user vô tình gửi feedback giả mạo.
+ *   - `rejectIfEmailNotSelf`: ngăn user gửi feedback dưới danh nghĩa người khác
+ *   - Admin check qua DB (không tin role trong JWT)
+ */
 import { rejectIfEmailNotSelf, requireBearerSession } from '@/lib/datasource-api-auth';
 import { withApiProtection } from '@/lib/api-protection';
+import { requireSameOriginMutation } from '@/lib/api-security';
 import pool from '@/lib/db';
 import { getSignedObjectUrl, isSupabaseS3Configured, parseStoragePath } from '@/lib/supabase-s3';
 import { NextRequest, NextResponse } from 'next/server';
@@ -163,6 +182,10 @@ export const GET = withApiProtection(async (request: NextRequest) => {
 
 export const POST = withApiProtection(async (request: NextRequest) => {
   try {
+    // CSRF check: chặn tấn công cross-site gửi feedback giả mạo qua cookie phiên
+    const csrfDenied = requireSameOriginMutation(request);
+    if (csrfDenied) return csrfDenied;
+
     const auth = await requireBearerSession(request);
     if (!auth.ok) return auth.response;
 
@@ -209,6 +232,10 @@ export const POST = withApiProtection(async (request: NextRequest) => {
 
 export const PATCH = withApiProtection(async (request: NextRequest) => {
   try {
+    // CSRF check: chặn tấn công cross-site thay đổi trạng thái feedback qua cookie phiên
+    const csrfDenied = requireSameOriginMutation(request);
+    if (csrfDenied) return csrfDenied;
+
     const auth = await requireBearerSession(request);
     if (!auth.ok) return auth.response;
 

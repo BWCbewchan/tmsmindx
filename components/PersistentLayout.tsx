@@ -2,6 +2,7 @@
 
 import UserFirstLoginOnboarding from '@/components/onboarding/UserFirstLoginOnboarding'
 import { Sidebar } from '@/components/sidebar'
+import NotificationBell from '@/components/NotificationBell'
 import { useAuth } from '@/lib/auth-context'
 import { SidebarProvider, useSidebar } from '@/lib/sidebar-context'
 import { usePathname } from 'next/navigation'
@@ -41,9 +42,16 @@ function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-background text-foreground">
       {shouldShowSidebar && (
-        <Suspense fallback={null}>
-          <Sidebar />
-        </Suspense>
+        <>
+          <Suspense fallback={null}>
+            <Sidebar />
+          </Suspense>
+          <Suspense fallback={null}>
+            <div className="hidden lg:block">
+              <NotificationBell />
+            </div>
+          </Suspense>
+        </>
       )}
       <main
         data-tour="tour-content"

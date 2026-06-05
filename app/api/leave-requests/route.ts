@@ -1,3 +1,25 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ * app/api/leave-requests/route.ts — API quản lý đơn xin nghỉ giảo viên
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * ## PHÂN QUYỀN
+ *   GET (mode=admin)     : super_admin, admin, manager — theo cơ sở được phân công
+ *   GET (mode khác)     : Bearer/cookie hợp lệ, chỉ xem đơn của CHÍNH MÌNH
+ *   POST                : Bearer/cookie hợp lệ + CSRF check — tạo đơn xin nghỉ
+ *   PATCH               : Bearer/cookie hợp lệ + CSRF check, phân quyền theo action:
+ *     - admin_review    : admin/manager có quyền trên cơ sở tương ứng
+ *     - teacher_update  : chỉ giáo viên chủ đơn
+ *     - assign_substitute: admin/manager trên cơ sở tương ứng
+ *     - substitute_confirm/decline: chỉ giáo viên được phân công dạy thạy
+ *
+ * ## BẢO MẬT
+ *   - `requireSameOriginMutation` (POST/PATCH): ngăn CSRF tấn công tạo/thay đổi
+ *     đơn nghỉ giả mạo sử dụng cookie phiên của giáo viên
+ *   - `rejectIfEmailNotSelf`: giáo viên không thể nộp đơn dưới tên người khác
+ *   - Campus access control: manager chỉ thấy/xử lý đơn thuộc cơ sở quản lý
+ *   - DB role check (không tin role trong JWT)
+ */
 import { requireBearerDbRoles } from '@/lib/auth-server';
 import { normalizeText as normalizeCampusText } from '@/lib/campus-data';
 import { getAccessibleCenters } from '@/lib/center-access';
@@ -5,6 +27,7 @@ import {
     rejectIfEmailNotSelf,
     requireBearerSession,
 } from '@/lib/datasource-api-auth';
+import { requireSameOriginMutation } from '@/lib/api-security';
 import {
   SUBSTITUTE_DECLINE_AUDIT_PREFIX,
   stripSubstituteDeclineAuditFromAdminNote,
@@ -288,6 +311,10 @@ export async function POST(request: NextRequest) {
   let client;
 
   try {
+    // CSRF check: chặn tấn công cross-site tạo đơn nghỉ giả mạo qua cookie phiên
+    const csrfDenied = requireSameOriginMutation(request);
+    if (csrfDenied) return csrfDenied;
+
     const auth = await requireBearerSession(request);
     if (!auth.ok) return auth.response;
 
@@ -535,7 +562,7 @@ export async function POST(request: NextRequest) {
       title: 'Đã gửi yêu cầu xin nghỉ',
       content: `Yêu cầu xin nghỉ lớp ${trimmedClassCode} ngày ${leave_date} của bạn đã được gửi và đang chờ TC/Leader duyệt.`,
       type: 'leave_request',
-      link: '/user/lich-cua-toi',
+      link: `/user/lich-cua-toi?tab=xin-nghi&id=${newRequest.id}`,
     }).catch(err => console.error('Notification error:', err));
 
     // Nếu có GV dạy thay, gửi thông báo cho họ
@@ -545,7 +572,7 @@ export async function POST(request: NextRequest) {
         title: 'Lời mời dạy thay lớp mới',
         content: `Giáo viên ${teacher_name} mời bạn dạy thay lớp ${trimmedClassCode} vào ngày ${leave_date}. Vui lòng vào lịch cá nhân để xác nhận.`,
         type: 'leave_request',
-        link: '/user/lich-cua-toi',
+        link: `/user/lich-cua-toi?tab=nhan-lop&id=${newRequest.id}`,
       }).catch(err => console.error('Notification error:', err));
     }
 
@@ -572,6 +599,10 @@ export async function PATCH(request: NextRequest) {
   let client;
 
   try {
+    // CSRF check: chặn tấn công cross-site phê duyệt/từ chối đơn nghỉ qua cookie phiên
+    const csrfDenied = requireSameOriginMutation(request);
+    if (csrfDenied) return csrfDenied;
+
     const auth = await requireBearerSession(request);
     if (!auth.ok) return auth.response;
 
@@ -720,7 +751,7 @@ export async function PATCH(request: NextRequest) {
           title: 'Yêu cầu xin nghỉ bị từ chối',
           content: `Yêu cầu xin nghỉ lớp ${rejectedRow.class_code} ngày ${rejectedRow.leave_date} của bạn đã bị từ chối.`,
           type: 'leave_request',
-          link: '/user/lich-cua-toi',
+          link: `/user/lich-cua-toi?tab=xin-nghi&id=${rejectedRow.id}`,
         }).catch(err => console.error('Notification error:', err));
 
         return NextResponse.json({ success: true, data: rejectedRow });
@@ -764,7 +795,7 @@ export async function PATCH(request: NextRequest) {
         title: 'Yêu cầu xin nghỉ đã được duyệt',
         content: `Yêu cầu xin nghỉ lớp ${approvedRow.class_code} ngày ${approvedRow.leave_date} của bạn đã được duyệt.`,
         type: 'leave_request',
-        link: '/user/lich-cua-toi',
+        link: `/user/lich-cua-toi?tab=xin-nghi&id=${approvedRow.id}`,
       }).catch(err => console.error('Notification error:', err));
 
       // Nếu có phân công GV dạy thay, gửi thông báo cho GV dạy thay
@@ -774,7 +805,7 @@ export async function PATCH(request: NextRequest) {
           title: 'Lời mời dạy thay lớp mới',
           content: `Bạn được phân công dạy thay lớp ${approvedRow.class_code} vào ngày ${approvedRow.leave_date}. Vui lòng vào lịch cá nhân để xác nhận.`,
           type: 'leave_request',
-          link: '/user/lich-cua-toi',
+          link: `/user/lich-cua-toi?tab=nhan-lop&id=${approvedRow.id}`,
         }).catch(err => console.error('Notification error:', err));
       }
 
@@ -1209,7 +1240,7 @@ export async function PATCH(request: NextRequest) {
           title: 'Lời mời dạy thay lớp mới',
           content: `Bạn được phân công dạy thay lớp ${assignedRow.class_code} vào ngày ${assignedRow.leave_date}. Vui lòng vào lịch cá nhân để xác nhận.`,
           type: 'leave_request',
-          link: '/user/lich-cua-toi',
+          link: `/user/lich-cua-toi?tab=nhan-lop&id=${assignedRow.id}`,
         }).catch(err => console.error('Notification error:', err));
       }
 
@@ -1379,7 +1410,7 @@ export async function PATCH(request: NextRequest) {
         title: 'Giáo viên đã xác nhận dạy thay',
         content: `Giáo viên ${confirmedRow.substitute_teacher} đã xác nhận dạy thay cho lớp ${confirmedRow.class_code} ngày ${confirmedRow.leave_date}.`,
         type: 'leave_request',
-        link: '/user/lich-cua-toi',
+        link: `/user/lich-cua-toi?tab=xin-nghi&id=${confirmedRow.id}`,
       }).catch(err => console.error('Notification error:', err));
 
       // Gửi thông báo trong app cho admin
@@ -1389,7 +1420,7 @@ export async function PATCH(request: NextRequest) {
           title: 'Giáo viên dạy thay đã xác nhận',
           content: `Giáo viên ${confirmedRow.substitute_teacher} đã xác nhận dạy thay cho lớp ${confirmedRow.class_code} ngày ${confirmedRow.leave_date}.`,
           type: 'leave_request',
-          link: '/admin/xin-nghi-mot-buoi',
+          link: `/admin/xin-nghi-mot-buoi?id=${confirmedRow.id}`,
         }).catch(err => console.error('Notification error:', err));
       }
 
@@ -1480,7 +1511,7 @@ export async function PATCH(request: NextRequest) {
         title: 'Giáo viên từ chối dạy thay',
         content: `Giáo viên đã từ chối lời mời dạy thay lớp ${declined.class_code} ngày ${declined.leave_date}.`,
         type: 'leave_request',
-        link: '/user/lich-cua-toi',
+        link: `/user/lich-cua-toi?tab=xin-nghi&id=${declined.id}`,
       }).catch(err => console.error('Notification error:', err));
 
       // Gửi thông báo trong app cho admin
@@ -1490,7 +1521,7 @@ export async function PATCH(request: NextRequest) {
           title: 'Giáo viên dạy thay đã từ chối',
           content: `Giáo viên đã từ chối lời mời dạy thay lớp ${declined.class_code} ngày ${declined.leave_date}.`,
           type: 'leave_request',
-          link: '/admin/xin-nghi-mot-buoi',
+          link: `/admin/xin-nghi-mot-buoi?id=${declined.id}`,
         }).catch(err => console.error('Notification error:', err));
       }
 

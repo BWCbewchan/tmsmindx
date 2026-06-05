@@ -1,14 +1,12 @@
 'use client';
 
 import { PageContainer } from '@/components/PageContainer';
-import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
 import { authHeaders } from '@/lib/auth-headers';
-import { formatTimestamp } from '@/lib/format-timestamp';
-import { Bell, BellOff, CheckCheck, Clock, ExternalLink } from 'lucide-react';
-import Link from 'next/link';
+import { toast } from '@/lib/app-toast';
+import { Bell, Check, MailOpen, Trash2, Undo2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 
 interface Notification {
@@ -21,169 +19,766 @@ interface Notification {
   created_at: string;
 }
 
+// Maps categories to their display configurations
+const categoriesMap = {
+  shift: {
+    name: 'Ca trực',
+    color: 'rgb(94, 106, 210)',
+    bg: 'rgba(94, 106, 210, 0.1)',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-calendar" aria-hidden="true"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path></svg>
+    )
+  },
+  examiner: {
+    name: 'Giám khảo',
+    color: 'rgb(139, 92, 246)',
+    bg: 'rgba(139, 92, 246, 0.1)',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-clipboard-check" aria-hidden="true"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg>
+    )
+  },
+  leave: {
+    name: 'Xin nghỉ',
+    color: 'rgb(239, 68, 68)',
+    bg: 'rgba(239, 68, 68, 0.1)',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-user-x" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="17" x2="22" y1="8" y2="13"></line><line x1="22" x2="17" y1="8" y2="13"></line></svg>
+    )
+  },
+  salary: {
+    name: 'Lương & Thưởng',
+    color: 'rgb(245, 158, 11)',
+    bg: 'rgba(245, 158, 11, 0.1)',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-dollar-sign" aria-hidden="true"><line x1="12" x2="12" y1="2" y2="22"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+    )
+  },
+  other: {
+    name: 'Khác',
+    color: 'rgb(107, 114, 128)',
+    bg: 'rgba(107, 114, 128, 0.1)',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-bell" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg>
+    )
+  }
+};
+
+function getNotificationCategory(item: Notification): keyof typeof categoriesMap {
+  const titleLower = item.title.toLowerCase();
+  const typeLower = item.type.toLowerCase();
+  
+  if (
+    typeLower.includes('exam') || 
+    typeLower.includes('explanation') || 
+    titleLower.includes('giám khảo') || 
+    titleLower.includes('phúc khảo') ||
+    titleLower.includes('khảo thí')
+  ) {
+    return 'examiner';
+  }
+  
+  if (
+    typeLower.includes('leave') || 
+    titleLower.includes('xin nghỉ') || 
+    titleLower.includes('nghỉ dạy') ||
+    titleLower.includes('nghỉ 1 buổi') ||
+    titleLower.includes('hủy dạy')
+  ) {
+    return 'leave';
+  }
+  
+  if (
+    typeLower.includes('salary') || 
+    typeLower.includes('deal') || 
+    titleLower.includes('deal lương') ||
+    titleLower.includes('lương') ||
+    titleLower.includes('thưởng')
+  ) {
+    return 'salary';
+  }
+  
+  if (
+    typeLower.includes('shift') || 
+    typeLower.includes('schedule') || 
+    titleLower.includes('trực') || 
+    titleLower.includes('dạy thay') ||
+    titleLower.includes('lớp') || 
+    titleLower.includes('tham gia') ||
+    titleLower.includes('xác nhận')
+  ) {
+    return 'shift';
+  }
+  
+  return 'other';
+}
+
+// Format date in DD/MM/YYYY format
+function formatDate(dateString: string): string {
+  const date = new Date(dateString);
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const yyyy = date.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+// Format date in HH:MM DD/MM/YYYY format for detailed notifications (e.g. Leave Requests)
+function formatDateWithTime(dateString: string): string {
+  const date = new Date(dateString);
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const yyyy = date.getFullYear();
+  const hh = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  return `${hh}:${min} ${dd}/${mm}/${yyyy}`;
+}
+
+// Clean and format JavaScript Date string representations inside notification content
+function formatContentText(text: string): string {
+  if (!text) return '';
+  
+  // Matches "Sun Jun 07 2026 00:00:00 GMT+0000 (Coordinated Universal Time)" or similar GMT representations
+  const jsDateRegex = /[A-Z][a-z]{2}\s[A-Z][a-z]{2}\s\d{1,2}\s\d{4}\s\d{2}:\d{2}:\d{2}\sGMT[+-]\d{2,4}(?::\d{2})?(?:\s\([^)]+\))?/g;
+  
+  let formatted = text.replace(jsDateRegex, (match) => {
+    try {
+      const d = new Date(match);
+      if (isNaN(d.getTime())) return match;
+      
+      const dayNames = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+      const dayName = dayNames[d.getDay()];
+      const dateStr = String(d.getDate()).padStart(2, '0');
+      const monthStr = String(d.getMonth() + 1).padStart(2, '0');
+      const yearStr = d.getFullYear();
+      
+      return `${dayName} ${dateStr}/${monthStr}/${yearStr}`;
+    } catch {
+      return match;
+    }
+  });
+
+  // Matches ISO strings like "2026-06-07T00:00:00.000Z"
+  const isoDateRegex = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g;
+  formatted = formatted.replace(isoDateRegex, (match) => {
+    try {
+      const d = new Date(match);
+      if (isNaN(d.getTime())) return match;
+      const dateStr = String(d.getDate()).padStart(2, '0');
+      const monthStr = String(d.getMonth() + 1).padStart(2, '0');
+      const yearStr = d.getFullYear();
+      return `${dateStr}/${monthStr}/${yearStr}`;
+    } catch {
+      return match;
+    }
+  });
+  
+  return formatted;
+}
+
 export default function NotificationCenterPage() {
   const { token, user } = useAuth();
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState<'all' | 'unread' | 'read' | 'settings'>('all');
+  const [activeCategory, setActiveCategory] = useState<'all' | keyof typeof categoriesMap>('all');
+  
+  /**
+   * CHỨC NĂNG CHUYỂN HƯỚNG CHI TIẾT THÔNG BÁO:
+   * Khi người dùng click vào một thông báo, hệ thống sẽ tự động chuyển hướng
+   * tới đúng trang đích kèm tham số `id` để trang đó mở modal chi tiết tương ứng.
+   */
+
+  // Settings states
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [busyNotificationId, setBusyNotificationId] = useState<number | null>(null);
+
+  // Sync settings with browser APIs and localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const hasPermission = 'Notification' in window && Notification.permission === 'granted';
+      const userDisabled = localStorage.getItem('tps_push_notifications_disabled_by_user') === 'true';
+      setPushEnabled(hasPermission && !userDisabled);
+    }
+  }, []);
 
   const fetcher = useMemo(
-    () => (url: string) =>
-      fetch(url, { headers: authHeaders(token) }).then((r) => r.json()),
+    () => async (url: string) => {
+      const response = await fetch(url, { headers: authHeaders(token) });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || 'Không thể tải dữ liệu thông báo');
+      }
+      return data;
+    },
     [token]
   );
 
-  const { data: notificationsData, mutate } = useSWR(
-    user?.email ? '/api/notifications' : null,
+  const {
+    data: notificationsData,
+    mutate: mutateNotifications,
+    error: notificationsError,
+    isLoading: isNotificationsLoading,
+  } = useSWR(
+    user?.email ? '/api/notifications?limit=100' : null,
     fetcher
   );
 
-  const notifications: Notification[] = notificationsData?.data || [];
+  const { data: unreadData, mutate: mutateUnread } = useSWR(
+    user?.email ? '/api/notifications/unread-count' : null,
+    fetcher,
+    { refreshInterval: 15000 }
+  );
 
+  const notifications: Notification[] = notificationsData?.data || [];
+  const unreadCount = unreadData?.count || 0;
+
+  const refreshNotificationData = () => {
+    void mutateNotifications();
+    void mutateUnread();
+  };
+
+  const resolveNotificationLink = (link: string | null) => {
+    if (!link) return null;
+    if (link === '/user/lich-cua-toi') {
+      return '/user/lich-cua-toi?tab=xin-nghi';
+    }
+    return link;
+  };
+
+  const assertMutationSuccess = async (response: Response) => {
+    const data = await response.json().catch(() => null);
+    if (!response.ok || data?.success === false) {
+      throw new Error(data?.error || 'Thao tác thông báo không thành công');
+    }
+    return data;
+  };
+
+  // Mark single notification as read in background or with redirect
   const handleMarkAsRead = async (id: number, link: string | null) => {
     try {
-      await fetch('/api/notifications', {
+      const response = await fetch('/api/notifications', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           ...authHeaders(token),
         },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id, is_read: true }),
       });
-      mutate();
-      if (link) {
-        router.push(link);
+      await assertMutationSuccess(response);
+      refreshNotificationData();
+
+      const finalLink = resolveNotificationLink(link);
+      if (finalLink) {
+        router.push(finalLink);
       }
     } catch (err) {
       console.error('Error marking notification as read:', err);
     }
   };
 
-  const handleMarkAllAsRead = async () => {
+  const handleSetReadState = async (
+    event: React.MouseEvent<HTMLButtonElement>,
+    item: Notification,
+    isRead: boolean,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (busyNotificationId === item.id) return;
+
     try {
-      await fetch('/api/notifications', {
+      setBusyNotificationId(item.id);
+      const response = await fetch('/api/notifications', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           ...authHeaders(token),
         },
-        body: JSON.stringify({ all: true }),
+        body: JSON.stringify({ id: item.id, is_read: isRead }),
       });
-      mutate();
+      await assertMutationSuccess(response);
+      refreshNotificationData();
+      toast.success(isRead ? 'Đã đánh dấu đã đọc' : 'Đã chuyển về chưa đọc');
     } catch (err) {
-      console.error('Error marking all as read:', err);
+      console.error('Error updating notification read state:', err);
+      toast.error('Không thể cập nhật trạng thái thông báo');
+    } finally {
+      setBusyNotificationId(null);
     }
   };
 
-  const getTypeStyles = (type: string) => {
-    switch (type) {
-      case 'exam_result':
-      case 'exam':
-        return {
-          bg: 'bg-red-50 border-red-100 dark:bg-red-950/20 dark:border-red-900/30',
-          iconBg: 'bg-red-100 text-red-600 dark:bg-red-900/50 dark:text-red-400',
-        };
-      case 'leave_request':
-      case 'leave':
-        return {
-          bg: 'bg-emerald-50 border-emerald-100 dark:bg-emerald-950/20 dark:border-emerald-900/30',
-          iconBg: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/50 dark:text-emerald-400',
-        };
-      case 'salary_deal':
-      case 'salary':
-        return {
-          bg: 'bg-amber-50 border-amber-100 dark:bg-amber-950/20 dark:border-amber-900/30',
-          iconBg: 'bg-amber-100 text-amber-600 dark:bg-amber-900/50 dark:text-amber-400',
-        };
-      default:
-        return {
-          bg: 'bg-blue-50 border-blue-100 dark:bg-blue-950/20 dark:border-blue-900/30',
-          iconBg: 'bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400',
-        };
+  const handleDeleteNotification = async (
+    event: React.MouseEvent<HTMLButtonElement>,
+    item: Notification,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (typeof window !== 'undefined' && !window.confirm('Xóa thông báo này?')) {
+      return;
+    }
+    if (busyNotificationId === item.id) return;
+
+    try {
+      setBusyNotificationId(item.id);
+      const response = await fetch('/api/notifications', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(token),
+        },
+        body: JSON.stringify({ id: item.id }),
+      });
+      await assertMutationSuccess(response);
+      refreshNotificationData();
+      toast.success('Đã xóa thông báo');
+    } catch (err) {
+      console.error('Error deleting notification:', err);
+      toast.error('Không thể xóa thông báo');
+    } finally {
+      setBusyNotificationId(null);
     }
   };
+
+  const handleOpenNotification = (item: Notification) => {
+    if (!item.is_read) {
+      void handleMarkAsRead(item.id, null);
+    }
+
+    const finalLink = resolveNotificationLink(item.link);
+    if (finalLink) {
+      router.push(finalLink);
+    }
+  };
+
+  // Mark all notifications as read
+  const handleMarkAllAsRead = async () => {
+    try {
+      const response = await fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(token),
+        },
+        body: JSON.stringify({ all: true, is_read: true }),
+      });
+      await assertMutationSuccess(response);
+      refreshNotificationData();
+      toast.success('Đã đánh dấu tất cả thông báo là đã đọc');
+    } catch (err) {
+      console.error('Error marking all as read:', err);
+      toast.error('Lỗi khi đánh dấu đã đọc');
+    }
+  };
+
+  // Enable/Disable Browser Push notifications
+  const togglePushNotifications = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      toast.error('Trình duyệt của bạn không hỗ trợ thông báo đẩy');
+      return;
+    }
+
+    // If currently enabled, toggle it off (manually disabled by user)
+    if (pushEnabled) {
+      setPushEnabled(false);
+      localStorage.setItem('tps_push_notifications_disabled_by_user', 'true');
+      toast.success('Đã tắt nhận thông báo trên thiết bị này');
+      return;
+    }
+
+    // If currently disabled, try to toggle it on
+    if (Notification.permission === 'granted') {
+      setPushEnabled(true);
+      localStorage.removeItem('tps_push_notifications_disabled_by_user');
+      toast.success('Đã bật thông báo thiết bị thành công');
+      // Trigger a test notification
+      try {
+        new Notification("Hệ thống TPS", {
+          body: "Bạn đã kích hoạt thành công thông báo trên thiết bị này.",
+        });
+      } catch (e) {
+        console.error(e);
+      }
+      return;
+    }
+
+    if (Notification.permission === 'denied') {
+      toast.warning('Quyền thông báo đã bị chặn', {
+        message: 'Vui lòng mở cài đặt trình duyệt của bạn để cấp lại quyền thông báo cho trang web này.',
+      });
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        setPushEnabled(true);
+        localStorage.removeItem('tps_push_notifications_disabled_by_user');
+        toast.success('Đăng ký thành công', {
+          message: 'Bạn sẽ nhận được thông báo đẩy trên thiết bị này.',
+        });
+        // Trigger a test notification
+        try {
+          new Notification("Hệ thống TPS", {
+            body: "Chúc mừng! Bạn đã kích hoạt thành công thông báo trên thiết bị này.",
+          });
+        } catch (e) {
+          console.error(e);
+        }
+      } else {
+        setPushEnabled(false);
+        toast.warning('Quyền thông báo bị từ chối', {
+          message: 'Vui lòng mở cài đặt trình duyệt để cấp quyền thông báo.',
+        });
+      }
+    } catch (err) {
+      console.error('Error requesting push permission:', err);
+      toast.error('Không thể đăng ký thông báo đẩy');
+    }
+  };
+
+  // Send a test notification manually
+  const sendTestNotification = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    
+    if (Notification.permission === 'granted') {
+      try {
+        new Notification("Hệ thống TPS", {
+          body: "Đây là thông báo thử nghiệm từ hệ thống TPS của bạn!",
+          icon: "/favicon.svg",
+        });
+        toast.success("Đã gửi thông báo thử nghiệm thành công!");
+      } catch (err) {
+        console.error("Error showing test notification:", err);
+        toast.error("Không thể kích hoạt thông báo trên thiết bị này.");
+      }
+    } else {
+      toast.warning("Vui lòng cấp quyền thông báo trước.");
+    }
+  };
+
+  // Filters notifications based on the current active tab
+  const tabFilteredNotifications = useMemo(() => {
+    if (activeTab === 'all') return notifications;
+    if (activeTab === 'unread') return notifications.filter((n) => !n.is_read);
+    if (activeTab === 'read') return notifications.filter((n) => n.is_read);
+    return [];
+  }, [notifications, activeTab]);
+
+  // Filters notifications further based on the selected category chip
+  const categoryFilteredNotifications = useMemo(() => {
+    if (activeCategory === 'all') return tabFilteredNotifications;
+    return tabFilteredNotifications.filter((n) => {
+      return getNotificationCategory(n) === activeCategory;
+    });
+  }, [tabFilteredNotifications, activeCategory]);
+
+  // Dynamically determine which categories exist in the tabFilteredNotifications
+  const activeCategoriesInTab = useMemo(() => {
+    const keys = new Set<keyof typeof categoriesMap>();
+    tabFilteredNotifications.forEach((n) => {
+      keys.add(getNotificationCategory(n));
+    });
+    // Define ordering priority matching categoriesMap keys
+    const orderPriority: Array<keyof typeof categoriesMap> = ['shift', 'examiner', 'leave', 'salary', 'other'];
+    return orderPriority.filter((k) => keys.has(k));
+  }, [tabFilteredNotifications]);
+
+  // Calculate chip count metrics under current tab context
+  const counts = useMemo(() => {
+    const acc: Record<string, number> = {
+      all: tabFilteredNotifications.length,
+      shift: 0,
+      examiner: 0,
+      leave: 0,
+      salary: 0,
+      other: 0,
+    };
+    tabFilteredNotifications.forEach((n) => {
+      const catKey = getNotificationCategory(n);
+      acc[catKey] = (acc[catKey] || 0) + 1;
+    });
+    return acc;
+  }, [tabFilteredNotifications]);
 
   const hasUnread = notifications.some((n) => !n.is_read);
 
   return (
     <PageContainer
+      className="notifications-page-shell"
       title="Trung tâm thông báo"
       description="Xem và quản lý các cập nhật quan trọng về lịch làm việc, kiểm tra chuyên môn, và lương thưởng của bạn."
-      headerActions={
-        hasUnread && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleMarkAllAsRead}
-            className="flex items-center gap-2 hover:bg-[#a1001f] hover:text-white transition-colors"
-          >
-            <CheckCheck className="h-4 w-4" />
-            Đánh dấu tất cả đã đọc
-          </Button>
-        )
-      }
     >
-      <div className="max-w-4xl mx-auto space-y-4">
-        {notifications.length === 0 ? (
-          <div className="flex flex-col items-center justify-center p-16 bg-white border border-gray-100 rounded-2xl shadow-sm text-center">
-            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
-              <BellOff className="h-8 w-8 text-gray-400 animate-pulse" />
-            </div>
-            <h3 className="text-lg font-bold text-gray-900 mb-1">Không có thông báo nào</h3>
-            <p className="text-sm text-gray-500 max-w-sm">
-              Bạn chưa nhận được thông báo nào vào lúc này. Chúng tôi sẽ báo cho bạn khi có cập nhật mới.
-            </p>
+      <div className="page-module__Qo6x2W__pageContainer">
+        
+        {/* Tab Bar Container */}
+        <div className="page-module__Qo6x2W__tabBar">
+          <div className="page-module__Qo6x2W__tabs">
+            <button
+              className={`page-module__Qo6x2W__tab ${activeTab === 'all' ? 'page-module__Qo6x2W__tabActive' : ''}`}
+              onClick={() => {
+                setActiveTab('all');
+                setActiveCategory('all');
+              }}
+            >
+              Tất cả
+            </button>
+            <button
+              className={`page-module__Qo6x2W__tab ${activeTab === 'unread' ? 'page-module__Qo6x2W__tabActive' : ''}`}
+              onClick={() => {
+                setActiveTab('unread');
+                setActiveCategory('all');
+              }}
+            >
+              Chưa đọc
+              {unreadCount > 0 && (
+                <span className="page-module__Qo6x2W__tabBadge">{unreadCount}</span>
+              )}
+            </button>
+            <button
+              className={`page-module__Qo6x2W__tab ${activeTab === 'read' ? 'page-module__Qo6x2W__tabActive' : ''}`}
+              onClick={() => {
+                setActiveTab('read');
+                setActiveCategory('all');
+              }}
+            >
+              Đã đọc
+            </button>
+            <button
+              className={`page-module__Qo6x2W__tab ${activeTab === 'settings' ? 'page-module__Qo6x2W__tabActive' : ''}`}
+              onClick={() => setActiveTab('settings')}
+            >
+              Cài đặt
+            </button>
           </div>
-        ) : (
-          <div className="bg-white border border-gray-150 rounded-2xl shadow-sm overflow-hidden divide-y divide-gray-100">
-            {notifications.map((notification) => {
-              const styles = getTypeStyles(notification.type);
-              return (
-                <div
-                  key={notification.id}
-                  onClick={() => !notification.is_read && handleMarkAsRead(notification.id, null)}
-                  className={`flex gap-4 p-5 transition-all duration-200 cursor-pointer ${
-                    !notification.is_read
-                      ? 'bg-blue-50/30 hover:bg-blue-50/50 font-medium'
-                      : 'hover:bg-gray-50'
-                  }`}
-                >
-                  <div className={`shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${styles.iconBg}`}>
-                    <Bell className="h-5 w-5" />
-                  </div>
-                  
-                  <div className="flex-1 space-y-1 min-w-0">
-                    <div className="flex items-start justify-between gap-4">
-                      <h4 className={`text-sm ${!notification.is_read ? 'font-bold text-gray-950' : 'text-gray-800'}`}>
-                        {notification.title}
-                      </h4>
-                      <span className="shrink-0 flex items-center gap-1 text-[11px] text-gray-400 font-normal">
-                        <Clock className="h-3 w-3" />
-                        {formatTimestamp(notification.created_at)}
-                      </span>
-                    </div>
-                    
-                    <p className={`text-xs ${!notification.is_read ? 'text-gray-700' : 'text-gray-500'} leading-relaxed break-words`}>
-                      {notification.content}
-                    </p>
+          
+          {hasUnread && activeTab !== 'settings' && (
+            <button className="page-module__Qo6x2W__markAllBtn" onClick={handleMarkAllAsRead}>
+              <Check className="h-3.5 w-3.5" />
+              Đánh dấu tất cả đã đọc
+            </button>
+          )}
+        </div>
 
-                    {notification.link && (
-                      <div className="pt-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleMarkAsRead(notification.id, notification.link);
-                          }}
-                          className="inline-flex items-center gap-1.5 text-xs text-[#a1001f] font-bold hover:underline"
-                        >
-                          Xem chi tiết <ExternalLink className="h-3 w-3" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
+        {/* Category Bar Chips */}
+        {activeTab !== 'settings' && (
+          <div className="page-module__Qo6x2W__categoryBar">
+            <button
+              className={`page-module__Qo6x2W__categoryChip ${
+                activeCategory === 'all' ? 'page-module__Qo6x2W__categoryChipActive' : ''
+              }`}
+              onClick={() => setActiveCategory('all')}
+            >
+              Tất cả loại
+              <span className="page-module__Qo6x2W__chipCount">{counts.all}</span>
+            </button>
+
+            {activeCategoriesInTab.map((catKey) => {
+              const cat = categoriesMap[catKey];
+              return (
+                <button
+                  key={catKey}
+                  className={`page-module__Qo6x2W__categoryChip ${
+                    activeCategory === catKey ? 'page-module__Qo6x2W__categoryChipActive' : ''
+                  }`}
+                  onClick={() => setActiveCategory(catKey)}
+                >
+                  <span className="page-module__Qo6x2W__chipIcon" style={{ color: cat.color }}>
+                    {cat.icon}
+                  </span>
+                  {cat.name}
+                  <span className="page-module__Qo6x2W__chipCount">{counts[catKey]}</span>
+                </button>
               );
             })}
           </div>
         )}
+
+        {/* Dynamic Display Panel */}
+        <div className="page-module__Qo6x2W__listPanel">
+          {activeTab === 'settings' ? (
+            <div className="page-module__Qo6x2W__settingsPanel">
+              <h3 className="page-module__Qo6x2W__settingsTitle">Cấu hình thông báo</h3>
+              <p className="page-module__Qo6x2W__settingsDesc">
+                Thiết lập cách thức bạn nhận các thông tin cập nhật mới nhất từ hệ thống.
+              </p>
+
+              <div className="space-y-1">
+                {/* In-app Notification Setting */}
+                <div className="page-module__Qo6x2W__settingRow">
+                  <div className="page-module__Qo6x2W__settingInfo">
+                    <span className="page-module__Qo6x2W__settingLabel">Thông báo trong ứng dụng</span>
+                    <span className="page-module__Qo6x2W__settingSub">
+                      Hiển thị chấm đỏ và danh sách thông báo trên thanh tiện ích của giao diện ứng dụng.
+                    </span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-not-allowed opacity-80">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={true}
+                      disabled={true}
+                      readOnly
+                    />
+                    <div className="w-11 h-6 bg-[#a1001f] rounded-full after:content-[''] after:absolute after:top-[2px] after:left-[22px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                  </label>
+                </div>
+
+                {/* Device Notification Setting */}
+                <div className="page-module__Qo6x2W__settingRow">
+                  <div className="page-module__Qo6x2W__settingInfo">
+                    <span className="page-module__Qo6x2W__settingLabel">Thông báo thiết bị (Điện thoại & Máy tính)</span>
+                    <span className="page-module__Qo6x2W__settingSub">
+                      Cho phép gửi thông báo đẩy trực tiếp lên màn hình điện thoại hoặc máy tính của bạn.
+                      {pushEnabled && (
+                        <button
+                          onClick={sendTestNotification}
+                          className="block mt-2 text-xs font-semibold text-[#a1001f] hover:underline"
+                          type="button"
+                        >
+                          🧪 Gửi thông báo thử nghiệm
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={pushEnabled}
+                      onChange={togglePushNotifications}
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#a1001f]"></div>
+                  </label>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="page-module__Qo6x2W__notificationList">
+              {notificationsError ? (
+                <div className="p-16 text-center text-sm text-gray-500">
+                  <p>Không tải được danh sách thông báo.</p>
+                  <button
+                    type="button"
+                    className="mt-3 rounded-lg border border-[#a1001f]/30 px-3 py-1.5 text-xs font-semibold text-[#a1001f] hover:bg-[#a1001f]/5"
+                    onClick={() => void mutateNotifications()}
+                  >
+                    Tải lại
+                  </button>
+                </div>
+              ) : isNotificationsLoading && notifications.length === 0 ? (
+                <div className="p-16 text-center text-sm text-gray-500">
+                  Đang tải thông báo...
+                </div>
+              ) : categoryFilteredNotifications.length === 0 ? (
+                <div className="p-16 text-center text-sm text-gray-500">
+                  Không tìm thấy thông báo nào trong danh mục này.
+                </div>
+              ) : (
+                categoryFilteredNotifications.map((item) => {
+                  const catKey = getNotificationCategory(item);
+                  const cat = categoriesMap[catKey];
+                  
+                  // Leave requests show full date and time (HH:MM DD/MM/YYYY)
+                  const isLeave = catKey === 'leave';
+                  const formattedTime = isLeave ? formatDateWithTime(item.created_at) : formatDate(item.created_at);
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`page-module__Qo6x2W__notificationItem ${
+                        !item.is_read ? 'page-module__Qo6x2W__unread' : ''
+                      }`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handleOpenNotification(item)}
+                      onKeyDown={(e) => {
+                        if ((e.target as HTMLElement).closest('button')) return;
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleOpenNotification(item);
+                        }
+                      }}
+                    >
+                      <div
+                        className="page-module__Qo6x2W__notifIconWrapper"
+                        style={{ background: cat.bg, color: cat.color }}
+                      >
+                        {cat.icon}
+                      </div>
+
+                      <div className="page-module__Qo6x2W__notifContent">
+                        <div className="page-module__Qo6x2W__notifHeader">
+                          <div className="page-module__Qo6x2W__notifTitleRow">
+                            <h4 className="page-module__Qo6x2W__notifTitle">{item.title}</h4>
+                            <span
+                              className="page-module__Qo6x2W__categoryLabel"
+                              style={{ color: cat.color, background: cat.bg }}
+                            >
+                              {cat.name}
+                            </span>
+                          </div>
+                          <span className="page-module__Qo6x2W__notifTime">
+                            {formattedTime}
+                          </span>
+                        </div>
+                        
+                        <p className="page-module__Qo6x2W__notifBody">
+                          {formatContentText(item.content)}
+                        </p>
+                        
+                        {item.link && (
+                          <span className="page-module__Qo6x2W__notifLink">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-chevron-right" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+                            Xem chi tiết
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="page-module__Qo6x2W__notifActions">
+                        <button
+                          type="button"
+                          className="page-module__Qo6x2W__notifActionBtn"
+                          title={item.is_read ? 'Đánh dấu chưa đọc' : 'Đánh dấu đã đọc'}
+                          aria-label={item.is_read ? 'Đánh dấu chưa đọc' : 'Đánh dấu đã đọc'}
+                          disabled={busyNotificationId === item.id}
+                          onClick={(event) => handleSetReadState(event, item, !item.is_read)}
+                        >
+                          {item.is_read ? (
+                            <Undo2 className="h-3.5 w-3.5" />
+                          ) : (
+                            <MailOpen className="h-3.5 w-3.5" />
+                          )}
+                          <span className="page-module__Qo6x2W__notifActionText">
+                            {item.is_read ? 'Chưa đọc' : 'Đã đọc'}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className="page-module__Qo6x2W__notifActionBtn page-module__Qo6x2W__notifActionDanger"
+                          title="Xóa thông báo"
+                          aria-label="Xóa thông báo"
+                          disabled={busyNotificationId === item.id}
+                          onClick={(event) => handleDeleteNotification(event, item)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span className="page-module__Qo6x2W__notifActionText">
+                            Xóa
+                          </span>
+                        </button>
+                      </div>
+
+                      {!item.is_read && (
+                        <div className="page-module__Qo6x2W__unreadDot"></div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+
       </div>
     </PageContainer>
   );

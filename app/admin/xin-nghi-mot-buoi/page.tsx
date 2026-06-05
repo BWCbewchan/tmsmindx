@@ -19,6 +19,7 @@ import { resolveCenterBuEmail } from '@/lib/center-bu-email-fallback'
 import { useAuth } from '@/lib/auth-context'
 import { authHeaders } from '@/lib/auth-headers'
 import { AlertCircle, RefreshCcw } from 'lucide-react'
+import { useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from '@/lib/app-toast'
 import {
@@ -117,6 +118,7 @@ function getStatusMeta(status: LeaveRequest['status']): {
 
 export default function AdminXinNghiMotBuoiPage() {
   const { user, token } = useAuth()
+  const searchParams = useSearchParams()
 
   const [items, setItems] = useState<LeaveRequest[]>([])
   const [searchQuery, setSearchQuery] = useState('')
@@ -173,6 +175,18 @@ export default function AdminXinNghiMotBuoiPage() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  // Auto-open detail modal if id is passed in search query params
+  useEffect(() => {
+    const targetIdStr = searchParams.get('id')
+    if (targetIdStr && items.length > 0) {
+      const targetId = Number(targetIdStr)
+      const found = items.find((item) => item.id === targetId)
+      if (found) {
+        openDetail(found)
+      }
+    }
+  }, [searchParams, items])
 
   useEffect(() => {
     let cancelled = false

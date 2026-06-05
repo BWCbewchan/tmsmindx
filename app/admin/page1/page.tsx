@@ -12,10 +12,16 @@ import { toast } from '@/lib/app-toast'
 import {
     Briefcase,
     Calendar,
+    Check,
+    ChevronLeft,
+    ChevronRight,
     Clock,
+    Copy,
+    ChevronDown,
     Eye,
     EyeOff,
     Hash,
+    ListFilter,
     Mail,
     MapPin,
     Phone,
@@ -187,6 +193,35 @@ type TeacherLookupCandidate = {
   code: string
   fullName: string
   center: string
+}
+
+interface ManagedTeacherRow {
+  code: string
+  full_name: string
+  user_name: string
+  work_email: string
+  personal_email: string
+  status: string
+  main_centre: string
+  centers: string
+  khoi_final: string
+  role: string
+  te_quan_ly: string
+  leader_quan_ly: string
+  joined_date: string
+}
+
+interface ManagedTeachersResponse {
+  success?: boolean
+  teachers: ManagedTeacherRow[]
+  workEmails: string[]
+  personalEmails: string[]
+  centers: string[]
+  total: number
+  page: number
+  pageSize: number
+  pageCount: number
+  isSuperAdmin: boolean
 }
 
 interface ProfileBundleResponse {
@@ -470,6 +505,7 @@ const profileFetcher = createSecureFetcher<ProfileBundleResponse>()
 const scoresFetcher = createSecureFetcher<ScoresBundleResponse>()
 const trainingFetcher = createSecureFetcher<TrainingData>()
 const availabilityFetcher = createSecureFetcher<AvailabilityDataResponse>()
+const managedTeachersFetcher = createSecureFetcher<ManagedTeachersResponse>()
 
 function getCalendarMonthYear() {
   const now = new Date()
@@ -483,6 +519,11 @@ export default function Page1() {
   const [searchCode, setSearchCode] = useState('')
   const [submitCode, setSubmitCode] = useState('')
   const [error, setError] = useState('')
+  const [teacherListQuery, setTeacherListQuery] = useState('')
+  const [selectedManagedCenters, setSelectedManagedCenters] = useState<string[]>([])
+  const [centerFilterOpen, setCenterFilterOpen] = useState(false)
+  const [managedTeacherPage, setManagedTeacherPage] = useState(1)
+  const [searchCollapsed, setSearchCollapsed] = useState(true)
   const [selectedMonth, setSelectedMonth] = useState(
     () => getCalendarMonthYear().month,
   )
@@ -514,6 +555,37 @@ export default function Page1() {
   const [teacherChoices, setTeacherChoices] = useState<
     TeacherLookupCandidate[] | null
   >(null)
+
+  const managedTeachersUrl = useMemo(() => {
+    const params = new URLSearchParams({
+      page: String(managedTeacherPage),
+      pageSize: '10',
+    })
+    if (teacherListQuery.trim()) params.set('query', teacherListQuery.trim())
+    if (selectedManagedCenters.length > 0) {
+      params.set('centers', JSON.stringify(selectedManagedCenters))
+    }
+    return `/api/admin/teachers/managed?${params.toString()}`
+  }, [managedTeacherPage, selectedManagedCenters, teacherListQuery])
+
+  const {
+    data: managedTeachersData,
+    isLoading: isLoadingManagedTeachers,
+    error: managedTeachersError,
+  } = useSWR<ManagedTeachersResponse, FetchError>(
+    managedTeachersUrl,
+    managedTeachersFetcher,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      dedupingInterval: 60000,
+      shouldRetryOnError: false,
+    },
+  )
+
+  useEffect(() => {
+    setManagedTeacherPage(1)
+  }, [selectedManagedCenters, teacherListQuery])
 
   // Load last searched code from localStorage
   useEffect(() => {
@@ -874,6 +946,201 @@ export default function Page1() {
     }).catch((err) => console.error('Analytics tracking failed:', err))
   }, [applyCurrentMonthYear, searchCode])
 
+  const handleViewManagedTeacher = useCallback(
+    (row: ManagedTeacherRow) => {
+      const code = row.code.trim()
+      if (!code) return
+      setTeacherChoices(null)
+      setError('')
+      setSearchCode(code)
+      setSubmitCode(code)
+      lastScorePeriodTeacherCodeRef.current = null
+      applyCurrentMonthYear()
+      localStorage.setItem('lastSearchCode', code)
+
+      fetch('/api/analytics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'view_managed_teacher',
+          searchCode: code,
+        }),
+      }).catch((err) => console.error('Analytics tracking failed:', err))
+    },
+    [applyCurrentMonthYear],
+  )
+
+  const copyTextToClipboard = useCallback(async (copyText: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(copyText)
+        return
+      }
+    } catch {
+      // Fall back to execCommand below.
+    }
+
+    const textarea = document.createElement('textarea')
+    textarea.value = copyText
+    textarea.setAttribute('readonly', '')
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-9999px'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(textarea)
+    if (!ok) throw new Error('Copy failed')
+  }, [])
+
+  const handleCopyEmailValues = useCallback(
+    async (emails: string[], label: string) => {
+      const cleanEmails = Array.from(
+        new Set(emails.map((email) => email.trim()).filter(Boolean)),
+      )
+
+      if (cleanEmails.length === 0) {
+        toast.warning(`Chưa có ${label} để copy`)
+        return
+      }
+
+      try {
+        await copyTextToClipboard(cleanEmails.join('\n'))
+        toast.success(`Đã copy ${label}`, {
+          message:
+            cleanEmails.length === 1
+              ? cleanEmails[0]
+              : `${cleanEmails.length} email`,
+        })
+      } catch {
+        toast.error(`Không thể copy ${label}`)
+      }
+    },
+    [copyTextToClipboard],
+  )
+
+  const handleCopyTeacherEmail = useCallback(
+    async (email: string, label: string) => {
+      await handleCopyEmailValues([email], label)
+    },
+    [handleCopyEmailValues],
+  )
+
+  const handleCopyEmailColumn = useCallback(
+    async (emails: string[] | undefined, label: string) => {
+      await handleCopyEmailValues(emails ?? [], label)
+    },
+    [handleCopyEmailValues],
+  )
+
+  const emailHeaderButtonClass =
+    'inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 transition-colors hover:border-[#a1001f] hover:text-[#a1001f]'
+
+  const emailCellButtonClass =
+    'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition-colors hover:border-[#a1001f] hover:text-[#a1001f]'
+
+  const emptyEmailClass = 'text-xs text-gray-400'
+
+  const emailTextClass = 'truncate text-xs font-medium text-gray-700'
+
+  const emailColumnLabelClass = 'flex items-center gap-2'
+
+  const copyColumnButtonLabel = (label: string) => `Copy toàn bộ ${label}`
+
+  const copySingleButtonLabel = (label: string, teacher: ManagedTeacherRow) =>
+    `Copy ${label} ${teacher.full_name || teacher.code}`
+
+  const renderEmailCell = useCallback(
+    (row: ManagedTeacherRow, email: string, label: string) => {
+      const cleanEmail = email.trim()
+      return (
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={cleanEmail ? emailTextClass : emptyEmailClass}>
+            {cleanEmail || `Chưa có ${label}`}
+          </span>
+          <button
+            type="button"
+            onClick={() => handleCopyTeacherEmail(cleanEmail, label)}
+            disabled={!cleanEmail}
+            className={`${emailCellButtonClass} disabled:cursor-not-allowed disabled:opacity-40`}
+            aria-label={copySingleButtonLabel(label, row)}
+            title={`Copy ${label}`}
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )
+    },
+    [handleCopyTeacherEmail],
+  )
+
+  const renderEmailHeader = useCallback(
+    (label: string, emails: string[] | undefined) => (
+      <div className={emailColumnLabelClass}>
+        <span>{label}</span>
+        <button
+          type="button"
+          onClick={() => handleCopyEmailColumn(emails, label)}
+          className={emailHeaderButtonClass}
+          aria-label={copyColumnButtonLabel(label)}
+          title={copyColumnButtonLabel(label)}
+        >
+          <Copy className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    ),
+    [handleCopyEmailColumn],
+  )
+
+  const currentWorkEmails = managedTeachersData?.workEmails ?? []
+  const currentPersonalEmails = managedTeachersData?.personalEmails ?? []
+
+  const renderWorkEmailHeader = useCallback(
+    () => renderEmailHeader('Email MindX', currentWorkEmails),
+    [currentWorkEmails, renderEmailHeader],
+  )
+
+  const renderPersonalEmailHeader = useCallback(
+    () => renderEmailHeader('Email cá nhân', currentPersonalEmails),
+    [currentPersonalEmails, renderEmailHeader],
+  )
+
+  const renderWorkEmailCell = useCallback(
+    (row: ManagedTeacherRow) =>
+      renderEmailCell(row, row.work_email, 'email MindX'),
+    [renderEmailCell],
+  )
+
+  const renderPersonalEmailCell = useCallback(
+    (row: ManagedTeacherRow) =>
+      renderEmailCell(row, row.personal_email, 'email cá nhân'),
+    [renderEmailCell],
+  )
+
+  const managedCenters = managedTeachersData?.centers ?? []
+  const hasSelectedAllCenters =
+    managedCenters.length > 0 &&
+    selectedManagedCenters.length === managedCenters.length
+  const centerFilterLabel =
+    selectedManagedCenters.length === 0 || hasSelectedAllCenters
+      ? 'Tất cả cơ sở'
+      : selectedManagedCenters.length === 1
+        ? selectedManagedCenters[0]
+        : `${selectedManagedCenters.length} cơ sở`
+
+  const handleToggleAllManagedCenters = useCallback(() => {
+    setSelectedManagedCenters((current) =>
+      current.length === managedCenters.length ? [] : managedCenters,
+    )
+  }, [managedCenters])
+
+  const handleToggleManagedCenter = useCallback((center: string) => {
+    setSelectedManagedCenters((current) =>
+      current.includes(center)
+        ? current.filter((item) => item !== center)
+        : [...current, center],
+    )
+  }, [])
+
   const getScoreForMonth = useCallback(
     (data: MonthlyAverage[], month: string): string => {
       const found = data.find((d) => d.month === month)
@@ -1189,36 +1456,302 @@ export default function Page1() {
       <div className="space-y-3 sm:space-y-4">
         {/* Header */}
         <div className="border-b border-gray-200 pb-2 sm:pb-3">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
-            Tìm Kiếm Giáo Viên
-          </h1>
-          <p className="text-xs text-gray-600 mt-1">
-            Nhập mã giáo viên để xem thông tin chi tiết (ví dụ: phunt,
-            ngocdt01,...)
-          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+                Thông tin giáo viên
+              </h1>
+              <p className="text-xs text-gray-600 mt-1">
+                Danh sách giáo viên theo TE/Leader quản lý, giới hạn 10 giáo
+                viên mỗi trang.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSearchCollapsed((value) => !value)}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-700 transition-colors hover:border-[#a1001f] hover:text-[#a1001f]"
+            >
+              <Search className="h-4 w-4" />
+              {searchCollapsed ? 'Tìm từng giáo viên' : 'Thu gọn tìm kiếm'}
+            </button>
+          </div>
         </div>
 
-        {/* Search Box */}
-        <div className="flex flex-col sm:flex-row gap-2">
-          <div className="flex-1 relative">
-            <input
-              type="text"
-              value={searchCode}
-              onChange={(e) => setSearchCode(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-              placeholder="Nhập mã giáo viên (ví dụ: datpt1, tramhlb)"
-              className="w-full px-4 py-2.5 text-sm border border-gray-300 bg-[#f3f3f3] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#a1001f]/30 focus:border-[#a1001f]"
-              autoFocus
-            />
+        {!searchCollapsed && (
+          <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  value={searchCode}
+                  onChange={(e) => setSearchCode(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                  placeholder="Nhập mã hoặc tên giáo viên"
+                  className="w-full px-4 py-2.5 text-sm border border-gray-300 bg-[#f3f3f3] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#a1001f]/30 focus:border-[#a1001f]"
+                />
+              </div>
+              <button
+                onClick={handleSearch}
+                disabled={isLoadingProfile}
+                className="px-6 py-2.5 bg-[#a1001f] text-white rounded-lg text-sm font-semibold hover:bg-[#870019] disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 min-w-[100px]"
+              >
+                <Search className="h-4 w-4" />
+                {isLoadingProfile ? 'Đang tìm...' : 'Tìm'}
+              </button>
+            </div>
           </div>
-          <button
-            onClick={handleSearch}
-            disabled={isLoadingProfile}
-            className="px-6 py-2.5 bg-[#a1001f] text-white rounded-full text-sm font-semibold hover:bg-[#870019] disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 min-w-[100px]"
-          >
-            <Search className="h-4 w-4" />
-            {isLoadingProfile ? 'Đang tìm...' : 'Tìm'}
-          </button>
+        )}
+
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+          <div className="flex flex-col gap-3 border-b border-gray-200 bg-gray-50 p-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#a1001f] text-white">
+                <Users className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-base font-bold text-gray-900">
+                  Bảng giáo viên quản lý
+                </h2>
+                <p className="text-xs text-gray-600">
+                  {managedTeachersData?.isSuperAdmin
+                    ? 'Super admin đang xem toàn bộ giáo viên'
+                    : 'Danh sách được lọc theo quyền quản lý hiện tại'}
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(220px,1fr)_minmax(190px,240px)] lg:w-[520px]">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="search"
+                  value={teacherListQuery}
+                  onChange={(e) => setTeacherListQuery(e.target.value)}
+                  placeholder="Tìm tên, mã, email"
+                  className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-sm text-gray-900 outline-none transition-colors focus:border-[#a1001f] focus:ring-2 focus:ring-[#a1001f]/20"
+                />
+              </div>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setCenterFilterOpen((open) => !open)}
+                  className="flex h-9 w-full items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-left text-sm text-gray-900 outline-none transition-colors hover:border-[#a1001f] focus:border-[#a1001f] focus:ring-2 focus:ring-[#a1001f]/20"
+                  aria-expanded={centerFilterOpen}
+                  aria-haspopup="listbox"
+                >
+                  <ListFilter className="h-4 w-4 shrink-0 text-gray-400" />
+                  <span className="min-w-0 flex-1 truncate">
+                    {centerFilterLabel}
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${
+                      centerFilterOpen ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
+                {centerFilterOpen && (
+                  <div className="absolute right-0 z-30 mt-2 w-full min-w-[260px] rounded-lg border border-gray-200 bg-white shadow-xl">
+                    <div className="border-b border-gray-100 p-2">
+                      <button
+                        type="button"
+                        onClick={handleToggleAllManagedCenters}
+                        className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-semibold text-gray-800 hover:bg-gray-50"
+                      >
+                        <span
+                          className={`flex h-4 w-4 items-center justify-center rounded border ${
+                            hasSelectedAllCenters ||
+                            selectedManagedCenters.length === 0
+                              ? 'border-[#a1001f] bg-[#a1001f] text-white'
+                              : 'border-gray-300 bg-white text-transparent'
+                          }`}
+                        >
+                          <Check className="h-3 w-3" />
+                        </span>
+                        Chọn tất cả
+                      </button>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto p-2">
+                      {managedCenters.length === 0 ? (
+                        <p className="px-2 py-3 text-sm text-gray-500">
+                          Chưa có cơ sở
+                        </p>
+                      ) : (
+                        managedCenters.map((center) => {
+                                const checked =
+                                  selectedManagedCenters.includes(center)
+                          return (
+                            <button
+                              key={center}
+                              type="button"
+                              onClick={() => handleToggleManagedCenter(center)}
+                              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                            >
+                              <span
+                                className={`flex h-4 w-4 items-center justify-center rounded border ${
+                                  checked
+                                    ? 'border-[#a1001f] bg-[#a1001f] text-white'
+                                    : 'border-gray-300 bg-white text-transparent'
+                                }`}
+                              >
+                                <Check className="h-3 w-3" />
+                              </span>
+                              <span className="min-w-0 flex-1 truncate">
+                                {center}
+                              </span>
+                            </button>
+                          )
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {managedTeachersError ? (
+            <div className="p-6 text-sm text-red-700">
+              Không thể tải danh sách giáo viên. Vui lòng thử lại sau.
+            </div>
+          ) : isLoadingManagedTeachers ? (
+            <div className="divide-y divide-gray-100 p-3">
+              {Array.from({ length: 10 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="grid grid-cols-5 gap-3 py-3 animate-pulse"
+                >
+                  <div className="col-span-2 h-5 rounded bg-gray-100" />
+                  <div className="h-5 rounded bg-gray-100" />
+                  <div className="h-5 rounded bg-gray-100" />
+                  <div className="h-5 rounded bg-gray-100" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <>
+              <Table className="min-w-[1120px] border-0">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Giáo viên</TableHead>
+                    <TableHead>{renderWorkEmailHeader()}</TableHead>
+                    <TableHead>{renderPersonalEmailHeader()}</TableHead>
+                    <TableHead>Mã GV</TableHead>
+                    <TableHead>Cơ sở</TableHead>
+                    <TableHead>Trạng thái</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(managedTeachersData?.teachers ?? []).length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="py-10 text-center">
+                        <div className="mx-auto flex max-w-sm flex-col items-center gap-2 text-gray-600">
+                          <Search className="h-8 w-8 text-gray-300" />
+                          <p className="text-sm font-semibold text-gray-900">
+                            Chưa có giáo viên phù hợp
+                          </p>
+                          <p className="text-xs">
+                            Thử đổi từ khóa hoặc bộ lọc cơ sở.
+                          </p>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    (managedTeachersData?.teachers ?? []).map((row) => (
+                      <TableRow
+                        key={row.code}
+                        className="group hover:bg-[#a1001f]/5"
+                      >
+                        <TableCell>
+                          <div className="flex min-w-0 items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleViewManagedTeacher(row)}
+                              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 transition-colors hover:border-[#a1001f] hover:text-[#a1001f]"
+                              aria-label={`Xem chi tiết ${row.full_name || row.code}`}
+                              title="Xem chi tiết"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </button>
+                            <div className="min-w-0">
+                              <p className="font-semibold text-gray-900">
+                                {row.full_name || row.user_name || row.code}
+                              </p>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {renderWorkEmailCell(row)}
+                        </TableCell>
+                        <TableCell>
+                          {renderPersonalEmailCell(row)}
+                        </TableCell>
+                        <TableCell className="font-semibold text-[#a1001f]">
+                          {row.code}
+                        </TableCell>
+                        <TableCell>
+                          <span className="inline-flex max-w-[210px] rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700">
+                            <span className="truncate">
+                              {row.main_centre || row.centers || 'Chưa có cơ sở'}
+                            </span>
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              row.status === 'Active'
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : 'bg-gray-100 text-gray-600'
+                            }`}
+                          >
+                            {row.status || 'Active'}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+
+              <div className="flex flex-col gap-2 border-t border-gray-200 bg-white px-3 py-3 text-sm text-gray-600 sm:flex-row sm:items-center sm:justify-between">
+                <p>
+                  Hiển thị {managedTeachersData?.teachers.length ?? 0}/
+                  {managedTeachersData?.total ?? 0} giáo viên
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setManagedTeacherPage((page) => Math.max(1, page - 1))
+                    }
+                    disabled={(managedTeachersData?.page ?? 1) <= 1}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Trang trước"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <span className="min-w-[92px] text-center text-xs font-semibold text-gray-700">
+                    Trang {managedTeachersData?.page ?? managedTeacherPage}/
+                    {managedTeachersData?.pageCount ?? 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setManagedTeacherPage((page) =>
+                        Math.min(managedTeachersData?.pageCount ?? page, page + 1),
+                      )
+                    }
+                    disabled={
+                      (managedTeachersData?.page ?? 1) >=
+                      (managedTeachersData?.pageCount ?? 1)
+                    }
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Trang sau"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Error Message */}
@@ -1265,24 +1798,6 @@ export default function Page1() {
               </div>
             </div>
           )}
-
-        {/* Empty State */}
-        {!submitCode && !error && (
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 sm:p-12 text-center">
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
-                <Search className="w-8 h-8 text-gray-400" />
-              </div>
-              <h3 className="text-base sm:text-lg font-semibold text-gray-900">
-                Tìm kiếm giáo viên
-              </h3>
-              <p className="text-xs sm:text-sm text-gray-600 max-w-md">
-                Nhập mã giáo viên vào ô tìm kiếm phía trên để xem thông tin chi
-                tiết, điểm đánh giá và hiệu suất làm việc
-              </p>
-            </div>
-          </div>
-        )}
 
         {/* Teacher Info Skeleton */}
         {isLoadingProfile && submitCode && (

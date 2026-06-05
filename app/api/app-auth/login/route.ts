@@ -1,3 +1,25 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ * app/api/app-auth/login/route.ts — Đăng nhập bằng tài khoản nội bộ (admin/manager)
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * ## LUỒNG XÁC THỰC
+ *   1. Kiểm tra IP bị block (brute force guard)
+ *   2. Rate limiting: 40 req/phút mỗi IP
+ *   3. Tra cứu user trong bảng `app_users` theo email hoặc username
+ *   4. Kiểm tra auth_type: nếu là 'firebase' thì fallback sang Firebase login
+ *   5. So sánh password với bcrypt hash
+ *   6. Ký JWT (HS256, 30 ngày) và set httpOnly cookie
+ *   7. Ghi audit log (login_success / login_failed)
+ *
+ * ## BẢO MẬT
+ *   - SELECT chỉ các cột cần thiết (không SELECT *) — tránh làm rò rỉ
+ *     password_hash vào các biến không cần thiết
+ *   - `checkAndRecordThreat`: tăng điểm threat score sau mỗi lần thất bại
+ *   - `logLoginSuccess/Failed`: ghi audit log với IP, user-agent
+ *   - JWT không chứa password_hash hay thông tin nhạy cảm
+ *   - Cookie: httpOnly=true, secure=true (production), sameSite='lax'
+ */
 import pool from '@/lib/db';
 import { checkTeacherExistsByEmail, isDatabaseUnavailableError } from '@/lib/db-helpers';
 import { getJwtSecret } from '@/lib/jwt-secret';
@@ -50,7 +72,9 @@ export async function POST(request: NextRequest) {
 
     if (normalizedInput.includes('@')) {
       userResult = await pool.query(
-        `SELECT * FROM app_users
+        // Chỉ chọn các cột cần thiết, không SELECT * — hạn chế rò rỉ password_hash
+        `SELECT id, email, username, display_name, role, auth_type, is_active, password_hash
+         FROM app_users
          WHERE (email = $1 OR LOWER(username) = $1)
          AND is_active = true
          LIMIT 1`,
@@ -61,7 +85,9 @@ export async function POST(request: NextRequest) {
       const possibleEmails = suffixes.map(s => `${normalizedInput}${s}`);
 
       userResult = await pool.query(
-        `SELECT * FROM app_users
+        // Chỉ chọn các cột cần thiết, không SELECT * — hạn chế rò rỉ password_hash
+        `SELECT id, email, username, display_name, role, auth_type, is_active, password_hash
+         FROM app_users
          WHERE (LOWER(username) = $1 OR email = ANY($2::text[]))
          AND is_active = true
          ORDER BY
@@ -131,8 +157,9 @@ export async function POST(request: NextRequest) {
         ap: isAdmin,
       },
       getJwtSecret(),
-      { expiresIn: '24h' },
+      { expiresIn: '30d' }, // 30 ngày để giữ phiên đăng nhập lâu dài
     );
+
 
     let teacherFoundInDb = false;
     if (user.role === 'teacher' && user.email) {

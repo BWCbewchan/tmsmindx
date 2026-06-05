@@ -9,6 +9,7 @@ import {
 } from '@/lib/supabase-s3';
 import { findCommunicationPostByIdentifier, requireTruyenThongPostAdmin } from '@/lib/truyenthong-posts';
 import { generateSlug } from '@/lib/utils';
+import { createNotificationForEveryone } from '@/lib/notification-service';
 import { CreateBucketCommand, HeadBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -303,6 +304,17 @@ export async function PUT(
           thumbnail_position || '50% 50%', currentPost.id,
         ]
       );
+
+      if (status === 'published' && currentPost.status !== 'published') {
+        createNotificationForEveryone({
+          title: `Bài viết mới: ${safeTitle}`,
+          content: safeDescription,
+          type: 'communication',
+          link: `/user/truyenthong/${newSlug}`,
+        }).catch((err) =>
+          console.error('Failed to create notification for everyone:', err)
+        );
+      }
 
       // Xóa ảnh cũ trên S3 (chỉ xóa S3, bỏ qua Cloudinary cũ)
       // 1. Xóa thumbnail/banner cũ nếu thay đổi

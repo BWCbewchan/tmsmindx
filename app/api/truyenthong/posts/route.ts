@@ -3,10 +3,9 @@ import { isDegradedDatabaseQueryError } from '@/lib/db-unavailable';
 import { sanitizeHtml, sanitizeText } from '@/lib/server-sanitize-html';
 import { TPS_SESSION_COOKIE, verifySessionCookieValue } from '@/lib/session-cookie';
 import { createSupabaseS3Client, isSupabaseS3Configured } from '@/lib/supabase-s3';
-import {
-    requireTruyenThongPostAdmin,
-} from '@/lib/truyenthong-posts';
+import { requireTruyenThongPostAdmin } from '@/lib/truyenthong-posts';
 import { generateSlug } from '@/lib/utils';
+import { createNotificationForEveryone } from '@/lib/notification-service';
 import { CreateBucketCommand, HeadBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -240,6 +239,18 @@ export async function POST(request: NextRequest) {
           thumbnail_position || '50% 50%',
         ]
       );
+
+      if (status === 'published') {
+        createNotificationForEveryone({
+          title: `Bài viết mới: ${safeTitle}`,
+          content: safeDescription,
+          type: 'communication',
+          link: `/user/truyenthong/${slug}`,
+        }).catch((err) =>
+          console.error('Failed to create notification for everyone:', err)
+        );
+      }
+
       return NextResponse.json(result.rows[0], {
         status: 201,
         headers: { 'Cache-Control': 'public, s-maxage=15, stale-while-revalidate=59' },

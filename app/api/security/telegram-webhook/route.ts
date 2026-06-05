@@ -1,10 +1,32 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ * app/api/security/telegram-webhook/route.ts — Webhook của Telegram Bot
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * ## XÁC THỰC
+ *   Route này ĐẶC BIỆT: không dùng Bearer token / cookie phiên thông thường.
+ *   Thay vào đó, Telegram gửi header `x-telegram-bot-api-secret-token` = TELEGRAM_WEBHOOK_SECRET.
+ *   Đây là cơ chế xác thực chuẩn của Telegram Bot API.
+ *
+ * ## PHÂN QUYỀN
+ *   Chỉ có Telegram server chính thức mới được gửi đến đây (qua secret header).
+ *   Nhóm chat phải khớp với TELEGRAM_CHAT_ID — bảo vệ khỏi forward từ chat khác.
+ *
+ * ## GIỚI HẠN TỐC ĐỘ (RATE LIMITING)
+ *   20 request/phút — giới hạn này phòng trường hợp secret bị rò rỉ
+ *   hoặc Telegram API bị tấn công dẫn đến spam các DB query tốn kém.
+ *
+ * ## LOG ACTOR
+ *   Telegram actor không có email — lưu `telegram-admin@tps.internal` làm user_email.
+ *   Thông tin actor thực (id, name, username) được lưu trong new_data của audit log.
+ */
 import pool from '@/lib/db';
 import { unblockIp } from '@/lib/brute-force-guard';
+import { clientIpFromRequest, rateLimitOr429Async } from '@/lib/rate-limit-memory';
 import { NextRequest, NextResponse } from 'next/server';
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const AUTHORIZED_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET;
+/** Rate limit: 20 req/phút toàn cục cho Telegram webhook (phòng thủ trường hợp secret bị rò) */
+const TELEGRAM_WEBHOOK_RATE_LIMIT = 20;
 
 interface TelegramMessage {
   message_id: number;
@@ -94,12 +116,22 @@ async function editMessageText(chatId: number, messageId: number, text: string):
   });
 }
 
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const AUTHORIZED_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET;
+
 export async function POST(request: NextRequest) {
   try {
     if (!TELEGRAM_BOT_TOKEN || !AUTHORIZED_CHAT_ID || !TELEGRAM_WEBHOOK_SECRET) {
       return NextResponse.json({ error: 'Telegram environment variables not configured' }, { status: 500 });
     }
 
+    // Rate limiting: 20 req/phút — phòng trường hợp webhook secret bị rò hoặc bị spam
+    const ip = clientIpFromRequest(request);
+    const rateLimited = await rateLimitOr429Async(`telegram-webhook:${ip}`, TELEGRAM_WEBHOOK_RATE_LIMIT, 60_000);
+    if (rateLimited) return rateLimited;
+
+    // Xác thực: kiểm tra secret header do Telegram gửi theo webhook secret
     const secretHeader = request.headers.get('x-telegram-bot-api-secret-token') || '';
     if (secretHeader !== TELEGRAM_WEBHOOK_SECRET) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -137,10 +169,19 @@ export async function POST(request: NextRequest) {
               event_type: 'SYSTEM',
               action: 'TELEGRAM_BUTTON_IP_BLOCK',
               severity: 'WARNING',
-              user_email: cb.from.username ? `@${cb.from.username}` : cb.from.first_name,
+              // Dùng email nội bộ cố định thay vì username Telegram để tránh lỗi
+              // AUDIT_MISSING_ACTOR — audit-logger yêu cầu email hợp lệ.
+              // Thông tin Telegram actor được lưu trong new_data bên dưới.
+              user_email: 'telegram-admin@tps.internal',
               resource_type: 'security_threat_tracking',
               resource_id: targetIp,
-              new_data: { blocked_ip: targetIp, action_source: 'telegram_inline_button' },
+              new_data: {
+                blocked_ip: targetIp,
+                action_source: 'telegram_inline_button',
+                telegram_actor_id: cb.from.id,
+                telegram_actor_name: cb.from.first_name,
+                telegram_actor_username: cb.from.username ?? null,
+              },
             });
 
             // Cập nhật lại tin nhắn cảnh báo gốc
@@ -159,10 +200,18 @@ export async function POST(request: NextRequest) {
               event_type: 'SYSTEM',
               action: 'TELEGRAM_BUTTON_IP_UNBLOCK',
               severity: 'INFO',
-              user_email: cb.from.username ? `@${cb.from.username}` : cb.from.first_name,
+              // Dùng email nội bộ cố định thay vì username Telegram để tránh lỗi
+              // AUDIT_MISSING_ACTOR — thông tin actor thực lưu trong new_data.
+              user_email: 'telegram-admin@tps.internal',
               resource_type: 'security_threat_tracking',
               resource_id: targetIp,
-              new_data: { unblocked_ip: targetIp, action_source: 'telegram_inline_button' },
+              new_data: {
+                unblocked_ip: targetIp,
+                action_source: 'telegram_inline_button',
+                telegram_actor_id: cb.from.id,
+                telegram_actor_name: cb.from.first_name,
+                telegram_actor_username: cb.from.username ?? null,
+              },
             });
 
             // Cập nhật lại tin nhắn cảnh báo gốc

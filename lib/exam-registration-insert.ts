@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { parseNgayDangKyImportFormat } from "./csv-registration-import";
+import { createNotification } from "./notification-service";
 
 function num(v: unknown): number | undefined {
   if (v === null || v === undefined || v === "") return undefined;
@@ -202,6 +203,33 @@ export async function insertExamRegistration(
     );
 
     await client.query("COMMIT");
+
+    // Send in-app notification to the registered teacher
+    let subjectName = "";
+    if (resolvedSubjectId) {
+      try {
+        const subjNameRes = await client.query(
+          "SELECT ten_mon FROM chuyen_sau_monhoc WHERE id = $1 LIMIT 1",
+          [resolvedSubjectId]
+        );
+        subjectName = subjNameRes.rows[0]?.ten_mon || "";
+      } catch (err) {
+        console.error("Failed to lookup subject name for notification:", err);
+      }
+    }
+
+    if (dia_chi_email) {
+      createNotification({
+        recipientEmail: String(dia_chi_email),
+        title: "Đăng ký kiểm tra chuyên sâu",
+        content: `Bạn đã được đăng ký kiểm tra chuyên sâu môn "${subjectName}". Vui lòng kiểm tra lịch thi.`,
+        type: "exam",
+        link: "/user/assignments",
+      }).catch((err) =>
+        console.error("Failed to create notification for exam registration:", err)
+      );
+    }
+
     return { ok: true, data: insertResult.rows[0] as Record<string, unknown> };
   } catch (error) {
     await client.query("ROLLBACK");

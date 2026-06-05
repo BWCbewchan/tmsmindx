@@ -1,14 +1,37 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ * app/api/teacher-privacy/route.ts — API cài đặt quyền riêng tư giáo viên
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * ## PHÂN QUYỀN
+ *   GET : Bearer/cookie hợp lệ, chỉ xem dữ liệu của CHÍNH MÌNH (trừ super_admin)
+ *   PUT : Bearer/cookie hợp lệ, chỉ cập nhật của CHÍNH MÌNH + CSRF check
+ *
+ * ## BẢO MẬT
+ *   - `requireBearerSession`: xác thực người dùng đã đăng nhập
+ *   - `rejectIfEmailNotSelf`: ngăn giáo viên A sửa cài đặt của giáo viên B
+ *   - `requireSameOriginMutation` (PUT): chặn tấn công CSRF qua cookie phiên
+ *   - `withApiProtection`: lọc sơ bộ request không phải từ browser/app
+ *
+ * ## DỮ LIỆU
+ *   Bảng: teacher_privacy_settings
+ *   Cột: show_birthday, show_on_public_list, show_phone, show_personal_email
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { rejectIfEmailNotSelf, requireBearerSession } from '@/lib/datasource-api-auth'
 import { withApiProtection } from '@/lib/api-protection'
+import { requireSameOriginMutation } from '@/lib/api-security'
 import { invalidateCurrentAndNeighboringMonths } from '@/lib/birthday-cache'
 
 export const dynamic = 'force-dynamic'
 
-// GET: Lấy privacy settings của giáo viên
+// ─── GET: Lấy privacy settings của giáo viên ─────────────────────────────────
+
 async function handleGet(req: NextRequest) {
     try {
+        // Bước 1: Xác thực phiên đăng nhập
         const auth = await requireBearerSession(req)
         if (!auth.ok) return auth.response
 
@@ -22,6 +45,7 @@ async function handleGet(req: NextRequest) {
             )
         }
 
+        // Bước 2: Ngăn user xem cài đặt của người khác (super_admin bypass)
         const denied = rejectIfEmailNotSelf(
             auth.sessionEmail,
             auth.privileged,
@@ -29,14 +53,14 @@ async function handleGet(req: NextRequest) {
         )
         if (denied) return denied
 
-        // Get or create privacy settings
+        // Lấy cài đặt, hoặc tạo mặc định nếu chưa có
         let result = await pool.query(
             `SELECT * FROM teacher_privacy_settings WHERE teacher_email = $1`,
             [teacherEmail]
         )
 
-        // If no settings exist, create default settings
         if (result.rows.length === 0) {
+            // Tạo mặc định: ẩn sinh nhật, ẩn SĐT, ẩn email cá nhân, hiển thị trong danh sách
             result = await pool.query(
                 `INSERT INTO teacher_privacy_settings 
                  (teacher_email, show_birthday, show_on_public_list, show_phone, show_personal_email)
@@ -60,9 +84,17 @@ async function handleGet(req: NextRequest) {
     }
 }
 
-// PUT: Cập nhật privacy settings
+// ─── PUT: Cập nhật privacy settings ─────────────────────────────────────────
+
 async function handlePut(req: NextRequest) {
     try {
+        // Bước 1: Kiểm tra CSRF — chặn tấn công cross-site qua cookie phiên
+        // Cần thiết vì `requireBearerSession` chấp nhận cả cookie phiên,
+        // và cookie tự động được browser gửi kèm kể cả từ trang web độc hại.
+        const csrfDenied = requireSameOriginMutation(req)
+        if (csrfDenied) return csrfDenied
+
+        // Bước 2: Xác thực phiên đăng nhập
         const auth = await requireBearerSession(req)
         if (!auth.ok) return auth.response
 
@@ -82,6 +114,7 @@ async function handlePut(req: NextRequest) {
             )
         }
 
+        // Bước 3: Ngăn user sửa cài đặt của người khác
         const denied = rejectIfEmailNotSelf(
             auth.sessionEmail,
             auth.privileged,
@@ -89,7 +122,7 @@ async function handlePut(req: NextRequest) {
         )
         if (denied) return denied
 
-        // Upsert privacy settings
+        // Bước 4: Lưu vào DB (UPSERT)
         const result = await pool.query(
             `INSERT INTO teacher_privacy_settings 
              (teacher_email, show_birthday, show_on_public_list, show_phone, show_personal_email, updated_at)
@@ -111,7 +144,7 @@ async function handlePut(req: NextRequest) {
             ]
         )
 
-        // Invalidate birthdays cache khi show_birthday thay đổi (realtime update)
+        // Khi thay đổi show_birthday → xóa cache sinh nhật để cập nhật realtime
         invalidateCurrentAndNeighboringMonths()
 
         return NextResponse.json({
@@ -129,5 +162,8 @@ async function handlePut(req: NextRequest) {
     }
 }
 
+// ─── Export với lớp bảo vệ origin sơ bộ ─────────────────────────────────────
+// Lưu ý: withApiProtection chỉ là bộ lọc origin, KHÔNG phải xác thực thực sự.
+// Xác thực thực sự nằm trong handleGet/handlePut phía trên.
 export const GET = withApiProtection(handleGet)
 export const PUT = withApiProtection(handlePut)

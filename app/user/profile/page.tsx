@@ -402,55 +402,25 @@ export default function TeacherProfilePage() {
     const toastId = toast.loading('Đang tải lên chứng chỉ...')
 
     try {
-      // Get Cloudinary signature
-      const signatureResponse = await fetch('/api/cloudinary-signature', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folder: 'teacher_certificates' }),
-      })
-
-      if (!signatureResponse.ok) throw new Error('Failed to get signature')
-
-      const { signature, timestamp, cloudName, apiKey, folder } =
-        await signatureResponse.json()
-
-      // Upload to Cloudinary
       const formData = new FormData()
       formData.append('file', file)
-      formData.append('signature', signature)
-      formData.append('timestamp', timestamp.toString())
-      formData.append('api_key', apiKey)
-      formData.append('folder', folder)
+      formData.append('teacher_email', user?.email || '')
+      formData.append('certificate_name', certForm.name || file.name)
+      formData.append('certificate_type', certForm.type || 'Other')
+      formData.append('issue_date', certForm.issueDate || '')
+      formData.append('expiry_date', certForm.expiryDate || '')
+      formData.append('description', certForm.description || '')
 
-      const uploadResponse = await fetch(
-        `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`,
-        {
-          method: 'POST',
-          body: formData,
-        },
-      )
-
-      if (!uploadResponse.ok) throw new Error('Failed to upload to Cloudinary')
-
-      const uploadData = await uploadResponse.json()
-
-      // Save certificate to database
       const saveResponse = await fetch('/api/teacher-certificates', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          teacher_email: user?.email,
-          certificate_name: certForm.name || file.name,
-          certificate_url: uploadData.secure_url,
-          certificate_type: certForm.type || 'Other',
-          issue_date: certForm.issueDate || null,
-          expiry_date: certForm.expiryDate || null,
-          description: certForm.description || null,
-          cloudinary_public_id: uploadData.public_id,
-        }),
+        headers: authHeaders(token),
+        body: formData,
       })
 
-      if (!saveResponse.ok) throw new Error('Failed to save certificate')
+      if (!saveResponse.ok) {
+        const errorData = await saveResponse.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to save certificate')
+      }
 
       toast.success('Tải lên chứng chỉ thành công!', { id: toastId })
       mutateCertificates()
@@ -463,14 +433,15 @@ export default function TeacherProfilePage() {
         description: '',
       })
       setSelectedCertFile(null)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Upload error:', error)
-      toast.error('Lỗi khi tải lên chứng chỉ', { id: toastId })
+      toast.error(error?.message || 'Lỗi khi tải lên chứng chỉ', { id: toastId })
     } finally {
       setIsUploadingCert(false)
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
-      }    }
+      }
+    }
   }
 
   // Handle delete certificate

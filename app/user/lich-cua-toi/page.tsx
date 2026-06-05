@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { PageContainer } from '@/components/PageContainer';
 import { Tabs } from '@/components/Tabs';
@@ -17,6 +17,12 @@ export default function LichCuaToiPage() {
   const searchParams = useSearchParams();
   const currentTab = searchParams.get('tab') as TabId || 'lich';
   const [activeTab, setActiveTab] = useState<TabId>(currentTab);
+
+  useEffect(() => {
+    if (currentTab && TAB_IDS.includes(currentTab)) {
+      setActiveTab(currentTab);
+    }
+  }, [currentTab]);
 
   const tabs = [
     { id: 'lich', label: 'Lịch hoạt động' },
