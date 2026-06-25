@@ -1,4 +1,5 @@
 import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
+import { requireBearerSession } from '@/lib/datasource-api-auth';
 import pool from '@/lib/db';
 import { deleteObject, parsePublicUrl } from '@/lib/supabase-s3';
 import { NextRequest, NextResponse } from 'next/server';
@@ -37,8 +38,12 @@ async function deleteS3FileSilently(url: string | null) {
 }
 
 // GET: Láº¥y danh sÃ¡ch videos
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
+    const auth = await requireBearerSession(request);
+    if (!auth.ok) return auth.response;
+    const canManageVideos = Boolean(auth.resolvedAccess.isAdmin);
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const status = searchParams.get('status');
@@ -47,6 +52,12 @@ export async function GET(request: Request) {
 
     // Lightweight query chá»‰ láº¥y max lesson_number
     if (maxLessonNumber === 'true') {
+      if (!canManageVideos) {
+        return NextResponse.json(
+          { success: false, error: 'Không có quyền xem dữ liệu quản trị video' },
+          { status: 403 },
+        );
+      }
       const r = await pool.query('SELECT COALESCE(MAX(lesson_number), 0) AS max FROM training_videos');
       return NextResponse.json({ success: true, max: r.rows[0].max });
     }
@@ -61,6 +72,10 @@ export async function GET(request: Request) {
     `;
     const params: any[] = [];
     const conditions: string[] = [];
+
+    if (!canManageVideos) {
+      conditions.push(`tv.status = 'active'`);
+    }
 
     if (id) {
       conditions.push(`tv.id = $${params.length + 1}`);

@@ -21,21 +21,23 @@ export const GET = async (request: NextRequest) => {
     const canReadAnswers = ['super_admin', 'admin'].includes(auth.resolvedAccess.role);
     const query = `
       SELECT 
-        id,
-        video_id,
-        question_text,
-        question_type,
-        time_in_video,
-        ${canReadAnswers ? 'correct_answer,' : ''}
-        options,
-        points,
-        order_number
-      FROM training_video_questions
-      WHERE video_id = $1
-      ORDER BY time_in_video ASC
+        tvq.id,
+        tvq.video_id,
+        tvq.question_text,
+        tvq.question_type,
+        tvq.time_in_video,
+        ${canReadAnswers ? 'tvq.correct_answer,' : ''}
+        tvq.options,
+        tvq.points,
+        tvq.order_number
+      FROM training_video_questions tvq
+      INNER JOIN training_videos tv ON tv.id = tvq.video_id
+      WHERE tvq.video_id = $1
+        AND ($2::boolean OR tv.status = 'active')
+      ORDER BY tvq.time_in_video ASC
     `;
 
-    const result = await pool.query(query, [videoId]);
+    const result = await pool.query(query, [videoId, canReadAnswers]);
 
     return NextResponse.json({
       success: true,

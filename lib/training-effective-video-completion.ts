@@ -174,7 +174,8 @@ export type TrainingVideoScoreRow = TrainingScoreRowLike & {
 }
 
 function statusPriorityForPick(status: string | null | undefined): number {
-  if (status === 'completed') return 2
+  if (status === 'completed') return 3
+  if (status === 'watched') return 2
   if (status === 'in_progress') return 1
   return 0
 }

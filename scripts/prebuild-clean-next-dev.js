@@ -7,17 +7,42 @@
  * `.next/types/`; dev types are recreated on the next `next dev` run.
  */
 const fs = require("fs");
+const net = require("net");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
 const NEXT_DEV = path.join(ROOT, ".next", "dev");
+const DEV_PORT = Number(process.env.DEV_PREP_PORT || process.env.PORT || 3000);
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function isPortInUse(port) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: "127.0.0.1", port });
+    const finish = (inUse) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(inUse);
+    };
+
+    socket.setTimeout(500);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+  });
+}
+
 async function main() {
   if (!fs.existsSync(NEXT_DEV)) return;
+
+  if (await isPortInUse(DEV_PORT)) {
+    console.warn(
+      `[prebuild-clean-next-dev] skipped: port ${DEV_PORT} is active. Stop the dev server before building to avoid corrupting .next/dev.`
+    );
+    return;
+  }
 
   for (let i = 0; i <= 3; i++) {
     try {

@@ -4,12 +4,12 @@ import { PageContainer } from '@/components/PageContainer'
 import { PageSkeleton } from '@/components/skeletons/PageSkeleton'
 import { Button } from '@/components/ui/button'
 import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from '@/components/ui/table'
 import { buildBrowserLoginRedirectPath } from '@/lib/auth-redirect'
 import { useAuth } from '@/lib/auth-context'
@@ -231,29 +231,29 @@ export default function TrainingPage() {
     setHasAutoSearched(true)
     setIsResolvingCode(true)
 
-    ;(async () => {
-      try {
-        const res = (await secureFetcher(
-          `/api/teachers/info?email=${encodeURIComponent(user.email)}`,
-        )) as TeacherLookupResponse
-        if (res?.teacher?.code) {
-          setSubmitCode(res.teacher.code.toLowerCase().trim())
-          setIsResolvingCode(false)
-          return
+      ; (async () => {
+        try {
+          const res = (await secureFetcher(
+            `/api/teachers/info?email=${encodeURIComponent(user.email)}`,
+          )) as TeacherLookupResponse
+          if (res?.teacher?.code) {
+            setSubmitCode(res.teacher.code.toLowerCase().trim())
+            setIsResolvingCode(false)
+            return
+          }
+        } catch {
+          console.warn(
+            'Email-based lookup failed, falling back to code extraction',
+          )
         }
-      } catch {
-        console.warn(
-          'Email-based lookup failed, falling back to code extraction',
-        )
-      }
 
-      const code = extractCodeFromEmail(user.email)
-      if (code) {
-        setSubmitCode(code.toLowerCase().trim())
-      }
+        const code = extractCodeFromEmail(user.email)
+        if (code) {
+          setSubmitCode(code.toLowerCase().trim())
+        }
 
-      setIsResolvingCode(false)
-    })()
+        setIsResolvingCode(false)
+      })()
   }, [
     user,
     submitCode,
@@ -266,7 +266,8 @@ export default function TrainingPage() {
   const { data: teacherData, isLoading: isLoadingTeacher } = useSWR<TeacherLookupResponse>(
     submitCode && user ? `/api/teachers/info?code=${submitCode}` : null,
     secureFetcher,
-    {      revalidateOnFocus: false,
+    {
+      revalidateOnFocus: false,
       revalidateOnReconnect: false,
       dedupingInterval: 120000,
       shouldRetryOnError: false,
@@ -296,7 +297,6 @@ export default function TrainingPage() {
       undefined,
       { revalidate: true },
     )
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]) // pathname thay đổi = user vừa navigate về trang này
 
   // Refetch khi pathname thay đổi (user navigate về /user/dao-tao-nang-cao từ lesson page)
@@ -490,9 +490,9 @@ export default function TrainingPage() {
 
   // Show skeleton while loading - check ALL conditions
   if (
-    isLoadingTraining || 
-    isLoadingAssignments || 
-    isTeacherLoading || 
+    isLoadingTraining ||
+    isLoadingAssignments ||
+    isTeacherLoading ||
     isResolvingCode ||
     !submitCode ||  // Still resolving code
     (submitCode && !teacher && !isLoadingTeacher) ||  // Waiting for teacher data
@@ -532,31 +532,28 @@ export default function TrainingPage() {
     >
       <div className="mb-6 flex gap-6 border-b border-[#e7c6cb]">
         <button
-          className={`pb-3 px-2 border-b-2 font-bold transition-colors ${
-            tab === 'lessons'
+          className={`pb-3 px-2 border-b-2 font-bold transition-colors ${tab === 'lessons'
               ? 'border-[#a1001f] text-[#a1001f]'
               : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
+            }`}
           onClick={() => setTab('lessons')}
         >
           Bài học nâng cao
         </button>
         <button
-          className={`pb-3 px-2 border-b-2 font-bold transition-colors ${
-            tab === 'stats'
+          className={`pb-3 px-2 border-b-2 font-bold transition-colors ${tab === 'stats'
               ? 'border-[#a1001f] text-[#a1001f]'
               : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
+            }`}
           onClick={() => setTab('stats')}
         >
           Thống kê điểm số
         </button>
         <button
-          className={`pb-3 px-2 border-b-2 font-bold transition-colors ${
-            tab === 'tests'
+          className={`pb-3 px-2 border-b-2 font-bold transition-colors ${tab === 'tests'
               ? 'border-[#a1001f] text-[#a1001f]'
               : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
+            }`}
           onClick={() => setTab('tests')}
         >
           Bài kiểm tra
@@ -593,9 +590,9 @@ export default function TrainingPage() {
                     <div className="text-xs text-gray-500 mt-1">
                       {trainingData.lessons.length > 0
                         ? Math.round(
-                            (completedLessons / trainingData.lessons.length) *
-                              100,
-                          )
+                          (completedLessons / trainingData.lessons.length) *
+                          100,
+                        )
                         : 0}
                       % hoàn thành
                     </div>
@@ -626,17 +623,40 @@ export default function TrainingPage() {
                       const notStarted = lesson.score === 0
                       const passed = lesson.score >= 7
                       const lessonNumber = lesson.lesson_number || idx + 1
+                      const exactDurationSeconds = lesson.segments?.length
+                        ? lesson.segments.reduce(
+                          (sum, segment) =>
+                            sum +
+                            (segment.duration_seconds != null
+                              ? Number(segment.duration_seconds)
+                              : (segment.duration_minutes || 0) * 60),
+                          0,
+                        )
+                        : (lesson.duration_seconds || 0) > 0
+                          ? Number(lesson.duration_seconds)
+                          : (lesson.duration_minutes || 0) * 60
+                      const watchedPercent = isWatched
+                        ? 100
+                        : exactDurationSeconds > 0
+                          ? Math.min(
+                            100,
+                            Math.round(
+                              ((lesson.time_spent_seconds || 0) /
+                                exactDurationSeconds) *
+                              100,
+                            ),
+                          )
+                          : 0
 
                       return (
                         <div
                           key={lesson.id || idx}
-                          className={`flex flex-col gap-3 p-4 border rounded-lg hover:shadow-md transition-shadow cursor-pointer sm:flex-row sm:items-start sm:gap-4 ${
-                            isCompleted
+                          className={`flex flex-col gap-3 p-4 border rounded-lg hover:shadow-md transition-shadow cursor-pointer sm:flex-row sm:items-start sm:gap-4 ${isCompleted
                               ? 'border-green-300 bg-green-50/30'
                               : isWatched
                                 ? 'border-blue-300 bg-blue-50/30'
                                 : 'border-gray-200'
-                          }`}
+                            }`}
                           onMouseEnter={() =>
                             schedulePrewarmLessonManifest(lesson.id)
                           }
@@ -676,22 +696,11 @@ export default function TrainingPage() {
                             </div>
                             {/* Duration badge — prefer duration_seconds for accuracy */}
                             {(() => {
-                              // Sum duration_seconds across all segments if available
-                              const totalSeconds = lesson.segments
-                                ? lesson.segments.reduce(
-                                    (sum, s) =>
-                                      sum +
-                                      (s.duration_seconds != null
-                                        ? Number(s.duration_seconds)
-                                        : (s.duration_minutes || 0) * 60),
-                                    0,
-                                  )
-                                : 0
                               const displaySeconds =
-                                totalSeconds > 0
-                                  ? totalSeconds
+                                exactDurationSeconds > 0
+                                  ? exactDurationSeconds
                                   : lesson.duration_minutes &&
-                                      lesson.duration_minutes !== 30
+                                    lesson.duration_minutes !== 30
                                     ? lesson.duration_minutes * 60
                                     : 0
                               if (!displaySeconds) return null
@@ -742,8 +751,7 @@ export default function TrainingPage() {
                                 )}
                               </div>
                               <span
-                                className={`self-start px-3 py-1 rounded-full text-xs font-medium sm:self-auto sm:whitespace-nowrap ${
-                                  isCompleted
+                                className={`self-start px-3 py-1 rounded-full text-xs font-medium sm:self-auto sm:whitespace-nowrap ${isCompleted
                                     ? 'bg-green-100 text-green-800'
                                     : isWatched
                                       ? 'bg-blue-100 text-blue-800'
@@ -752,7 +760,7 @@ export default function TrainingPage() {
                                         : passed
                                           ? 'bg-green-100 text-green-800'
                                           : 'bg-yellow-100 text-yellow-800'
-                                }`}
+                                  }`}
                               >
                                 {isCompleted
                                   ? '✓ Hoàn thành'
@@ -766,27 +774,23 @@ export default function TrainingPage() {
                               </span>
                             </div>
 
-                            {/* Progress info if not completed but started */}
+                            {/* Progress info if video has been started or watched */}
                             {!isCompleted &&
                               (lesson.time_spent_seconds ?? 0) > 0 && (
                                 <div className="mb-2">
                                   <div className="flex justify-between text-xs text-[#a1001f] mb-1">
-                                    <span>Đang học</span>
                                     <span>
-                                      {Math.min(100, Math.round(
-                                        ((lesson.time_spent_seconds || 0) /
-                                          ((lesson.duration_minutes || 1) *
-                                            60)) *
-                                          100,
-                                      ))}
-                                      %
+                                      {isWatched ? 'Đã xem video' : 'Đang học'}
                                     </span>
+                                    <span>{watchedPercent}%</span>
                                   </div>
                                   <div className="w-full bg-gray-200 rounded-full h-1.5">
                                     <div
-                                      className="bg-[#c41230] h-1.5 rounded-full"
+                                      className={`h-1.5 rounded-full ${
+                                        isWatched ? 'bg-blue-500' : 'bg-[#c41230]'
+                                      }`}
                                       style={{
-                                        width: `${Math.min(100, Math.round(((lesson.time_spent_seconds || 0) / ((lesson.duration_minutes || 1) * 60)) * 100))}%`,
+                                        width: `${watchedPercent}%`,
                                       }}
                                     ></div>
                                   </div>
@@ -825,11 +829,10 @@ export default function TrainingPage() {
                                         });
                                       }
                                     }}
-                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
-                                      canTakeQuiz
+                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${canTakeQuiz
                                         ? 'bg-[#a1001f] text-white hover:bg-[#8a001a] shadow-md hover:scale-105 active:scale-95 cursor-pointer'
                                         : 'bg-gray-100 text-gray-500 border border-gray-200 cursor-not-allowed opacity-80'
-                                    }`}
+                                      }`}
                                   >
                                     <svg
                                       className="w-4 h-4"
@@ -954,26 +957,24 @@ export default function TrainingPage() {
                             </TableCell>
                             <TableCell className="text-center">
                               <span
-                                className={`text-lg font-bold ${
-                                  notStarted
+                                className={`text-lg font-bold ${notStarted
                                     ? 'text-gray-400'
                                     : passed
                                       ? 'text-green-600'
                                       : 'text-yellow-600'
-                                }`}
+                                  }`}
                               >
                                 {notStarted ? '—' : lesson.score.toFixed(1)}
                               </span>
                             </TableCell>
                             <TableCell className="text-center">
                               <span
-                                className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
-                                  notStarted
+                                className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${notStarted
                                     ? 'bg-gray-100 text-gray-700'
                                     : passed
                                       ? 'bg-green-100 text-green-800'
                                       : 'bg-yellow-100 text-yellow-800'
-                                }`}
+                                  }`}
                               >
                                 {notStarted
                                   ? 'Chưa học'
@@ -1015,9 +1016,9 @@ export default function TrainingPage() {
                   <div className="text-2xl font-bold text-yellow-600">
                     {trainingData.lessons.length > 0
                       ? (
-                          (completedLessons / trainingData.lessons.length) *
-                          100
-                        ).toFixed(0)
+                        (completedLessons / trainingData.lessons.length) *
+                        100
+                      ).toFixed(0)
                       : 0}
                     %
                   </div>
@@ -1042,206 +1043,202 @@ export default function TrainingPage() {
                   )
                 })
 
-                  if (filteredAssignments.length === 0) {
-                    return (
-                      <div className="text-center py-8 text-gray-500">
-                        Không có bài kiểm tra nào được tìm thấy
-                      </div>
-                    )
-                  }
-
+                if (filteredAssignments.length === 0) {
                   return (
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                      {filteredAssignments.map((assignment) => {
-                        const linkedVideo = trainingData?.lessons?.find(
-                          (l) => l.id === assignment.video_id,
-                        )
-                        const isLocked =
-                          !['completed', 'watched'].includes(assignment.video_completion_status || '')
-                        const submission = assignment.recent_submission
+                    <div className="text-center py-8 text-gray-500">
+                      Không có bài kiểm tra nào được tìm thấy
+                    </div>
+                  )
+                }
 
-                        // Điểm bài kiểm tra: ưu tiên recent_submission.score, fallback về 0
-                        const submissionScore =
-                          submission?.score != null
-                            ? Number(submission.score)
-                            : null
-                        const submissionTotal =
-                          submission?.total_points != null
-                            ? Number(submission.total_points)
-                            : null
-                        const isPassed = submission?.is_passed === true
-                        const hasSubmission = submission != null
+                return (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {filteredAssignments.map((assignment) => {
+                      const linkedVideo = trainingData?.lessons?.find(
+                        (l) => l.id === assignment.video_id,
+                      )
+                      const isLocked =
+                        !['completed', 'watched'].includes(assignment.video_completion_status || '')
+                      const submission = assignment.recent_submission
 
-                        // Số câu hỏi từ API (đã được count từ DB)
-                        const questionCount = assignment.question_count || 0
+                      // Điểm bài kiểm tra: ưu tiên recent_submission.score, fallback về 0
+                      const submissionScore =
+                        submission?.score != null
+                          ? Number(submission.score)
+                          : null
+                      const submissionTotal =
+                        submission?.total_points != null
+                          ? Number(submission.total_points)
+                          : null
+                      const isPassed = submission?.is_passed === true
+                      const hasSubmission = submission != null
 
-                        // Loại bài kiểm tra
-                        const assignmentType =
-                          assignment.assignment_type === 'quiz'
-                            ? 'Trắc nghiệm'
-                            : assignment.assignment_type || 'Quiz'
+                      // Số câu hỏi từ API (đã được count từ DB)
+                      const questionCount = assignment.question_count || 0
 
-                        return (
-                          <div
-                            key={assignment.id}
-                            className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all overflow-hidden group flex flex-col ${
-                              isLocked
-                                ? 'border-gray-200 opacity-75'
-                                : 'border-gray-200'
+                      // Loại bài kiểm tra
+                      const assignmentType =
+                        assignment.assignment_type === 'quiz'
+                          ? 'Trắc nghiệm'
+                          : assignment.assignment_type || 'Quiz'
+
+                      return (
+                        <div
+                          key={assignment.id}
+                          className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all overflow-hidden group flex flex-col ${isLocked
+                              ? 'border-gray-200 opacity-75'
+                              : 'border-gray-200'
                             }`}
+                        >
+                          {/* Header */}
+                          <div
+                            className={`p-3 text-white ${isLocked ? 'bg-gray-400' : 'bg-linear-to-br from-[#a1001f] to-[#c41230]'}`}
                           >
-                            {/* Header */}
-                            <div
-                              className={`p-3 text-white ${isLocked ? 'bg-gray-400' : 'bg-linear-to-br from-[#a1001f] to-[#c41230]'}`}
-                            >
-                              <div className="flex items-start justify-between mb-1.5">
-                                <BookOpen className="w-5 h-5 shrink-0" />
-                                <span
-                                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
-                                    isLocked
-                                      ? 'bg-black/20'
-                                      : hasSubmission
-                                        ? isPassed
-                                          ? 'bg-green-400/80'
-                                          : 'bg-amber-400/80'
-                                        : 'bg-white/20'
-                                  }`}
-                                >
-                                  {isLocked
-                                    ? 'Locked'
+                            <div className="flex items-start justify-between mb-1.5">
+                              <BookOpen className="w-5 h-5 shrink-0" />
+                              <span
+                                className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${isLocked
+                                    ? 'bg-black/20'
                                     : hasSubmission
                                       ? isPassed
-                                        ? '✓ Đạt'
-                                        : 'Chưa đạt'
-                                      : 'Mở'}
+                                        ? 'bg-green-400/80'
+                                        : 'bg-amber-400/80'
+                                      : 'bg-white/20'
+                                  }`}
+                              >
+                                {isLocked
+                                  ? 'Locked'
+                                  : hasSubmission
+                                    ? isPassed
+                                      ? '✓ Đạt'
+                                      : 'Chưa đạt'
+                                    : 'Mở'}
+                              </span>
+                            </div>
+                            <h3 className="text-sm font-bold mb-1 line-clamp-2 leading-tight min-h-[2.5em]">
+                              {assignment.assignment_title}
+                            </h3>
+                            <p className="text-[11px] text-rose-50 line-clamp-1 opacity-90">
+                              {linkedVideo?.name
+                                ? linkedVideo.name.replace(
+                                  /^Lesson \d+:\s*/,
+                                  '',
+                                )
+                                : 'Unknown Video'}
+                            </p>
+                          </div>
+
+                          {/* Body */}
+                          <div className="p-3 flex flex-col flex-1">
+                            {/* Thông tin bài kiểm tra */}
+                            <div className="flex items-center gap-2 mb-3 text-xs flex-wrap">
+                              <div className="flex items-center gap-1 bg-gray-50 rounded px-2 py-1">
+                                <FileText
+                                  className="w-3 h-3 text-gray-500"
+                                  aria-hidden="true"
+                                />
+                                <span className="font-bold text-gray-900">
+                                  {questionCount > 0 ? questionCount : '—'}
+                                </span>
+                                <span className="text-gray-600">câu</span>
+                              </div>
+
+                              <div className="flex items-center gap-1 bg-gray-50 rounded px-2 py-1">
+                                <BookOpen
+                                  className="w-3 h-3 text-gray-500"
+                                  aria-hidden="true"
+                                />
+                                <span className="font-bold text-gray-900 text-[10px]">
+                                  {assignmentType}
                                 </span>
                               </div>
-                              <h3 className="text-sm font-bold mb-1 line-clamp-2 leading-tight min-h-[2.5em]">
-                                {assignment.assignment_title}
-                              </h3>
-                              <p className="text-[11px] text-rose-50 line-clamp-1 opacity-90">
-                                {linkedVideo?.name
-                                  ? linkedVideo.name.replace(
-                                      /^Lesson \d+:\s*/,
-                                      '',
-                                    )
-                                  : 'Unknown Video'}
-                              </p>
-                            </div>
 
-                            {/* Body */}
-                            <div className="p-3 flex flex-col flex-1">
-                              {/* Thông tin bài kiểm tra */}
-                              <div className="flex items-center gap-2 mb-3 text-xs flex-wrap">
+                              {hasSubmission && submission.submitted_at && (
                                 <div className="flex items-center gap-1 bg-gray-50 rounded px-2 py-1">
-                                  <FileText
+                                  <Clock
                                     className="w-3 h-3 text-gray-500"
                                     aria-hidden="true"
                                   />
                                   <span className="font-bold text-gray-900">
-                                    {questionCount > 0 ? questionCount : '—'}
-                                  </span>
-                                  <span className="text-gray-600">câu</span>
-                                </div>
-
-                                <div className="flex items-center gap-1 bg-gray-50 rounded px-2 py-1">
-                                  <BookOpen
-                                    className="w-3 h-3 text-gray-500"
-                                    aria-hidden="true"
-                                  />
-                                  <span className="font-bold text-gray-900 text-[10px]">
-                                    {assignmentType}
+                                    {new Date(
+                                      submission.submitted_at,
+                                    ).toLocaleDateString('vi-VN', {
+                                      day: '2-digit',
+                                      month: '2-digit',
+                                    })}
                                   </span>
                                 </div>
+                              )}
+                            </div>
 
-                                {hasSubmission && submission.submitted_at && (
-                                  <div className="flex items-center gap-1 bg-gray-50 rounded px-2 py-1">
-                                    <Clock
-                                      className="w-3 h-3 text-gray-500"
-                                      aria-hidden="true"
-                                    />
-                                    <span className="font-bold text-gray-900">
-                                      {new Date(
-                                        submission.submitted_at,
-                                      ).toLocaleDateString('vi-VN', {
-                                        day: '2-digit',
-                                        month: '2-digit',
-                                      })}
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="mt-auto">
-                                {/* Kết quả nộp bài */}
-                                {hasSubmission && submissionScore !== null ? (
-                                  <div
-                                    className={`mb-2.5 p-2 rounded-lg border flex justify-between items-center ${
-                                      isPassed
-                                        ? 'bg-green-50 border-green-200'
-                                        : 'bg-amber-50 border-amber-200'
+                            <div className="mt-auto">
+                              {/* Kết quả nộp bài */}
+                              {hasSubmission && submissionScore !== null ? (
+                                <div
+                                  className={`mb-2.5 p-2 rounded-lg border flex justify-between items-center ${isPassed
+                                      ? 'bg-green-50 border-green-200'
+                                      : 'bg-amber-50 border-amber-200'
                                     }`}
-                                  >
-                                    <div className="flex flex-col">
-                                      <span className="text-[10px] font-semibold text-gray-700">
-                                        Điểm số:
-                                      </span>
-                                      {submission.percentage != null && (
-                                        <span className="text-[10px] text-gray-500">
-                                          {Number(
-                                            submission.percentage,
-                                          ).toFixed(0)}
-                                          %
-                                        </span>
-                                      )}
-                                    </div>
-                                    <span
-                                      className={`text-sm font-bold ${isPassed ? 'text-green-600' : 'text-amber-600'}`}
-                                    >
-                                      {submissionScore.toFixed(1)}
-                                      {submissionTotal != null && (
-                                        <span className="text-xs text-gray-500">
-                                          /{submissionTotal.toFixed(0)}
-                                        </span>
-                                      )}
-                                    </span>
-                                  </div>
-                                ) : !isLocked && !hasSubmission ? (
-                                  <div className="mb-2.5 p-2 rounded-lg border border-dashed border-gray-200 flex items-center justify-center">
-                                    <span className="text-[10px] text-gray-400">
-                                      Chưa làm bài
-                                    </span>
-                                  </div>
-                                ) : null}
-
-                                <Button
-                                  onClick={() =>
-                                    router.push(
-                                      `/user/dao-tao-nang-cao?start_assignment_id=${assignment.id}`,
-                                    )
-                                  }
-                                  disabled={isLocked}
-                                  variant={isLocked ? 'secondary' : 'default'}
-                                  className={`w-full h-9 text-xs font-semibold ${
-                                    !isLocked
-                                      ? 'bg-[#a1001f] hover:bg-[#8a001a] text-white shadow-sm'
-                                      : ''
-                                  }`}
                                 >
-                                  {isLocked
-                                    ? 'Hoàn thành video để mở'
-                                    : hasSubmission
-                                      ? 'Làm lại'
-                                      : 'Làm bài'}
-                                </Button>
-                              </div>
+                                  <div className="flex flex-col">
+                                    <span className="text-[10px] font-semibold text-gray-700">
+                                      Điểm số:
+                                    </span>
+                                    {submission.percentage != null && (
+                                      <span className="text-[10px] text-gray-500">
+                                        {Number(
+                                          submission.percentage,
+                                        ).toFixed(0)}
+                                        %
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span
+                                    className={`text-sm font-bold ${isPassed ? 'text-green-600' : 'text-amber-600'}`}
+                                  >
+                                    {submissionScore.toFixed(1)}
+                                    {submissionTotal != null && (
+                                      <span className="text-xs text-gray-500">
+                                        /{submissionTotal.toFixed(0)}
+                                      </span>
+                                    )}
+                                  </span>
+                                </div>
+                              ) : !isLocked && !hasSubmission ? (
+                                <div className="mb-2.5 p-2 rounded-lg border border-dashed border-gray-200 flex items-center justify-center">
+                                  <span className="text-[10px] text-gray-400">
+                                    Chưa làm bài
+                                  </span>
+                                </div>
+                              ) : null}
+
+                              <Button
+                                onClick={() =>
+                                  router.push(
+                                    `/user/dao-tao-nang-cao?start_assignment_id=${assignment.id}`,
+                                  )
+                                }
+                                disabled={isLocked}
+                                variant={isLocked ? 'secondary' : 'default'}
+                                className={`w-full h-9 text-xs font-semibold ${!isLocked
+                                    ? 'bg-[#a1001f] hover:bg-[#8a001a] text-white shadow-sm'
+                                    : ''
+                                  }`}
+                              >
+                                {isLocked
+                                  ? 'Hoàn thành video để mở'
+                                  : hasSubmission
+                                    ? 'Làm lại'
+                                    : 'Làm bài'}
+                              </Button>
                             </div>
                           </div>
-                        )
-                      })}
-                    </div>
-                  )
-                })()
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()
               }
             </div>
           )}

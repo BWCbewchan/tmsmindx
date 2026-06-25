@@ -14,6 +14,9 @@ const ANONYMOUS_READ_BUCKETS = new Set([
   'mindx-posts-content',
   'mindx-thumbnails',
 ]);
+const ANONYMOUS_READ_PREFIXES = new Map<string, string[]>([
+  ['mindx-avatars', ['avatars/honors-top']],
+]);
 const SIGNED_REDIRECT_BUCKET_TTLS = new Map<string, number>([
   ['mindx-posts-content', 12 * 60 * 60],
   ['mindx-thumbnails', 12 * 60 * 60],
@@ -21,6 +24,11 @@ const SIGNED_REDIRECT_BUCKET_TTLS = new Map<string, number>([
   ['mindx-videos', 30 * 60],
 ]);
 const DEFAULT_SIGNED_REDIRECT_TTL = 15 * 60;
+
+function isAnonymousReadObject(bucket: string, key: string): boolean {
+  if (ANONYMOUS_READ_BUCKETS.has(bucket)) return true;
+  return ANONYMOUS_READ_PREFIXES.get(bucket)?.some((prefix) => key.startsWith(prefix)) ?? false;
+}
 
 function parseStorageUrl(rawUrl: string): { bucket: string; key: string } | null {
   try {
@@ -42,15 +50,15 @@ function isSafeObjectKey(key: string): boolean {
   return Boolean(key) && !key.includes('..') && !key.startsWith('/');
 }
 
-function redirectToObjectUrl(url: string, bucket: string, ttlSeconds?: number) {
-  const isAnonymousBucket = ANONYMOUS_READ_BUCKETS.has(bucket);
+function redirectToObjectUrl(url: string, bucket: string, key: string, ttlSeconds?: number) {
+  const isAnonymousObject = isAnonymousReadObject(bucket, key);
   const sharedMaxAge = ttlSeconds
     ? Math.max(60, ttlSeconds - 5 * 60)
     : 7 * 24 * 60 * 60;
   const response = NextResponse.redirect(url, 307);
   response.headers.set(
     'Cache-Control',
-    isAnonymousBucket
+    isAnonymousObject
       ? `public, max-age=${sharedMaxAge}, s-maxage=${sharedMaxAge}, stale-while-revalidate=300`
       : 'private, max-age=300',
   );
@@ -63,7 +71,7 @@ async function requireReadAccess(
   bucket: string,
   key: string,
 ): Promise<NextResponse | null> {
-  if (ANONYMOUS_READ_BUCKETS.has(bucket)) return null;
+  if (isAnonymousReadObject(bucket, key)) return null;
 
   if (bucket === 'mindx-candidate-harvest') {
     const candidateAuth = await requireCandidateSession(request);
@@ -108,8 +116,8 @@ export async function GET(request: NextRequest) {
     if (denied) return denied;
 
     if (!isSupabaseS3Configured()) {
-      if (ANONYMOUS_READ_BUCKETS.has(bucket)) {
-        return redirectToObjectUrl(getPublicObjectUrl(bucket, key), bucket);
+      if (isAnonymousReadObject(bucket, key)) {
+        return redirectToObjectUrl(getPublicObjectUrl(bucket, key), bucket, key);
       }
       return new NextResponse('Storage not configured', { status: 500 });
     }
@@ -124,7 +132,7 @@ export async function GET(request: NextRequest) {
         SIGNED_REDIRECT_BUCKET_TTLS.get(bucket) ?? DEFAULT_SIGNED_REDIRECT_TTL;
       try {
         const objectUrl = await getSignedObjectUrl(bucket, key, signedRedirectTtl);
-        return redirectToObjectUrl(objectUrl, bucket, signedRedirectTtl);
+        return redirectToObjectUrl(objectUrl, bucket, key, signedRedirectTtl);
       } catch (error: any) {
         console.warn('[storage-proxy] direct redirect failed, fallback to proxy stream:', error?.message || error);
       }
@@ -151,7 +159,7 @@ export async function GET(request: NextRequest) {
     const headers: Record<string, string> = {
       'Content-Type': result.ContentType || (isVideo ? 'video/mp4' : 'application/octet-stream'),
       'Accept-Ranges': 'bytes',
-      'Cache-Control': ANONYMOUS_READ_BUCKETS.has(bucket)
+      'Cache-Control': isAnonymousReadObject(bucket, key)
         ? 'public, max-age=604800, s-maxage=86400'
         : 'private, max-age=3600',
       'X-Content-Type-Options': 'nosniff',

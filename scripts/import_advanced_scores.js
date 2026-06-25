@@ -90,7 +90,7 @@ async function importScores() {
         
         if (isNaN(score) || score <= 0) continue; // Only process valid scores > 0 from CSV
 
-        let completionStatus = 'completed';
+        const completionStatus = score >= 7 ? 'completed' : 'watched';
 
         await client.query(`
           INSERT INTO training_teacher_video_scores 
@@ -98,7 +98,11 @@ async function importScores() {
           VALUES ($1, $2, $3, $4)
           ON CONFLICT (teacher_code, video_id) DO UPDATE 
           SET score = EXCLUDED.score, 
-              completion_status = CASE WHEN training_teacher_video_scores.completion_status = 'watched' THEN 'watched' ELSE EXCLUDED.completion_status END,
+              completion_status = CASE
+                WHEN training_teacher_video_scores.completion_status = 'completed' THEN 'completed'
+                WHEN EXCLUDED.completion_status = 'completed' THEN 'completed'
+                ELSE 'watched'
+              END,
               updated_at = NOW()
           WHERE training_teacher_video_scores.score < EXCLUDED.score OR training_teacher_video_scores.score IS NULL
         `, [teacherCode, videoId, score, completionStatus]);

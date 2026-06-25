@@ -11,6 +11,7 @@ import {
   lessonDurationSecondsFromSegments,
   mergedWatchSecondsForVideoIds,
 } from '@/lib/training-effective-video-completion';
+import { resolveTrainingTeacherCode } from '@/lib/training-teacher-code';
 import { NextRequest, NextResponse } from 'next/server';
 
 export const GET = withApiProtection(async (request: NextRequest) => {
@@ -35,24 +36,8 @@ export const GET = withApiProtection(async (request: NextRequest) => {
     );
     if (denied) return denied;
 
-    // Resolve canonical code từ teachers table
-    // Trường hợp teacherCode là email prefix (legacy) → tìm canonical code qua user_name hoặc work_email
-    const resolveRes = await pool.query(
-      `SELECT LOWER(TRIM(code)) AS canonical_code, LOWER(TRIM(user_name)) AS user_name
-       FROM teachers
-       WHERE LOWER(TRIM(code)) = $1
-          OR LOWER(TRIM(user_name)) = $1
-          OR LOWER(SPLIT_PART(work_email, '@', 1)) = $1
-       LIMIT 1`,
-      [teacherCode],
-    );
-    const resolvedRow = resolveRes.rows[0] as { canonical_code: string; user_name: string | null } | null;
-    // canonicalCode: code thực tế trong teachers (ví dụ 'manhnd')
-    // emailPrefixCode: email prefix có thể đã lưu trong scores (ví dụ 'threem2502')
-    const canonicalCode = resolvedRow?.canonical_code || teacherCode;
-    const emailPrefixCode = resolvedRow?.user_name || teacherCode;
-    // Danh sách codes để query scores (bao gồm cả legacy email prefix)
-    const allTeacherCodes = [...new Set([canonicalCode, emailPrefixCode, teacherCode])].filter(Boolean);
+    const { canonicalCode, aliases: allTeacherCodes } =
+      await resolveTrainingTeacherCode(pool, teacherCode);
 
     // Fetch teacher stats - auto-create if not exists, but always enrich from teachers table when possible.
     const teacherInfoQuery = `
@@ -140,6 +125,17 @@ export const GET = withApiProtection(async (request: NextRequest) => {
         last_heartbeat_at
       FROM training_teacher_video_scores
       WHERE LOWER(TRIM(teacher_code)) = ANY($1::text[])
+      ORDER BY
+        video_id ASC,
+        COALESCE(score, 0) ASC,
+        CASE completion_status
+          WHEN 'completed' THEN 3
+          WHEN 'watched' THEN 2
+          WHEN 'in_progress' THEN 1
+          ELSE 0
+        END ASC,
+        COALESCE(server_time_seconds, 0) ASC,
+        updated_at ASC
     `,
         [allTeacherCodes],
       ),
@@ -165,10 +161,10 @@ export const GET = withApiProtection(async (request: NextRequest) => {
     const durationUpdates = videosResult.rows
       .filter(video => (!video.duration_minutes || video.duration_minutes === 30) && video.video_link)
       .map(async (video) => {
-          // Duration calculate logic has been removed to avoid memory crashes on Vercel
-          console.log(`[Training DB API] Keeping default 30 duration for video ${video.id}...`);
+        // Duration calculate logic has been removed to avoid memory crashes on Vercel
+        console.log(`[Training DB API] Keeping default 30 duration for video ${video.id}...`);
       });
-    
+
     // Process updates in parallel (await to ensure response has correct data)
     if (durationUpdates.length > 0) {
       await Promise.all(durationUpdates);
@@ -238,11 +234,11 @@ export const GET = withApiProtection(async (request: NextRequest) => {
 
       // Extract segments out to a dedicated array instead of Cloudinary concatenation.
       const segments = sorted.map((vid) => ({
-         id: vid.id,
-         url: normalizeStorageUrl(vid.video_link),
-         // We pass chunk duration for the specialized player later (fallback if duration is faulty)
-         duration_minutes: Number(vid.duration_minutes) || 0,
-         duration_seconds: vid.duration_seconds != null ? Number(vid.duration_seconds) : null
+        id: vid.id,
+        url: normalizeStorageUrl(vid.video_link),
+        // We pass chunk duration for the specialized player later (fallback if duration is faulty)
+        duration_minutes: Number(vid.duration_minutes) || 0,
+        duration_seconds: vid.duration_seconds != null ? Number(vid.duration_seconds) : null
       }));
 
       return {
@@ -264,23 +260,24 @@ export const GET = withApiProtection(async (request: NextRequest) => {
 
       const scoreData = scoreCandidates.length > 0
         ? scoreCandidates.reduce((best: any, current: any) => {
-            const statusPriority = (status: string | null | undefined) => {
-              if (status === 'completed') return 2;
-              if (status === 'in_progress') return 1;
-              return 0;
-            };
+          const statusPriority = (status: string | null | undefined) => {
+            if (status === 'completed') return 3;
+            if (status === 'watched') return 2;
+            if (status === 'in_progress') return 1;
+            return 0;
+          };
 
-            const bestPriority = statusPriority(best?.completion_status);
-            const currentPriority = statusPriority(current?.completion_status);
-            if (currentPriority > bestPriority) return current;
-            if (currentPriority < bestPriority) return best;
+          const bestPriority = statusPriority(best?.completion_status);
+          const currentPriority = statusPriority(current?.completion_status);
+          if (currentPriority > bestPriority) return current;
+          if (currentPriority < bestPriority) return best;
 
-            const bestTime = Number(best?.time_spent_seconds || 0);
-            const currentTime = Number(current?.time_spent_seconds || 0);
-            if (currentTime > bestTime) return current;
+          const bestTime = Number(best?.time_spent_seconds || 0);
+          const currentTime = Number(current?.time_spent_seconds || 0);
+          if (currentTime > bestTime) return current;
 
-            return best;
-          }, scoreCandidates[0])
+          return best;
+        }, scoreCandidates[0])
         : null;
 
       const durationSeconds = lessonDurationSecondsFromSegments(
@@ -288,7 +285,7 @@ export const GET = withApiProtection(async (request: NextRequest) => {
         video.duration_minutes,
       );
       const mergedWatchedSeconds = mergedWatchSecondsForVideoIds(sourceIds, scoresMap);
-      const displayWatchedSeconds =
+      const cappedWatchedSeconds =
         durationSeconds > 0
           ? Math.min(mergedWatchedSeconds, Math.ceil(durationSeconds * 1.05))
           : mergedWatchedSeconds;
@@ -296,7 +293,7 @@ export const GET = withApiProtection(async (request: NextRequest) => {
       const hasQuizEvidenceForLesson = sourceIds.some((id) =>
         quizEvidenceVideoIds.has(id),
       );
-      
+
       const hasTmsWatchHeartbeat = hasTmsWatchEvidenceForVideoIds(
         sourceIds,
         scoresMap,
@@ -311,24 +308,41 @@ export const GET = withApiProtection(async (request: NextRequest) => {
         hasTmsWatchHeartbeat,
       });
 
-       const importedScore = scoreData ? scoreData.score : 0;
-       const quizScore = quizScoresMap.get(video.id) || -Infinity;
-       const finalScore = Math.max(importedScore, quizScore);
+      const importedScore = scoreData ? scoreData.score : 0;
+      const quizScore = sourceIds.reduce(
+        (best, sourceId) => Math.max(best, quizScoresMap.get(sourceId) ?? -Infinity),
+        -Infinity,
+      );
+      const finalScore = Math.max(importedScore, quizScore);
+      const completionStatus =
+        finalScore > 0 &&
+        finalScore < 7 &&
+        effective.completion_status === 'completed'
+          ? 'watched'
+          : finalScore >= 7
+            ? 'completed'
+            : effective.completion_status;
+      const displayWatchedSeconds =
+        durationSeconds > 0 &&
+        ['watched', 'completed'].includes(completionStatus)
+          ? durationSeconds
+          : cappedWatchedSeconds;
 
-       return {
-         id: video.id,
-         name: video.title || `Video ${video.id}`,
-         score: finalScore === -Infinity ? 0 : finalScore,
-         link: normalizeStorageUrl(video.video_link),
-         segments: video.segments, // Included chunks
-         thumbnail_url: normalizeStorageUrl(video.thumbnail_url) || null,
-         description: video.description,
-         duration_minutes: video.duration_minutes,
-         lesson_number: video.lesson_number || (index + 1),
-         completion_status: effective.completion_status,
-         completed_at: effective.completed_at,
-         time_spent_seconds: displayWatchedSeconds,
-       };
+      return {
+        id: video.id,
+        name: video.title || `Video ${video.id}`,
+        score: finalScore === -Infinity ? 0 : finalScore,
+        link: normalizeStorageUrl(video.video_link),
+        segments: video.segments, // Included chunks
+        thumbnail_url: normalizeStorageUrl(video.thumbnail_url) || null,
+        description: video.description,
+        duration_minutes: video.duration_minutes,
+        lesson_number: video.lesson_number || (index + 1),
+        completion_status: completionStatus,
+        completed_at:
+          completionStatus === 'completed' ? effective.completed_at : null,
+        time_spent_seconds: displayWatchedSeconds,
+      };
     });
 
     // Calculate averageScore from the merged lessons data
@@ -365,9 +379,9 @@ export const GET = withApiProtection(async (request: NextRequest) => {
   } catch (error) {
     console.error('[Training DB API] Error:', error);
     console.error('[Training DB API] Error details:', error instanceof Error ? error.message : 'Unknown error');
-    
+
     return NextResponse.json(
-      { 
+      {
         error: error instanceof Error ? error.message : 'Unknown error',
         details: 'Failed to fetch training data from database'
       },

@@ -8,6 +8,7 @@ import useSWR from 'swr'
 
 import { useAuth } from '@/lib/auth-context'
 import { authHeaders } from '@/lib/auth-headers'
+import { cn } from '@/lib/utils'
 import { BirthdayWishPopup } from '@/components/birthday-wish-popup'
 import { BirthdaySendWishPopup } from '@/components/birthday-send-wish-popup'
 import { Button } from '@/components/ui/button'
@@ -109,7 +110,7 @@ function toYmdNumber(year: number, month: number, day: number): number {
     return year * 10000 + month * 100 + day
 }
 
-export function UpcomingEventsSidebar() {
+export function UpcomingEventsSidebar({ upcomingCardClassName }: { upcomingCardClassName?: string } = {}) {
     const { user, token } = useAuth()
     const [privacySyncToken, setPrivacySyncToken] = useState<string | null>(null)
     const [isWishPopupOpen, setIsWishPopupOpen] = useState(false)
@@ -368,7 +369,10 @@ export function UpcomingEventsSidebar() {
         <>
         <div className={shouldHideSidebarCards ? 'hidden' : 'space-y-6 animate-in fade-in slide-in-from-right duration-700'}>
             {/* Upcoming Events Section */}
-            <div className="bg-white rounded-2xl border border-gray-200/80 overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-300">
+            <div className={cn(
+                "flex flex-col overflow-hidden rounded-[1.15rem] border border-gray-200/80 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.055)] transition-shadow duration-300 hover:shadow-md",
+                upcomingCardClassName,
+            )}>
                 <div className="p-5 border-b border-gray-100 bg-linear-to-r from-gray-50 to-white">
                     <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider flex items-center gap-2">
                         <Calendar className="w-4 h-4 text-gray-600" />
@@ -376,7 +380,7 @@ export function UpcomingEventsSidebar() {
                     </h3>
                 </div>
                 
-                <div className="p-5 space-y-3">
+                <div className="min-h-0 flex-1 overflow-y-auto p-5 space-y-3">
                     {upcomingEvents.length > 0 ? (
                         <>
                             {upcomingEvents.map((event, index) => {

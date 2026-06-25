@@ -95,7 +95,6 @@ function PlaylistItem({
       {/* Thumbnail or Fallback */}
       <div className="relative w-24 aspect-video rounded overflow-hidden bg-gray-100 flex-shrink-0 border border-slate-200/60">
         {lesson.thumbnail_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={lesson.thumbnail_url}
             alt=""
@@ -333,13 +332,27 @@ function LessonContent() {
   const [allAssignments, setAllAssignments] = useState<any[]>([])
   const [isLoadingLessons, setIsLoadingLessons] = useState(false)
 
+  const resolvedTeacherCode = useMemo(() => {
+    const profileCode = String(teacherProfile?.code || '')
+      .trim()
+      .toLowerCase()
+    if (profileCode) return profileCode
+
+    return user?.email ? user.email.split('@')[0].toLowerCase().trim() : ''
+  }, [teacherProfile?.code, user?.email])
+
+  const resolvedTeacherCodeRef = useRef(resolvedTeacherCode)
+  useEffect(() => {
+    resolvedTeacherCodeRef.current = resolvedTeacherCode
+  }, [resolvedTeacherCode])
+
   // Fetch all lessons and progress
   useEffect(() => {
-    if (!user?.email) return
+    if (isTeacherLoading || !resolvedTeacherCode) return
     const fetchLessons = async () => {
       setIsLoadingLessons(true)
       try {
-        const teacherCode = teacherProfile?.code || user.email.split('@')[0].toLowerCase().trim()
+        const teacherCode = encodeURIComponent(resolvedTeacherCode)
         const [dbRes, assignmentsRes] = await Promise.all([
           fetch(`/api/training-db?code=${teacherCode}`, {
             headers: authHeaders(token),
@@ -369,7 +382,7 @@ function LessonContent() {
       }
     }
     fetchLessons()
-  }, [user, teacherProfile, token, lessonIdParam, videoCompleted])
+  }, [isTeacherLoading, resolvedTeacherCode, token, lessonIdParam, videoCompleted])
 
   const handleLessonClick = (lesson: any) => {
     if (lesson.id.toString() === lessonId) return
@@ -418,12 +431,41 @@ function LessonContent() {
     }
   }, [user, isTeacherLoading, teacherProfile, router])
 
+  const getReliableLessonDurationSeconds = useCallback(() => {
+    const currentVideoDuration = videoRef.current?.duration
+    if (
+      videoSegments.length <= 1 &&
+      typeof currentVideoDuration === 'number' &&
+      Number.isFinite(currentVideoDuration) &&
+      currentVideoDuration > 0
+    ) {
+      return currentVideoDuration
+    }
+
+    if (typeof duration === 'number' && Number.isFinite(duration) && duration > 0) {
+      return duration
+    }
+
+    const mappedDuration = Number(totalDurationMapRef.current) || 0
+    if (mappedDuration > 0) return mappedDuration
+
+    return overrideDurationSeconds > 0 ? overrideDurationSeconds : 0
+  }, [duration, overrideDurationSeconds, videoSegments.length])
+
   // Helper to save progress — dùng useCallback để reference ổn định trong event closures
-  const saveCompletion = useCallback(async (id: string | null, time: number) => {
+  const saveCompletion = useCallback(async (id: string | null, durationSeconds: number): Promise<boolean> => {
     const currentUser = userRef.current
-    if (!id || !currentUser?.email) return
+    const teacherCode =
+      resolvedTeacherCodeRef.current ||
+      (currentUser?.email
+        ? currentUser.email.split('@')[0].toLowerCase().trim()
+        : '')
+    if (!id || !teacherCode) return false
+    const safeDurationSeconds = Math.max(
+      0,
+      Math.floor(Number(durationSeconds) || 0),
+    )
     try {
-      const teacherCode = currentUser.email.split('@')[0].toLowerCase().trim()
       const res = await fetch('/api/training-progress', {
         method: 'POST',
         headers: {
@@ -433,23 +475,38 @@ function LessonContent() {
         body: JSON.stringify({
           teacherCode,
           videoId: id,
-          timeSpent: time,
+          timeSpent: safeDurationSeconds,
           isCompleted: true,
-          totalDuration: time,
+          eventType: 'ended',
+          totalDuration: safeDurationSeconds > 0 ? safeDurationSeconds : undefined,
         }),
       })
       if (!res.ok) {
         console.error('[Lesson] saveCompletion failed:', res.status, await res.text().catch(() => ''))
+        return false
+      }
+      const result = (await res.json()) as {
+        data?: { completion_status?: string | null }
+        completionAccepted?: boolean
+      }
+      const accepted =
+        result.completionAccepted === true ||
+        ['watched', 'completed'].includes(
+          String(result.data?.completion_status || ''),
+        )
+      if (!accepted) {
+        console.warn('[Lesson] Completion rejected by server timing checks')
+        return false
       }
       // Signal training page để force-revalidate assignments cache
       try {
         sessionStorage.setItem('training_completion_invalidate', `${id}:${Date.now()}`)
       } catch { /* ignore */ }
+      return true
     } catch (err) {
       console.error('[Lesson] Failed to save completion:', err)
+      return false
     }
-  // userRef và tokenRef là refs — không cần trong deps
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Load assignment for the current video
@@ -478,7 +535,6 @@ function LessonContent() {
       }
     }
     loadAssignment()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lessonId, token]) // token trong deps để retry khi auth sẵn sàng
 
   // (Rest of the component code...)
@@ -792,10 +848,10 @@ function LessonContent() {
     const controller = new AbortController()
 
     const loadProgress = async () => {
-      if (!lessonId || !user?.email) return
+      if (!lessonId || !resolvedTeacherCode) return
 
       try {
-        const teacherCode = user.email.split('@')[0]
+        const teacherCode = encodeURIComponent(resolvedTeacherCode)
         const res = await fetch(
           `/api/training-progress?teacherCode=${teacherCode}&videoId=${lessonId}`,
           {
@@ -914,20 +970,20 @@ function LessonContent() {
 
     loadProgress()
     return () => controller.abort()
-  }, [lessonId, user])
+  }, [lessonId, resolvedTeacherCode, token])
 
   // Save progress periodically (every 10 seconds)
   useEffect(() => {
-    if (!isPlaying || !lessonId || !user?.email) return
+    if (!isPlaying || !lessonId || !resolvedTeacherCode) return
 
-    const teacherCode = user.email.split('@')[0].toLowerCase().trim()
+    const teacherCode = resolvedTeacherCode
     const interval = setInterval(async () => {
       // Get current time directly from video element for accuracy
       const time = videoRef.current ? videoRef.current.currentTime : 0
       if (time <= 0) return
 
       const globalTime = (startTimesRef.current[currentIndexRef.current] ?? 0) + time
-      const globalDuration = totalDurationMapRef.current
+      const globalDuration = getReliableLessonDurationSeconds()
 
       try {
         await fetch('/api/training-progress', {
@@ -942,6 +998,7 @@ function LessonContent() {
             timeSpent: globalTime,
             isCompleted: false,
             totalDuration: globalDuration > 0 ? globalDuration : undefined,
+            eventType: 'heartbeat',
           }),
         })
       } catch (err) {
@@ -950,7 +1007,7 @@ function LessonContent() {
     }, 10000)
 
     return () => clearInterval(interval)
-  }, [isPlaying, lessonId, user])
+  }, [getReliableLessonDurationSeconds, isPlaying, lessonId, resolvedTeacherCode])
 
   // Save progress on completion (removed)
   useEffect(() => {
@@ -1181,7 +1238,7 @@ function LessonContent() {
     }
 
 
-    const handleEnded = () => {
+    const handleEnded = async () => {
       if (currentIndex < videoSegments.length - 1) {
         // Có phần tiếp theo của video hiện tại (Cloudinary parts)
 
@@ -1226,13 +1283,26 @@ function LessonContent() {
           isPlayingRef.current = false
         }
       } else {
-        setProgress(100)
-        setVideoCompleted(true)
         setIsPlaying(false)
+        isPlayingRef.current = false
+        setIsSavingCompletion(true)
 
-        // Save completion immediately using the current lesson ID and user
+        let completionSaved = false
         if (lessonIdRef.current && userRef.current?.email) {
-          saveCompletion(lessonIdRef.current, totalDurationMap || duration)
+          completionSaved = await saveCompletion(
+            lessonIdRef.current,
+            getReliableLessonDurationSeconds(),
+          )
+        }
+
+        setIsSavingCompletion(false)
+        if (completionSaved) {
+          setProgress(100)
+          setVideoCompleted(true)
+        } else {
+          flatToast.error(
+            'Máy chủ chưa xác nhận đủ thời gian xem. Video sẽ tiếp tục từ vị trí đã ghi nhận.',
+          )
         }
       }
     }
@@ -1257,14 +1327,45 @@ function LessonContent() {
       resetWallClock(video)
       isLockedRef.current = false
       setIsWaiting(false)
+
+      const teacherCode = resolvedTeacherCodeRef.current
+      const activeLessonId = lessonIdRef.current
+      if (teacherCode && activeLessonId) {
+        const offset = video.seekable.length > 0 ? video.seekable.start(0) : 0
+        const localTime = Math.max(0, video.currentTime - offset)
+        const globalTime =
+          (startTimesRef.current[currentIndexRef.current] ?? 0) + localTime
+        fetch('/api/training-progress', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...authHeaders(tokenRef.current),
+          },
+          body: JSON.stringify({
+            teacherCode,
+            videoId: activeLessonId,
+            timeSpent: globalTime,
+            isCompleted: false,
+            eventType: 'start',
+          }),
+        }).catch((err) =>
+          console.error('[Lesson] Failed to start progress session:', err),
+        )
+      }
     }
 
     const handlePause = () => {
-      if (lessonIdRef.current && userRef.current?.email) {
-        const teacherCode = userRef.current.email.split('@')[0].toLowerCase().trim()
+      if (lessonIdRef.current) {
+        const teacherCode =
+          resolvedTeacherCodeRef.current ||
+          (userRef.current?.email
+            ? userRef.current.email.split('@')[0].toLowerCase().trim()
+            : '')
+        if (!teacherCode) return
+
         const time = video.currentTime
         const globalTime = (startTimesRef.current[currentIndexRef.current] ?? 0) + time
-        const globalDuration = totalDurationMapRef.current
+        const globalDuration = getReliableLessonDurationSeconds()
 
         fetch('/api/training-progress', {
           method: 'POST',
@@ -1278,6 +1379,7 @@ function LessonContent() {
             timeSpent: globalTime,
             isCompleted: false,
             totalDuration: globalDuration > 0 ? globalDuration : undefined,
+            eventType: 'pause',
           }),
         }).catch((err) =>
           console.error('[Lesson] Failed to save on pause:', err),
@@ -1299,7 +1401,7 @@ function LessonContent() {
     }
 
     const handleSeeking = () => {
-      // Skip khi đang replay
+      // Chỉ cho phép seek nội bộ khi resume, chuyển segment hoặc xem lại từ đầu.
       if (isReplayingRef.current) return
 
       const offset = video.seekable.length > 0 ? video.seekable.start(0) : 0
@@ -1309,13 +1411,21 @@ function LessonContent() {
         lastValidTimeRef.current - (startTimes[currentIndex] ?? 0),
       )
 
-      // allowedJump cố định 5s — không dùng playbackRate
-      const allowedJump = 5
-
-      if (Math.abs(attemptedTime - localLastTime) > allowedJump) {
+      if (Math.abs(attemptedTime - localLastTime) > 0.25) {
+        isReplayingRef.current = true
         video.currentTime = localLastTime + offset
         wallStartRef.current = Date.now()
         videoTimeAtWallRef.current = localLastTime
+        setTimeout(() => {
+          isReplayingRef.current = false
+        }, 150)
+
+        if (Date.now() - lastPenaltyTimeRef.current > 2500) {
+          lastPenaltyTimeRef.current = Date.now()
+          flatToast.error('Không thể tua video đào tạo.', {
+            duration: 2500,
+          })
+        }
       }
     }
 
@@ -1376,8 +1486,10 @@ function LessonContent() {
     overrideDurationSeconds,
     totalDurationMap,
     duration,
+    getReliableLessonDurationSeconds,
     lockPlaybackRate,
     resetWallClock,
+    saveCompletion,
   ])
 
   // Update progress bar based on video time
@@ -1402,7 +1514,7 @@ function LessonContent() {
         body: JSON.stringify({
           question_id: question.id,
           selected_answer: userAnswer,
-          teacher_code: teacherProfile?.code || '',
+          teacher_code: resolvedTeacherCode,
         }),
       })
       const data = await response.json()
@@ -1469,6 +1581,63 @@ function LessonContent() {
       setVolume(newVolume)
     }
   }
+
+  const goToAssignmentAfterCompletion = useCallback(async () => {
+    if (isSavingCompletion) return
+
+    setIsSavingCompletion(true)
+    try {
+      const saved = await saveCompletion(
+        lessonIdRef.current,
+        getReliableLessonDurationSeconds(),
+      )
+
+      if (!saved) {
+        flatToast.error(
+          'Chưa lưu được trạng thái hoàn thành video. Vui lòng thử lại.',
+        )
+        return
+      }
+
+      let assignmentId = currentAssignment?.id
+      if (!assignmentId && lessonId) {
+        try {
+          const res = await fetch(
+            `/api/training-assignments?video_id=${lessonId}&status=published`,
+            { headers: authHeaders(tokenRef.current) },
+          )
+          const data = (await res.json()) as {
+            success: boolean
+            data?: TrainingAssignment[]
+          }
+          if (data.success && data.data && data.data.length > 0) {
+            setCurrentAssignment(data.data[0])
+            assignmentId = data.data[0].id
+          }
+        } catch {
+          /* fallback below */
+        }
+      }
+
+      if (assignmentId) {
+        router.push(
+          `/user/dao-tao-nang-cao?start_assignment_id=${assignmentId}&video_ok=1`,
+        )
+      } else {
+        flatToast.error('Không tìm thấy bài tập của video này.')
+        router.push('/user/dao-tao-nang-cao')
+      }
+    } finally {
+      setIsSavingCompletion(false)
+    }
+  }, [
+    currentAssignment?.id,
+    getReliableLessonDurationSeconds,
+    isSavingCompletion,
+    lessonId,
+    router,
+    saveCompletion,
+  ])
 
   const toggleFullscreen = () => {
     if (!playerContainerRef.current) return
@@ -1586,6 +1755,10 @@ function LessonContent() {
                 style={{ maxHeight: '100%' }}
                 onClick={isActive ? togglePlayPause : undefined}
                 onContextMenu={(e) => e.preventDefault()}
+                controlsList="nodownload noplaybackrate noremoteplayback"
+                disablePictureInPicture
+                disableRemotePlayback
+                tabIndex={-1}
                 playsInline
                 // If this is the next video, keep it muted so browser aggressive autoplay policies don't complain during background buffer
                 muted={!isActive || volume === 0}
@@ -1628,7 +1801,11 @@ function LessonContent() {
           >
             {/* Progress bar - Enhanced MultiVideoPlayer features */}
             <div className="mb-3 sm:mb-4">
-              <div className="relative h-8 sm:h-10 flex items-center cursor-pointer group">
+              <div
+                className="relative h-8 sm:h-10 flex items-center cursor-not-allowed group"
+                title="Thanh tiến độ chỉ để theo dõi; video đào tạo không cho phép tua."
+                aria-label="Tiến độ video, không thể tua"
+              >
                 {/* Progress bar background */}
                 <div className="absolute left-0 right-0 h-1.5 bg-white/20 rounded-full top-1/2 transform -translate-y-1/2 group-hover:h-2 transition-all">
                   <div
@@ -2012,49 +2189,7 @@ function LessonContent() {
                 <div className="grid grid-cols-1 gap-3 w-full">
                   <Button
                     disabled={isSavingCompletion}
-                    onClick={async () => {
-                      if (isSavingCompletion) return
-                      setIsSavingCompletion(true)
-                      try {
-                        // ── CRITICAL FIX: Đảm bảo completion đã được lưu vào DB
-                        // TRƯỚC KHI navigate — tránh race condition khiến
-                        // training-assignments API trả về data cũ (video chưa completed)
-                        await saveCompletion(
-                          lessonIdRef.current,
-                          totalDurationMap || duration,
-                        )
-
-                        // Thử lấy assignment nếu chưa có (token có thể chưa ready lúc load)
-                        let assignmentId = currentAssignment?.id
-                        if (!assignmentId && lessonId) {
-                          try {
-                            const res = await fetch(
-                              `/api/training-assignments?video_id=${lessonId}&status=published`,
-                              { headers: authHeaders(tokenRef.current) },
-                            )
-                            const data = await res.json() as { success: boolean; data?: TrainingAssignment[] }
-                            if (data.success && data.data && data.data.length > 0) {
-                              setCurrentAssignment(data.data[0])
-                              assignmentId = data.data[0].id
-                            }
-                          } catch { /* fallback below */ }
-                        }
-                        if (assignmentId) {
-                          router.push(`/user/dao-tao-nang-cao?start_assignment_id=${assignmentId}&video_ok=1`)
-                        } else {
-                          router.push(`/user/dao-tao-nang-cao`)
-                        }
-                      } catch {
-                        // Nếu save lỗi, vẫn cho navigate (fallback)
-                        router.push(
-                          currentAssignment?.id
-                            ? `/user/dao-tao-nang-cao?start_assignment_id=${currentAssignment.id}&video_ok=1`
-                            : `/user/dao-tao-nang-cao`,
-                        )
-                      } finally {
-                        setIsSavingCompletion(false)
-                      }
-                    }}
+                    onClick={goToAssignmentAfterCompletion}
                     className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-bold py-3 h-auto text-lg rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1"
                   >
                     <div className="flex items-center justify-center gap-2">
@@ -2166,9 +2301,8 @@ function LessonContent() {
             {videoCompleted && (
               <Button
                 variant="ghost"
-                onClick={() =>
-                  router.push(`/user/dao-tao-nang-cao?start_assignment_id=${lessonId}&video_ok=1`)
-                }
+                disabled={isSavingCompletion}
+                onClick={goToAssignmentAfterCompletion}
                 className="bg-white/10 hover:bg-white/20 hover:text-white px-4 py-1.5 font-semibold transition flex items-center gap-2 h-auto text-white"
               >
                 <svg

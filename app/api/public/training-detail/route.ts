@@ -216,10 +216,18 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Tự động nhận diện 'completed' nếu đã có điểm quiz (do import thủ công hoặc do bug DB cũ)
-      if (quizScore !== null && quizScore > 0 && effective.completion_status !== 'completed') {
+      // Điểm từ 7 trở lên mới được coi là hoàn thành bài kiểm tra.
+      if (quizScore !== null && quizScore >= 7 && effective.completion_status !== 'completed') {
         effective.completion_status = 'completed';
         if (!effective.completed_at) effective.completed_at = new Date().toISOString();
+      } else if (
+        quizScore !== null &&
+        quizScore > 0 &&
+        quizScore < 7 &&
+        effective.completion_status === 'completed'
+      ) {
+        effective.completion_status = 'watched';
+        effective.completed_at = null;
       }
 
       // submission_id tốt nhất (điểm cao nhất)

@@ -48,6 +48,38 @@ function getInitials(name: string) {
         : (p[p.length - 2][0] + p[p.length - 1][0]).toUpperCase()
 }
 
+function TeacherAvatar({
+    teacher,
+    className,
+    fallbackClassName,
+}: {
+    teacher: Teacher | undefined
+    className: string
+    fallbackClassName: string
+}) {
+    const [imageFailed, setImageFailed] = useState(false)
+    const avatarUrl = teacher?.avatar_url
+
+    if (avatarUrl && !imageFailed) {
+        return (
+            <img
+                src={avatarUrl}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                onError={() => setImageFailed(true)}
+                className={className}
+            />
+        )
+    }
+
+    return (
+        <span className={fallbackClassName}>
+            {teacher ? getInitials(teacher.full_name) : '?'}
+        </span>
+    )
+}
+
 // ─── Vinh Danh Tab ────────────────────────────────────────────────────────────
 
 function HonorsTab({ onOpenPopup }: { onOpenPopup?: () => void }) {
@@ -114,12 +146,11 @@ function HonorsTab({ onOpenPopup }: { onOpenPopup?: () => void }) {
                             style={{ background: 'radial-gradient(circle, rgba(255,215,0,0.4) 0%, transparent 70%)' }} />
                         <div className="w-20 h-20 rounded-full overflow-hidden border-4 border-white/30 shadow-2xl flex items-center justify-center relative z-10 ring-4 ring-amber-400/20"
                             style={{ background: '#a83830' }}>
-                            {top1?.avatar_url
-                                ? <img src={top1.avatar_url} alt={top1.full_name} className="w-full h-full object-cover" />
-                                : <span className="text-white font-black text-2xl tracking-tight">
-                                    {top1 ? getInitials(top1.full_name) : '?'}
-                                </span>
-                            }
+                            <TeacherAvatar
+                                teacher={top1}
+                                className="w-full h-full object-cover"
+                                fallbackClassName="text-white font-black text-2xl tracking-tight"
+                            />
                         </div>
                         {/* Crown */}
                         <div className="absolute -top-5 left-1/2 -translate-x-1/2 z-20">
@@ -161,12 +192,11 @@ function HonorsTab({ onOpenPopup }: { onOpenPopup?: () => void }) {
                         {/* Avatar */}
                         <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center shrink-0 border-2 border-white shadow-sm ring-1 ring-red-100"
                             style={{ background: `linear-gradient(135deg, ${fromColor}, ${toColor})` }}>
-                            {teacher?.avatar_url
-                                ? <img src={teacher.avatar_url} alt={teacher.full_name} className="w-full h-full object-cover" />
-                                : <span className="text-white font-black text-[11px]">
-                                    {teacher ? getInitials(teacher.full_name) : '?'}
-                                </span>
-                            }
+                            <TeacherAvatar
+                                teacher={teacher}
+                                className="w-full h-full object-cover"
+                                fallbackClassName="text-white font-black text-[11px]"
+                            />
                         </div>
 
                         <div className="flex-1 min-w-0">

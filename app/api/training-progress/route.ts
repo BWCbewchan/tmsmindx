@@ -3,25 +3,34 @@ import {
   rejectIfDatasourceLookupForbidden,
   requireBearerSession,
 } from '@/lib/datasource-api-auth';
+import { requireSameOriginMutation } from '@/lib/api-security';
 import pool from '@/lib/db';
+import {
+  calculateSecureTrainingProgress,
+  type TrainingProgressEvent,
+} from '@/lib/training-progress-security';
+import { resolveTrainingTeacherCode } from '@/lib/training-teacher-code';
 import { NextRequest, NextResponse } from 'next/server';
-
-// ─── Hằng số ──────────────────────────────────────────────────────────────────
-// Heartbeat gửi mỗi 10s từ client.
-// Server cho phép delta tối đa 15s (buffer cho lag/reconnect).
-// Nếu delta > MAX_HEARTBEAT_DELTA → bỏ qua, không cộng thêm thời gian.
-const HEARTBEAT_INTERVAL_S  = 10;   // client save mỗi 10s
-const MAX_HEARTBEAT_DELTA_S = 15;   // tối đa 15s mỗi heartbeat
-const MIN_HEARTBEAT_DELTA_S = 1;    // bỏ qua nếu quá nhanh (spam)
-const COMPLETION_THRESHOLD  = 0.90; // phải xem ít nhất 90% mới được mark completed
 
 export const POST = withApiProtection(async (request: NextRequest) => {
   try {
+    const originDenied = requireSameOriginMutation(request);
+    if (originDenied) return originDenied;
+
     const auth = await requireBearerSession(request);
     if (!auth.ok) return auth.response;
 
     const body = await request.json();
-    const { videoId, timeSpent, isCompleted, totalDuration } = body;
+    const { videoId, timeSpent, isCompleted } = body;
+    const requestedEvent = String(body.eventType || '').trim().toLowerCase();
+    const eventType: TrainingProgressEvent =
+      requestedEvent === 'start' ||
+      requestedEvent === 'pause' ||
+      requestedEvent === 'ended'
+        ? requestedEvent
+        : isCompleted === true
+          ? 'ended'
+          : 'heartbeat';
     // Normalize teacher_code: lowercase + trim để tránh case mismatch với các API khác
     const teacherCode: string = (body.teacherCode || '').toString().toLowerCase().trim();
 
@@ -29,20 +38,8 @@ export const POST = withApiProtection(async (request: NextRequest) => {
       return NextResponse.json({ error: 'Missing parameters' }, { status: 400 });
     }
 
-    // Resolve canonical code và email prefix từ teachers table
-    const resolveRes = await pool.query(
-      `SELECT LOWER(TRIM(code)) AS canonical_code, LOWER(TRIM(user_name)) AS user_name
-       FROM teachers
-       WHERE LOWER(TRIM(code)) = $1
-          OR LOWER(TRIM(user_name)) = $1
-          OR LOWER(SPLIT_PART(work_email, '@', 1)) = $1
-       LIMIT 1`,
-      [teacherCode],
-    );
-    const resolvedRow = resolveRes.rows[0];
-    const canonicalCode = resolvedRow?.canonical_code || teacherCode;
-    const emailPrefixCode = resolvedRow?.user_name || teacherCode;
-    const allTeacherCodes = [...new Set([canonicalCode, emailPrefixCode, teacherCode])].filter(Boolean);
+    const { canonicalCode, aliases: allTeacherCodes } =
+      await resolveTrainingTeacherCode(pool, teacherCode);
 
     const denied = await rejectIfDatasourceLookupForbidden(
       auth.sessionEmail,
@@ -60,11 +57,47 @@ export const POST = withApiProtection(async (request: NextRequest) => {
           `SELECT time_spent_seconds, server_time_seconds, completion_status,
                   last_heartbeat_at, first_viewed_at
            FROM training_teacher_video_scores
-           WHERE LOWER(TRIM(teacher_code)) = ANY($1::text[]) AND video_id = $2`,
+           WHERE LOWER(TRIM(teacher_code)) = ANY($1::text[]) AND video_id = $2
+           ORDER BY
+             CASE completion_status
+               WHEN 'completed' THEN 3
+               WHEN 'watched' THEN 2
+               WHEN 'in_progress' THEN 1
+               ELSE 0
+             END DESC,
+             COALESCE(server_time_seconds, 0) DESC,
+             updated_at DESC
+           LIMIT 1`,
           [allTeacherCodes, videoId]
         ),
         client.query(
-          `SELECT duration_minutes, duration_seconds FROM training_videos WHERE id = $1`,
+          `WITH anchor AS (
+             SELECT id, video_group_id
+             FROM training_videos
+             WHERE id = $1
+           ),
+           source_videos AS (
+             SELECT tv.id, tv.duration_minutes, tv.duration_seconds
+             FROM training_videos tv
+             JOIN anchor a
+               ON tv.id = a.id
+               OR (a.video_group_id IS NOT NULL AND tv.video_group_id = a.video_group_id)
+           )
+           SELECT
+             COUNT(*)::int AS part_count,
+             NULLIF(
+               SUM(
+                 CASE
+                   WHEN duration_seconds IS NOT NULL AND duration_seconds > 0
+                     THEN duration_seconds
+                   WHEN duration_minutes IS NOT NULL AND duration_minutes > 0
+                     THEN duration_minutes * 60
+                   ELSE 0
+                 END
+               ),
+               0
+             ) AS duration_seconds
+           FROM source_videos`,
           [videoId]
         ),
       ]);
@@ -72,86 +105,29 @@ export const POST = withApiProtection(async (request: NextRequest) => {
       const existing = recordResult.rows[0] || null;
       const meta     = metaResult.rows[0] || null;
 
-      const videoDurationSeconds: number | null = meta?.duration_seconds
-        ? Number(meta.duration_seconds)
-        : meta?.duration_minutes
-          ? Number(meta.duration_minutes) * 60
-          : null;
-
-      // ── 2. Tính server_time_seconds bằng delta thực tế ───────────────────
       const now = new Date();
-      let serverTimeDelta = 0;
+      const videoDurationSeconds =
+        meta?.duration_seconds != null ? Number(meta.duration_seconds) : 0;
 
-      if (existing?.last_heartbeat_at) {
-        const lastHeartbeat = new Date(existing.last_heartbeat_at);
-        const deltaSeconds  = (now.getTime() - lastHeartbeat.getTime()) / 1000;
-
-        if (deltaSeconds >= MIN_HEARTBEAT_DELTA_S && deltaSeconds <= MAX_HEARTBEAT_DELTA_S) {
-          serverTimeDelta = Math.floor(deltaSeconds);
-        } else if (deltaSeconds > MAX_HEARTBEAT_DELTA_S) {
-          serverTimeDelta = HEARTBEAT_INTERVAL_S;
-        }
-      } else {
-        // Lần đầu tiên → dùng timeSpent từ client nhưng clamp hợp lý
-        const safeInitial = Math.max(0, Math.min(
-          Math.floor(timeSpent || 0),
-          videoDurationSeconds ? videoDurationSeconds : HEARTBEAT_INTERVAL_S * 2
-        ));
-        serverTimeDelta = safeInitial;
+      if (Number(meta?.part_count || 0) === 0 || videoDurationSeconds <= 0) {
+        return NextResponse.json(
+          { error: 'Video duration is unavailable' },
+          { status: 409 },
+        );
       }
 
-      const prevServerTime = Number(existing?.server_time_seconds) || 0;
-      const newServerTime  = prevServerTime + serverTimeDelta;
+      const secureProgress = calculateSecureTrainingProgress({
+        previousPositionSeconds: Number(existing?.time_spent_seconds) || 0,
+        previousServerTimeSeconds: Number(existing?.server_time_seconds) || 0,
+        previousStatus: existing?.completion_status,
+        lastHeartbeatAt: existing?.last_heartbeat_at,
+        reportedPositionSeconds: Number(timeSpent) || 0,
+        durationSeconds: videoDurationSeconds,
+        eventType,
+        now,
+      });
 
-      // Clamp: không vượt quá video duration + buffer nhỏ
-      const maxServerTime = videoDurationSeconds
-        ? videoDurationSeconds + HEARTBEAT_INTERVAL_S
-        : newServerTime;
-      const clampedServerTime = Math.floor(Math.min(newServerTime, maxServerTime));
-
-      // ── 3. Validate isCompleted ──────────────────────────────────────────
-      // Tự động mark completed nếu xem quá 98% duration (tránh kẹt ở 99% do lệch giây)
-      const AUTO_COMPLETE_THRESHOLD = 0.98;
-      // Trust client isCompleted=true trực tiếp — đây là signal từ video 'ended' event,
-      // không cần server_time vượt ngưỡng. Anti-cheat đã được xử lý phía client (wall-clock).
-      let validatedIsCompleted = isCompleted === true;
-
-      if (!validatedIsCompleted && videoDurationSeconds) {
-        const progressRatio = clampedServerTime / videoDurationSeconds;
-        if (progressRatio >= AUTO_COMPLETE_THRESHOLD) {
-          validatedIsCompleted = true;
-        }
-      }
-
-      // Nếu client gửi isCompleted=true kèm totalDuration nhưng DB chưa có duration
-      // → bản thân client đã xem hết (handleEnded fired), tin tưởng luôn
-      if (isCompleted === true && totalDuration && totalDuration > 0 && !videoDurationSeconds) {
-        validatedIsCompleted = true;
-      }
-
-      // Nếu đã completed trước đó → giữ nguyên
-      if (existing?.completion_status === 'completed') {
-        validatedIsCompleted = true;
-      }
-
-      // ── 4. Update video duration nếu client cung cấp ────────────────────
-      // Lưu cả duration_seconds (chính xác) để effectiveCompletion tính threshold đúng
-      if (totalDuration && typeof totalDuration === 'number' && totalDuration > 0) {
-        const durationSeconds = Math.floor(totalDuration);
-        const durationMinutes = Math.max(1, Math.ceil(totalDuration / 60));
-        await client.query(
-          `UPDATE training_videos
-           SET duration_minutes = $1,
-               duration_seconds = CASE
-                 WHEN duration_seconds IS NULL OR duration_seconds = 0 THEN $3
-                 ELSE duration_seconds
-               END
-           WHERE id = $2 AND (duration_minutes IS NULL OR duration_minutes != $1)`,
-          [durationMinutes, videoId, durationSeconds]
-        ).catch(() => { /* non-blocking */ });
-      }
-
-      // ── 5. Sync teacher stats ────────────────────────────────────────────
+      // ── 2. Sync teacher stats ────────────────────────────────────────────
       try {
         const teacherInfo = await client.query(
           `SELECT COALESCE(NULLIF(full_name,''),$1) AS full_name,
@@ -179,46 +155,55 @@ export const POST = withApiProtection(async (request: NextRequest) => {
         );
       } catch { /* non-blocking */ }
 
-      // ── 6. Upsert progress ───────────────────────────────────────────────
-      const statusParam = validatedIsCompleted
-        ? 'completed'
-        : (clampedServerTime > 0 ? 'in_progress' : 'not_started');
-
+      // ── 3. Upsert trusted progress ───────────────────────────────────────
       const result = await client.query(
         `INSERT INTO training_teacher_video_scores
            (teacher_code, video_id, time_spent_seconds, server_time_seconds,
             completion_status, completed_at, updated_at, first_viewed_at,
             view_count, last_heartbeat_at)
-         VALUES ($1, $2, $3, $3, $4::text,
-           CASE WHEN $4::text = 'completed' THEN NOW() ELSE NULL END,
-           NOW(), NOW(), 1, $5)
+         VALUES ($1, $2, $3, $4, $5::text,
+           CASE WHEN $5::text = 'completed' THEN NOW() ELSE NULL END,
+           NOW(), NOW(), 1, $6)
          ON CONFLICT (teacher_code, video_id) DO UPDATE SET
-           -- time_spent_seconds: dùng GREATEST để không giảm (backward compat)
            time_spent_seconds = GREATEST(
-             training_teacher_video_scores.time_spent_seconds,
+             COALESCE(training_teacher_video_scores.time_spent_seconds, 0),
              $3
            ),
-           -- server_time_seconds: luôn dùng giá trị server tính
-           server_time_seconds = $3,
-           last_heartbeat_at   = $5,
+           server_time_seconds = GREATEST(
+             COALESCE(training_teacher_video_scores.server_time_seconds, 0),
+             $4
+           ),
+           last_heartbeat_at   = $6,
            view_count          = GREATEST(training_teacher_video_scores.view_count, 1),
            completion_status   = CASE
              WHEN training_teacher_video_scores.completion_status = 'completed' THEN 'completed'
              WHEN training_teacher_video_scores.completion_status = 'watched' THEN 'watched'
-             ELSE $4::text
+             ELSE $5::text
            END,
            completed_at = CASE
              WHEN training_teacher_video_scores.completion_status = 'completed'
                THEN training_teacher_video_scores.completed_at
-             WHEN $4::text = 'completed' THEN NOW()
+             WHEN $5::text = 'completed' THEN NOW()
              ELSE training_teacher_video_scores.completed_at
            END,
            updated_at = NOW()
          RETURNING *`,
-        [canonicalCode, videoId, clampedServerTime, statusParam, now]
+        [
+          canonicalCode,
+          videoId,
+          secureProgress.acceptedPositionSeconds,
+          secureProgress.serverTimeSeconds,
+          secureProgress.completionStatus,
+          now,
+        ]
       );
 
-      return NextResponse.json({ success: true, data: result.rows[0] });
+      return NextResponse.json({
+        success: true,
+        data: result.rows[0],
+        completionAccepted: secureProgress.completionAccepted,
+        positionJumpRejected: secureProgress.positionJumpRejected,
+      });
 
     } finally {
       client.release();
@@ -238,25 +223,35 @@ export const GET = withApiProtection(async (request: NextRequest) => {
   }
 
   try {
-    // Resolve canonical code và email prefix từ teachers table
-    const resolveRes = await pool.query(
-      `SELECT LOWER(TRIM(code)) AS canonical_code, LOWER(TRIM(user_name)) AS user_name
-       FROM teachers
-       WHERE LOWER(TRIM(code)) = $1
-          OR LOWER(TRIM(user_name)) = $1
-          OR LOWER(SPLIT_PART(work_email, '@', 1)) = $1
-       LIMIT 1`,
-      [teacherCode],
+    const auth = await requireBearerSession(request);
+    if (!auth.ok) return auth.response;
+
+    const denied = await rejectIfDatasourceLookupForbidden(
+      auth.sessionEmail,
+      Boolean(auth.resolvedAccess.isAdmin),
+      '',
+      teacherCode,
     );
-    const resolvedRow = resolveRes.rows[0];
-    const canonicalCode = resolvedRow?.canonical_code || teacherCode;
-    const emailPrefixCode = resolvedRow?.user_name || teacherCode;
-    const allTeacherCodes = [...new Set([canonicalCode, emailPrefixCode, teacherCode])].filter(Boolean);
+    if (denied) return denied;
+
+    const { aliases: allTeacherCodes } =
+      await resolveTrainingTeacherCode(pool, teacherCode);
 
     const result = await pool.query(
       `SELECT time_spent_seconds, server_time_seconds, completion_status, last_heartbeat_at
        FROM training_teacher_video_scores
-       WHERE LOWER(TRIM(teacher_code)) = ANY($1::text[]) AND video_id = $2`,
+       WHERE LOWER(TRIM(teacher_code)) = ANY($1::text[]) AND video_id = $2
+       ORDER BY
+         COALESCE(score, 0) DESC,
+         CASE completion_status
+           WHEN 'completed' THEN 3
+           WHEN 'watched' THEN 2
+           WHEN 'in_progress' THEN 1
+           ELSE 0
+         END DESC,
+         COALESCE(server_time_seconds, 0) DESC,
+         updated_at DESC
+       LIMIT 1`,
       [allTeacherCodes, videoId]
     );
 
@@ -264,14 +259,13 @@ export const GET = withApiProtection(async (request: NextRequest) => {
       return NextResponse.json({ success: true, data: null });
     }
 
-    // Trả về server_time_seconds thay vì time_spent_seconds để client resume đúng vị trí
     const row = result.rows[0];
     return NextResponse.json({
       success: true,
       data: {
         ...row,
-        // Client dùng time_spent_seconds để resume — map từ server_time
-        time_spent_seconds: row.server_time_seconds || row.time_spent_seconds,
+        // time_spent_seconds là vị trí phát đã được server kiểm chứng.
+        time_spent_seconds: row.time_spent_seconds || 0,
       },
     });
   } catch (error) {

@@ -6,7 +6,6 @@ import { useMemo, useState, useEffect } from 'react'
 import useSWR from 'swr'
 
 import { PageContainer } from '@/components/PageContainer'
-import { PageHeader } from '@/components/PageHeader'
 import { PageSkeleton } from '@/components/skeletons/PageSkeleton'
 import PostCard from '@/components/post-card'
 import HeroSection from '@/components/hero-section'
@@ -172,29 +171,7 @@ export default function CommunicationsPage() {
           }}
         />
 
-        {/* Header Section - Now after slider */}
-        <div className="bg-white">
-          <div className="max-w-7xl mx-auto sm:px-6 lg:px-8 py-5 md:py-10">
-            <PageHeader
-              title="Truyền Thông Nội Bộ"
-              description="Cập nhật tin tức, sự kiện và thông báo mới nhất"
-              className="mb-0"
-              actions={
-                <div className="relative w-full md:w-80">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <Input
-                    placeholder="Tìm kiếm bài viết..."
-                    className="pl-10 w-full bg-white border-gray-200 focus:bg-white focus:border-[#a1001f] focus:ring-1 focus:ring-[#a1001f]/25 transition-all"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-              }
-            />
-          </div>
-        </div>
-
-        <div className="max-w-7xl mx-auto sm:px-6 lg:px-8 md:py-4 space-y-6">
+        <div className="max-w-7xl mx-auto sm:px-6 lg:px-8 pt-5 md:pt-8 space-y-6">
           {/* Two Column Layout: Main Content + Sidebar */}
           <div className="flex flex-col lg:flex-row gap-6">
             {/* Main Content - Left Side */}
@@ -202,25 +179,34 @@ export default function CommunicationsPage() {
               <div className="flex flex-col gap-6 md:gap-8">
                 {/* Sticky Filter Bar — ẩn trên mobile khi sidebar đang mở */}
                 <div className={cn(
-                  "top-20 overflow-hidden rounded-2xl border border-gray-200/50 bg-white/95 shadow-sm backdrop-blur-sm",
+                  "top-20 overflow-hidden rounded-[1.15rem] border border-gray-200/80 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.055)]",
                   isSidebarOpen && "hidden lg:block"
                 )}>
-                  <div className="flex items-center justify-between gap-4 overflow-x-auto p-2 no-scrollbar">
-                    <div className="flex p-1 gap-1">
-                      {postTypes.map((type) => (
-                        <Button
-                          key={type.value}
-                          variant={selectedFilter === type.value ? 'default' : 'ghost'}
-                          size="sm"
-                          onClick={() => setSelectedFilter(type.value)}
-                          className={cn(
-                            'whitespace-nowrap',
-                            selectedFilter === type.value && 'bg-gray-900 hover:bg-gray-800'
-                          )}
-                        >
-                          {type.label}
-                        </Button>
-                      ))}
+                  <div className="flex h-[64px] items-center p-2.5">
+                    <div className="relative -mx-1 xl:mx-0">
+                      <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-5 bg-gradient-to-r from-white via-white/85 to-transparent xl:hidden" />
+                      <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-5 bg-gradient-to-l from-white via-white/85 to-transparent xl:hidden" />
+                      <div className="overflow-x-auto no-scrollbar px-1 scroll-smooth">
+                        <div className="flex min-w-max gap-1 rounded-[0.85rem] bg-gray-50 p-1 shadow-inner shadow-gray-200/40 xl:w-fit">
+                        {postTypes.map((type) => (
+                          <Button
+                            key={type.value}
+                            variant={selectedFilter === type.value ? 'default' : 'ghost'}
+                            size="sm"
+                            onClick={() => setSelectedFilter(type.value)}
+                            aria-pressed={selectedFilter === type.value}
+                            className={cn(
+                              'h-10 rounded-[0.65rem] px-3 text-[13px] font-semibold whitespace-nowrap transition-all lg:px-3.5',
+                              selectedFilter === type.value
+                                ? 'bg-gray-900 text-white shadow-sm shadow-gray-900/15 hover:bg-gray-800'
+                                : 'text-gray-700 hover:bg-white hover:text-gray-950 hover:shadow-sm'
+                            )}
+                          >
+                            {type.label}
+                          </Button>
+                        ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -229,7 +215,10 @@ export default function CommunicationsPage() {
                 {filteredPosts.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in duration-500">
                     {filteredPosts.map((post, index) => (
-                      <div key={`${post.id || post.slug || 'post'}-${index}`}>
+                      <div
+                        key={`${post.id || post.slug || 'post'}-${index}`}
+                        className="lg:h-[460px] xl:h-[480px]"
+                      >
                         <PostCard post={post} />
                       </div>
                     ))}
@@ -252,8 +241,20 @@ export default function CommunicationsPage() {
 
             {/* Sidebar - Right Side */}
             <aside className="w-full lg:w-80 shrink-0">
-              <div>
-                <UpcomingEventsSidebar />
+              <div className="space-y-6">
+                <div className="flex h-[64px] items-center rounded-[1.15rem] border border-gray-200/80 bg-white p-2.5 shadow-[0_10px_30px_rgba(15,23,42,0.055)]">
+                  <div className="group/search relative w-full">
+                    <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 transition-colors group-focus-within/search:text-[#a1001f]" />
+                    <Input
+                      placeholder="Tìm kiếm bài viết..."
+                      aria-label="Tìm kiếm bài viết"
+                      className="h-10 w-full rounded-[0.8rem] border-gray-200 bg-gray-50 pl-10 pr-3 text-sm font-medium shadow-inner shadow-gray-200/40 transition-all placeholder:text-gray-400 hover:border-gray-300 hover:bg-white focus:border-[#a1001f] focus:bg-white focus:ring-2 focus:ring-[#a1001f]/15"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <UpcomingEventsSidebar upcomingCardClassName="lg:h-[460px] xl:h-[480px]" />
               </div>
             </aside>
           </div>

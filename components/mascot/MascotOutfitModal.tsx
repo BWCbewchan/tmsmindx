@@ -565,7 +565,7 @@ export function MascotOutfitModal({
     onOutfitChange(outfit)          // ← triggers MascotWalker re-render via parent state
     setSavedId(outfit.id)
     setJustSaved(true)
-    setTimeout(() => setJustSaved(false), 2000)
+    handleClose()
   }
 
   const handleClose = () => {

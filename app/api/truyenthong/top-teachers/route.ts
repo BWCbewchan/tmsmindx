@@ -41,7 +41,7 @@ export async function GET() {
                         full_name,
                         COALESCE(co_so, 'MindX') AS center,
                         CAST(ti_le AS FLOAT) AS total_score,
-                        avatar_url,
+                        COALESCE(honors_avatar_url, avatar_url) AS avatar_url,
                         slogan
                     FROM teacher_monthly_honors
                     WHERE thang = $1
@@ -56,24 +56,9 @@ export async function GET() {
                 });
             }
 
-            // Fallback: lấy từ bảng teachers nếu chưa có honors
-            const result = await client.query(`
-                SELECT
-                    code AS teacher_code,
-                    full_name,
-                    COALESCE(main_centre, 'MindX') AS center,
-                    9.5 AS total_score,
-                    ta.avatar_url
-                FROM teachers t
-                LEFT JOIN teacher_avatars ta ON LOWER(t.work_email) = LOWER(ta.teacher_email)
-                WHERE t.status = 'Active'
-                ORDER BY full_name ASC NULLS LAST
-                LIMIT 3
-            `);
-
             return NextResponse.json({
                 success: true,
-                data: result.rows,
+                data: [],
             });
         } finally {
             client.release();
@@ -81,12 +66,8 @@ export async function GET() {
     } catch (error) {
         console.error('Error fetching top teachers:', error);
         return NextResponse.json({
-            success: true,
-            data: [
-                { teacher_code: 't1', full_name: 'Nguyễn Văn A', center: 'MindX - Online', total_score: 9.8, avatar_url: null },
-                { teacher_code: 't2', full_name: 'Trần Thị B', center: 'MindX HQ', total_score: 9.2, avatar_url: null },
-                { teacher_code: 't3', full_name: 'Lê Văn C', center: 'MindX - Hà Nội', total_score: 8.9, avatar_url: null },
-            ],
-        });
+            success: false,
+            data: [],
+        }, { status: 500 });
     }
 }

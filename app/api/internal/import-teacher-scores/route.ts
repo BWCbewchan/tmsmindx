@@ -1,6 +1,7 @@
 import { withApiProtection } from '@/lib/api-protection';
 import { requireBearerOrSessionCookie } from '@/lib/datasource-api-auth';
 import pool from '@/lib/db';
+import { resolveTrainingTeacherCode } from '@/lib/training-teacher-code';
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
@@ -85,7 +86,9 @@ export const POST = withApiProtection(async (request: NextRequest) => {
     );
   }
 
-  const teacherCode = teacherCodeRaw.toLowerCase();
+  const teacherCodeInput = teacherCodeRaw.toLowerCase();
+  const { canonicalCode: teacherCode, aliases: teacherCodeAliases } =
+    await resolveTrainingTeacherCode(pool, teacherCodeInput);
   const sessionEmail = (auth.sessionEmail ?? '').toLowerCase().trim();
   const emailPrefix = sessionEmail.split('@')[0];
 
@@ -95,12 +98,12 @@ export const POST = withApiProtection(async (request: NextRequest) => {
   // Ưu tiên 3: giáo viên hoàn toàn mới, chưa có trong teachers — cho phép nếu
   //            KHÔNG tìm thấy teacherCode của người khác trong teachers
   //            (tức là teacherCode này chưa thuộc về ai)
-  let isAuthorized = (emailPrefix === teacherCode);
+  let isAuthorized = teacherCodeAliases.includes(emailPrefix);
 
   if (!isAuthorized) {
     try {
       const dbCheck = await pool.query(
-        `SELECT LOWER(TRIM(COALESCE(work_email, ""Work email""))) AS email
+        `SELECT LOWER(TRIM(COALESCE(NULLIF(work_email, ''), NULLIF("Work email", '')))) AS email
          FROM teachers
          WHERE LOWER(TRIM(code)) = $1
          LIMIT 1`,
@@ -131,12 +134,13 @@ export const POST = withApiProtection(async (request: NextRequest) => {
   const client = await pool.connect();
 
   try {
-    // ── 3. Idempotency check — đã có điểm thì skip ──────────────────────────
+    // ── 3. Idempotency check — progress score=0 không được chặn import ──────
     const existing = await client.query(
       `SELECT 1 FROM training_teacher_video_scores
-       WHERE LOWER(TRIM(teacher_code)) = $1
+       WHERE LOWER(TRIM(teacher_code)) = ANY($1::text[])
+         AND COALESCE(score, 0) > 0
        LIMIT 1`,
-      [teacherCode],
+      [teacherCodeAliases],
     );
     if ((existing.rowCount ?? 0) > 0) {
       return NextResponse.json({ success: true, alreadyImported: true });
@@ -156,7 +160,7 @@ export const POST = withApiProtection(async (request: NextRequest) => {
 
     // ── 5. Tìm dòng của giáo viên (cột index 2 = teacher code) ──────────────
     const targetRow = rows.find(
-      (r) => (r[2] ?? '').trim().toLowerCase() === teacherCode,
+      (r) => teacherCodeAliases.includes((r[2] ?? '').trim().toLowerCase()),
     );
 
     if (!targetRow) {
@@ -205,7 +209,9 @@ export const POST = withApiProtection(async (request: NextRequest) => {
     // 7.2 Batch insert bằng unnest — 1 round-trip thay vì 12
     const videoIds = validScores.map((s) => s.videoId);
     const scores   = validScores.map((s) => s.score);
-    const statuses = validScores.map(() => 'completed');
+    const statuses = validScores.map((s) =>
+      s.score >= 7 ? 'completed' : 'watched',
+    );
 
     await client.query(
       `INSERT INTO training_teacher_video_scores (teacher_code, video_id, score, completion_status)
@@ -218,8 +224,9 @@ export const POST = withApiProtection(async (request: NextRequest) => {
        ON CONFLICT (teacher_code, video_id) DO UPDATE
          SET score             = EXCLUDED.score,
              completion_status = CASE
-               WHEN training_teacher_video_scores.completion_status = 'watched' THEN 'watched'
-               ELSE EXCLUDED.completion_status
+               WHEN training_teacher_video_scores.completion_status = 'completed' THEN 'completed'
+               WHEN EXCLUDED.completion_status = 'completed' THEN 'completed'
+               ELSE 'watched'
              END,
              updated_at = NOW()
        WHERE training_teacher_video_scores.score < EXCLUDED.score

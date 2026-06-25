@@ -1,6 +1,11 @@
 import pool from '@/lib/db';
 import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
 import {
+  rejectIfDatasourceLookupForbidden,
+  requireBearerSession,
+} from '@/lib/datasource-api-auth';
+import { resolveTrainingTeacherCode } from '@/lib/training-teacher-code';
+import {
   effectiveCompletionForGroupedLesson,
   type TrainingVideoScoreRow,
 } from '@/lib/training-effective-video-completion';
@@ -25,8 +30,11 @@ function parseQuestionOptions(value: unknown): unknown {
 }
 
 // GET: Lấy danh sách assignments
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
+    const auth = await requireBearerSession(request);
+    if (!auth.ok) return auth.response;
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const video_id = searchParams.get('video_id');
@@ -36,20 +44,17 @@ export async function GET(request: Request) {
 
     let allTeacherCodes: string[] = [];
     if (teacher_code) {
-      // Resolve canonical code và email prefix từ teachers table
-      const resolveRes = await pool.query(
-        `SELECT LOWER(TRIM(code)) AS canonical_code, LOWER(TRIM(user_name)) AS user_name
-         FROM teachers
-         WHERE LOWER(TRIM(code)) = $1
-            OR LOWER(TRIM(user_name)) = $1
-            OR LOWER(SPLIT_PART(work_email, '@', 1)) = $1
-         LIMIT 1`,
-        [teacher_code],
+      const denied = await rejectIfDatasourceLookupForbidden(
+        auth.sessionEmail,
+        Boolean(auth.resolvedAccess.isAdmin),
+        '',
+        teacher_code,
       );
-      const resolvedRow = resolveRes.rows[0];
-      const canonicalCode = resolvedRow?.canonical_code || teacher_code;
-      const emailPrefixCode = resolvedRow?.user_name || teacher_code;
-      allTeacherCodes = [...new Set([canonicalCode, emailPrefixCode, teacher_code])].filter(Boolean);
+      if (denied) return denied;
+
+      allTeacherCodes = (
+        await resolveTrainingTeacherCode(pool, teacher_code)
+      ).aliases;
     }
 
     const quizEvidenceByVideoQuery = `
@@ -177,7 +182,18 @@ export async function GET(request: Request) {
                       COALESCE(server_time_seconds, 0) AS server_time_seconds,
                       last_heartbeat_at
                FROM training_teacher_video_scores
-               WHERE LOWER(TRIM(teacher_code)) = ANY($1::text[]) AND video_id = ANY($2::int[])`,
+               WHERE LOWER(TRIM(teacher_code)) = ANY($1::text[]) AND video_id = ANY($2::int[])
+               ORDER BY
+                 video_id ASC,
+                 COALESCE(score, 0) ASC,
+                 CASE completion_status
+                   WHEN 'completed' THEN 3
+                   WHEN 'watched' THEN 2
+                   WHEN 'in_progress' THEN 1
+                   ELSE 0
+                 END ASC,
+                 COALESCE(server_time_seconds, 0) ASC,
+                 updated_at ASC`,
               [allTeacherCodes, allScoreVideoIds],
             );
             scoresRes.rows.forEach(
@@ -267,10 +283,10 @@ export async function GET(request: Request) {
               row.recent_submission = {
                 score: finalScore,
                 percentage: null,
-                is_passed: true,
+                is_passed: finalScore >= 7,
                 submitted_at: effective.completed_at || null,
                 attempt_number: 1,
-                total_points: row.question_count // To display correctly on frontend
+                total_points: 10,
               };
             } else {
               (row.recent_submission as any).score = finalScore;

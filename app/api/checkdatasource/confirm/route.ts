@@ -2,6 +2,7 @@ import { withApiProtection } from "@/lib/api-protection";
 import { rejectIfEmailNotSelf, requireDatasourceBearer } from "@/lib/datasource-api-auth";
 import pool from "@/lib/db";
 import { isDatabaseUnavailableError } from "@/lib/db-helpers";
+import { resolveTrainingTeacherCode } from "@/lib/training-teacher-code";
 import { NextRequest, NextResponse } from "next/server";
 
 export const POST = withApiProtection(async (request: NextRequest) => {
@@ -120,16 +121,17 @@ export const POST = withApiProtection(async (request: NextRequest) => {
     // Logic cũ: isNewTeacher = xmax===0 (INSERT mới) — sai khi giáo viên đã có
     // trong teachers từ trước (do HR nhập tay / backfill) nhưng chưa có điểm.
     //
-    // Logic mới: kiểm tra trực tiếp xem training_teacher_video_scores có dòng
-    // nào của teacher_code này chưa — đây mới là điều kiện thực sự cần import.
-    // Chỉ query khi cần (is_insert=true HOẶC là lần đầu login khi đã có record).
+    // Chỉ điểm > 0 mới được coi là đã import. Một dòng progress score=0 được tạo
+    // khi user vừa mở video không được phép chặn import điểm lịch sử.
     let needsScoreImport = false;
     try {
+      const { aliases } = await resolveTrainingTeacherCode(pool, code);
       const scoreCheck = await pool.query(
         `SELECT 1 FROM training_teacher_video_scores
-         WHERE LOWER(TRIM(teacher_code)) = $1
+         WHERE LOWER(TRIM(teacher_code)) = ANY($1::text[])
+           AND COALESCE(score, 0) > 0
          LIMIT 1`,
-        [code.toLowerCase().trim()],
+        [aliases],
       );
       needsScoreImport = (scoreCheck.rowCount ?? 0) === 0;
     } catch {

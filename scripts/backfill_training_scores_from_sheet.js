@@ -135,6 +135,19 @@ function parseScore(raw) {
   return isNaN(n) ? null : n;
 }
 
+function normalizeCode(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function collectTeacherAliases(teacher) {
+  return Array.from(new Set([
+    teacher.code,
+    teacher.user_name,
+    teacher.work_email_prefix,
+    teacher.personal_email_prefix,
+  ].map(normalizeCode).filter(Boolean)));
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
   console.log('╔══════════════════════════════════════════════════════════════╗');
@@ -150,29 +163,38 @@ async function main() {
     const teachersResult = await client.query(`
       SELECT 
         LOWER(TRIM(code)) AS code,
-        full_name,
+        COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM("Full name"), '')) AS full_name,
+        LOWER(TRIM(COALESCE(NULLIF(user_name, ''), NULLIF("User name", '')))) AS user_name,
         COALESCE(NULLIF(TRIM(work_email), ''), NULLIF(TRIM("Work email"), '')) AS work_email,
+        LOWER(TRIM(SPLIT_PART(COALESCE(NULLIF(work_email, ''), NULLIF("Work email", '')), '@', 1))) AS work_email_prefix,
+        LOWER(TRIM(SPLIT_PART(COALESCE(NULLIF(personal_email, ''), ''), '@', 1))) AS personal_email_prefix,
         COALESCE(NULLIF(TRIM(main_centre), ''), NULLIF(TRIM("Main centre"), '')) AS center
       FROM teachers
       WHERE code IS NOT NULL AND TRIM(code) <> ''
       ORDER BY code ASC
     `);
-    const allTeachers = teachersResult.rows;
+    const allTeachers = teachersResult.rows.map((teacher) => ({
+      ...teacher,
+      aliases: collectTeacherAliases(teacher),
+    }));
     console.log(`   → Tìm thấy ${allTeachers.length} giáo viên trong bảng teachers.\n`);
 
     // ── Step 2: Lấy danh sách teacher_code đã có điểm trong DB ─────────────
-    console.log('🗄️  Bước 2: Kiểm tra ai đã có điểm trong training_teacher_video_scores...');
+    console.log('🗄️  Bước 2: Kiểm tra ai đã có điểm > 0 trong training_teacher_video_scores...');
     const existingScoresResult = await client.query(`
       SELECT DISTINCT LOWER(TRIM(teacher_code)) AS teacher_code
       FROM training_teacher_video_scores
+      WHERE COALESCE(score, 0) > 0
     `);
     const existingCodes = new Set(existingScoresResult.rows.map(r => r.teacher_code));
-    console.log(`   → ${existingCodes.size} giáo viên đã có điểm trong hệ thống.\n`);
+    console.log(`   → ${existingCodes.size} giáo viên đã có điểm > 0 trong hệ thống.\n`);
 
     // ── Step 3: Xác định giáo viên CHƯA có điểm ────────────────────────────
-    const teachersWithoutScores = allTeachers.filter(t => !existingCodes.has(t.code));
+    const teachersWithoutScores = allTeachers.filter(
+      (t) => !t.aliases.some((alias) => existingCodes.has(alias)),
+    );
     console.log(`📊 Bước 3: Phân tích:`);
-    console.log(`   ✅ Đã có điểm  : ${existingCodes.size} giáo viên`);
+    console.log(`   ✅ Đã có điểm  : ${allTeachers.length - teachersWithoutScores.length} giáo viên trong teachers`);
     console.log(`   ❌ Chưa có điểm: ${teachersWithoutScores.length} giáo viên`);
     console.log(`   📌 Tổng cộng   : ${allTeachers.length} giáo viên\n`);
 
@@ -182,10 +204,10 @@ async function main() {
     }
 
     // Tạo Set để lookup nhanh
-    const codesNeedingScores = new Set(teachersWithoutScores.map(t => t.code));
     console.log('👥 Giáo viên chưa có điểm:');
     for (const t of teachersWithoutScores) {
-      console.log(`   - [${t.code}] ${t.name || t.full_name || '(chưa có tên)'}`);
+      const aliasesText = t.aliases.filter((alias) => alias !== t.code).join(', ');
+      console.log(`   - [${t.code}] ${t.full_name || '(chưa có tên)'}${aliasesText ? ` (alias: ${aliasesText})` : ''}`);
     }
     console.log();
 
@@ -200,14 +222,15 @@ async function main() {
     // ── Step 5: Tìm các dòng trong sheet khớp với giáo viên cần import ──────
     console.log('🔍 Bước 5: Khớp giáo viên với dữ liệu trong sheet...');
 
-    // Code nằm ở cột index 2, tên ở cột index 1
+    // Code nằm ở cột index 2, tên ở cột index 1. Khớp cả teachers.code
+    // và alias user_name/work_email prefix để tránh lệch như manhnd/threem2502.
     const matchedRows = [];
     const notFoundInSheet = [];
 
     for (const teacher of teachersWithoutScores) {
       const sheetRow = allRows.find(r => {
-        const sheetCode = (r[2] || '').trim().toLowerCase();
-        return sheetCode === teacher.code;
+        const sheetCode = normalizeCode(r[2]);
+        return teacher.aliases.includes(sheetCode);
       });
 
       if (sheetRow) {
@@ -304,12 +327,13 @@ async function main() {
             const res = await client.query(`
               INSERT INTO training_teacher_video_scores
                 (teacher_code, video_id, score, completion_status)
-              VALUES ($1, $2, $3, 'completed')
+              VALUES ($1, $2, $3, CASE WHEN $3 >= 7 THEN 'completed' ELSE 'watched' END)
               ON CONFLICT (teacher_code, video_id) DO UPDATE
                 SET score             = EXCLUDED.score,
                     completion_status = CASE
-                      WHEN training_teacher_video_scores.completion_status = 'watched' THEN 'watched'
-                      ELSE EXCLUDED.completion_status
+                      WHEN training_teacher_video_scores.completion_status = 'completed' THEN 'completed'
+                      WHEN EXCLUDED.completion_status = 'completed' THEN 'completed'
+                      ELSE 'watched'
                     END,
                     updated_at = NOW()
               WHERE training_teacher_video_scores.score < EXCLUDED.score
@@ -361,7 +385,9 @@ async function main() {
   }
 }
 
-main().catch(err => {
-  console.error('❌ Lỗi không xử lý được:', err);
-  process.exit(1);
-});
+main()
+  .then(() => process.exit(0))
+  .catch(err => {
+    console.error('❌ Lỗi không xử lý được:', err);
+    process.exit(1);
+  });

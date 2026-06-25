@@ -16,21 +16,21 @@ import { isExamInCurrentVietnamMonth } from '@/lib/giaitrinh-eligibility'
 import { sanitizeHtml } from '@/lib/sanitize-html'
 import { useTeacher } from '@/lib/teacher-context'
 import {
-    AlertCircle,
-    ArrowLeft,
-    Award,
-    BookOpen,
-    CheckCircle,
-    ChevronDown,
-    ChevronUp,
-    Clock,
-    FileText,
-    FilterX,
-    RefreshCw,
-    Send,
-    MessageSquareText,
-    Trophy,
-    XCircle,
+  AlertCircle,
+  ArrowLeft,
+  Award,
+  BookOpen,
+  CheckCircle,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  FileText,
+  FilterX,
+  RefreshCw,
+  Send,
+  MessageSquareText,
+  Trophy,
+  XCircle,
 } from 'lucide-react'
 
 import { toast } from '@/lib/app-toast'
@@ -49,7 +49,6 @@ interface Assignment {
   time_limit_minutes: number
   max_attempts: number
   due_date: string
-  status: string
   question_count: number
   video_completion_status?: string
   recent_submission?: {
@@ -97,11 +96,11 @@ interface ExamAssignment {
   open_at: string
   close_at: string
   assignment_status:
-    | 'assigned'
-    | 'in_progress'
-    | 'submitted'
-    | 'expired'
-    | 'graded'
+  | 'assigned'
+  | 'in_progress'
+  | 'submitted'
+  | 'expired'
+  | 'graded'
   score: number | null
   score_status: 'null' | 'auto_zero' | 'graded'
   selected_set_id: number
@@ -310,97 +309,14 @@ export default function TeacherAssignmentPage() {
         setIsSubmitting(true)
         setTimerActive(false)
 
-        // Calculate score synchronously
-        let correctCount = 0
-        console.log(
-          '[Assignment] Starting score calculation for',
-          questions.length,
-          'questions',
-        )
-
-        questions.forEach((question, idx) => {
-          const userAnswer = answers[question.id] || ''
-          const correctAnswer = (question.correct_answer || '').trim()
-
-          let isCorrect = false
-          if (question.question_type === 'multiple_select') {
-            // Phải chọn đúng 100% — so sánh 2 mảng
-            try {
-              const userArr: string[] = JSON.parse(userAnswer || '[]')
-              const correctArr: string[] = JSON.parse(correctAnswer || '[]')
-              isCorrect =
-                userArr.length === correctArr.length &&
-                correctArr.every(a => userArr.includes(a))
-            } catch { isCorrect = false }
-          } else {
-            isCorrect = userAnswer.trim().toLowerCase() === correctAnswer.toLowerCase()
-          }
-
-          if (isCorrect) correctCount++
-
-          console.log(`[Assignment] Q${idx + 1}:`, {
-            questionId: question.id,
-            userAnswer,
-            correctAnswer,
-            isCorrect,
-          })
-        })
-
-        // Tính điểm theo thang 10 dựa trên số câu đúng / tổng câu hỏi
-        const totalQuestions = questions.length || 1
-        const totalScore = Math.round((correctCount / totalQuestions) * 10 * 100) / 100
-
-        console.log(
-          '[Assignment] Score calculation:',
-          `${correctCount}/${totalQuestions} correct →`,
-          totalScore,
-          '/ 10',
-        )
-
-        // Ensure score is a valid number
-        if (
-          isNaN(totalScore) ||
-          totalScore === null ||
-          totalScore === undefined
-        ) {
-          console.error(
-            '[Assignment] Invalid total score calculated:',
-            totalScore,
-          )
-          toast.error('Lỗi: Không thể tính điểm. Vui lòng thử lại.')
-          return
-        }
-
-        // Update submission — ngưỡng đạt cố định 7/10 (passing_score đã bị xóa khỏi DB)
-        const PASSING_SCORE = 7.0
-        const isPassed = totalScore >= PASSING_SCORE
-
-        // Prepare answers payload
-        const pointsPerQuestion = 10 / (questions.length || 1)
+        // Trình duyệt chỉ gửi câu trả lời. Điểm và trạng thái đạt được tính lại
+        // hoàn toàn trên server từ đáp án lưu trong database.
         const answersPayload = questions.map((q) => {
           const userAnswer = answers[q.id] || ''
-          const correctAnswer = (q.correct_answer || '').trim()
-
-          let isCorrect = false
-          if (q.question_type === 'multiple_select') {
-            try {
-              const userArr: string[] = JSON.parse(userAnswer || '[]')
-              const correctArr: string[] = JSON.parse(correctAnswer || '[]')
-              isCorrect =
-                userArr.length === correctArr.length &&
-                correctArr.every(a => userArr.includes(a))
-            } catch { isCorrect = false }
-          } else {
-            isCorrect = userAnswer.trim().toLowerCase() === correctAnswer.toLowerCase()
-          }
-
-          const pointsEarned = isCorrect ? Math.round(pointsPerQuestion * 100) / 100 : 0
 
           return {
             question_id: q.id,
             answer_text: userAnswer,
-            is_correct: isCorrect,
-            points_earned: pointsEarned,
           }
         })
 
@@ -410,8 +326,6 @@ export default function TeacherAssignmentPage() {
           body: JSON.stringify({
             id: submission.id,
             action: 'grade',
-            score: totalScore,
-            is_passed: isPassed,
             answers: answersPayload,
           }),
         })
@@ -426,7 +340,7 @@ export default function TeacherAssignmentPage() {
               const draftKey = getTrainingDraftKey(currentAssignment.id, teacherCode)
               window.localStorage.removeItem(draftKey)
             }
-          } catch (e) {}
+          } catch (e) { }
         } else {
           toast.error('Lỗi khi nộp bài: ' + data.error)
         }
@@ -472,18 +386,10 @@ export default function TeacherAssignmentPage() {
           return
         }
 
-        // Check required fields directly from profile
+        // Cơ sở chỉ là metadata để đồng bộ thống kê, không phải điều kiện làm bài.
+        // Một số hồ sơ cũ chỉ có branchIn, nên dùng làm fallback khi gửi lên API.
         const teacherBranch =
           teacherProfile.branchCurrent || teacherProfile.branchIn
-        // Note: teacherProfile.status might be mapped differently, but checking basic existence is safer
-        // We assume if profile loaded, it's good enough or we can check branch
-        if (!teacherBranch) {
-          toast.error(
-            'Thiếu thông tin Cơ sở (Branch). Vui lòng cập nhật thông tin.',
-          )
-          router.replace(pathname || '/user/dao-tao-nang-cao')
-          return
-        }
 
         // Fetch questions
         const questionsRes = await fetch(
@@ -508,7 +414,7 @@ export default function TeacherAssignmentPage() {
             attempt_number: 1,
             teacher_info: {
               full_name: teacherProfile?.name || teacherCode,
-              center: teacherProfile?.branchCurrent || '',
+              center: teacherBranch || '',
               teaching_block: teacherProfile?.programCurrent || '',
               work_email: user?.email || '',
             },
@@ -793,7 +699,7 @@ export default function TeacherAssignmentPage() {
 
     // 2. Fetch from API
     if (user && user.email) {
-      ;(async () => {
+      ; (async () => {
         try {
           const res = await fetch(
             `/api/teachers/info?email=${encodeURIComponent(user.email)}`,
@@ -802,7 +708,8 @@ export default function TeacherAssignmentPage() {
           const data = await res.json()
           if (data?.teacher?.code) {
             setTeacherCode(data.teacher.code.toLowerCase().trim())
-            return          }
+            return
+          }
         } catch {
           console.warn(
             'Email-based lookup failed, falling back to code extraction',
@@ -1412,8 +1319,7 @@ export default function TeacherAssignmentPage() {
                     <div
                       key={question.id}
                       id={`question-${question.id}`}
-                      className={`bg-white rounded-xl shadow-sm border-2 transition-all ${
-                        (() => {
+                      className={`bg-white rounded-xl shadow-sm border-2 transition-all ${(() => {
                           const ans = answers[question.id]
                           const hasAnswer = question.question_type === 'multiple_select'
                             ? (() => { try { return JSON.parse(ans || '[]').length > 0 } catch { return false } })()
@@ -1422,21 +1328,20 @@ export default function TeacherAssignmentPage() {
                             ? 'border-green-200 bg-green-50/30'
                             : 'border-gray-200 hover:border-blue-200'
                         })()
-                      } ${isFullWidth ? 'lg:col-span-2' : 'lg:col-span-1'}`}
+                        } ${isFullWidth ? 'lg:col-span-2' : 'lg:col-span-1'}`}
                     >
                       <div className="p-4 md:p-6">
                         {/* Question Header */}
                         <div className="flex items-start gap-3 md:gap-4 mb-3 md:mb-4">
                           <div
-                            className={`shrink-0 w-8 h-8 md:w-10 md:h-10 rounded-lg flex items-center justify-center text-sm md:text-base font-bold ${
-                              (() => {
+                            className={`shrink-0 w-8 h-8 md:w-10 md:h-10 rounded-lg flex items-center justify-center text-sm md:text-base font-bold ${(() => {
                                 const ans = answers[question.id]
                                 const hasAnswer = question.question_type === 'multiple_select'
                                   ? (() => { try { return JSON.parse(ans || '[]').length > 0 } catch { return false } })()
                                   : Boolean(ans)
                                 return hasAnswer ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'
                               })()
-                            }`}
+                              }`}
                           >
                             {idx + 1}
                           </div>
@@ -1472,17 +1377,16 @@ export default function TeacherAssignmentPage() {
                         {/* Answer Options */}
                         <div className="ml-11 md:ml-14">
                           {question.question_type === 'multiple_choice' &&
-                          Array.isArray(question.options) ? (
+                            Array.isArray(question.options) ? (
                             <div className="space-y-2">
                               {question.options.map(
                                 (option: string, optIdx: number) => (
                                   <label
                                     key={optIdx}
-                                    className={`flex items-start gap-2 md:gap-3 p-3 md:p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                                      answers[question.id] === option
+                                    className={`flex items-start gap-2 md:gap-3 p-3 md:p-4 rounded-lg border-2 cursor-pointer transition-all ${answers[question.id] === option
                                         ? 'border-[#a1001f] bg-[#fff5f7] shadow-sm'
                                         : 'border-gray-200 hover:border-[#d47a8b] hover:bg-[#fff5f7]'
-                                    }`}
+                                      }`}
                                   >
                                     <input
                                       type="radio"
@@ -1527,7 +1431,7 @@ export default function TeacherAssignmentPage() {
                               )}
                             </div>
                           ) : question.question_type === 'multiple_select' &&
-                          Array.isArray(question.options) ? (
+                            Array.isArray(question.options) ? (
                             <div className="space-y-2">
                               <p className="text-xs text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg mb-2">
                                 Chọn <strong>tất cả</strong> đáp án đúng (có thể chọn nhiều)
@@ -1553,11 +1457,10 @@ export default function TeacherAssignmentPage() {
                                   return (
                                     <label
                                       key={optIdx}
-                                      className={`flex items-start gap-2 md:gap-3 p-3 md:p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                                        isChecked
+                                      className={`flex items-start gap-2 md:gap-3 p-3 md:p-4 rounded-lg border-2 cursor-pointer transition-all ${isChecked
                                           ? 'border-[#a1001f] bg-[#fff5f7] shadow-sm'
                                           : 'border-gray-200 hover:border-[#d47a8b] hover:bg-[#fff5f7]'
-                                      }`}
+                                        }`}
                                     >
                                       <input
                                         type="checkbox"
@@ -1587,11 +1490,10 @@ export default function TeacherAssignmentPage() {
                               {['Đúng', 'Sai'].map((option) => (
                                 <label
                                   key={option}
-                                  className={`flex items-center justify-center gap-2 p-3 md:p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                                    answers[question.id] === option
+                                  className={`flex items-center justify-center gap-2 p-3 md:p-4 rounded-lg border-2 cursor-pointer transition-all ${answers[question.id] === option
                                       ? 'border-[#a1001f] bg-[#fff5f7] shadow-sm'
                                       : 'border-gray-200 hover:border-[#d47a8b] hover:bg-[#fff5f7]'
-                                  }`}
+                                    }`}
                                 >
                                   <input
                                     type="radio"
@@ -1683,11 +1585,10 @@ export default function TeacherAssignmentPage() {
                 {/* Timer Card */}
                 {timeRemaining !== null && (
                   <div
-                    className={`rounded-lg shadow-sm border-2 p-4 ${
-                      timeRemaining < 300
+                    className={`rounded-lg shadow-sm border-2 p-4 ${timeRemaining < 300
                         ? 'bg-red-50 border-red-300'
                         : 'bg-[#fff5f7] border-[#f1d1d8]'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center gap-1.5 mb-1.5">
                       <Clock
@@ -1742,11 +1643,10 @@ export default function TeacherAssignmentPage() {
                             onClick={() => scrollToQuestion(q.id)}
                             className={`
                           flex items-center justify-center text-[10px] font-bold h-7 rounded transition-all duration-200 cursor-pointer
-                          ${
-                            isAnswered
-                              ? 'bg-[#a1001f] text-white shadow-sm ring-1 ring-[#840018]'
-                              : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                          }
+                          ${isAnswered
+                                ? 'bg-[#a1001f] text-white shadow-sm ring-1 ring-[#840018]'
+                                : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                              }
                         `}
                             title={`Câu ${index + 1}: ${isAnswered ? 'Đã làm' : 'Chưa làm'}`}
                             aria-label={`Đi tới câu ${index + 1}`}
@@ -1868,9 +1768,8 @@ export default function TeacherAssignmentPage() {
             {/* Result Header */}
             <div className="text-center mb-8">
               <div
-                className={`inline-flex items-center justify-center w-20 h-20 rounded-full mb-4 ${
-                  isPassed ? 'bg-green-100' : 'bg-red-100'
-                }`}
+                className={`inline-flex items-center justify-center w-20 h-20 rounded-full mb-4 ${isPassed ? 'bg-green-100' : 'bg-red-100'
+                  }`}
               >
                 {isPassed ? (
                   <CheckCircle className="w-12 h-12 text-green-600" />
@@ -1923,9 +1822,8 @@ export default function TeacherAssignmentPage() {
 
               <div className="w-full bg-gray-200 rounded-full h-3">
                 <div
-                  className={`h-3 rounded-full transition-all duration-500 ${
-                    isPassed ? 'bg-green-500' : 'bg-red-500'
-                  }`}
+                  className={`h-3 rounded-full transition-all duration-500 ${isPassed ? 'bg-green-500' : 'bg-red-500'
+                    }`}
                   style={{ width: `${percentage}%` }}
                 />
               </div>
@@ -2122,90 +2020,90 @@ export default function TeacherAssignmentPage() {
                   <FileText className="mx-auto mb-4 h-16 w-16 text-gray-300" />
                   <p className="text-sm font-semibold text-gray-700 mb-1">
                     Hiện tại không có bài kiểm tra nào đang mở.
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      Những môn bạn đã đăng ký sẽ xuất hiện ở đây khi đến giờ
-                      làm bài.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {availableNow.map((item) => {
-                      const countdown = getExamCountdownInfo(item)
-                      return (
-                        <div
-                          key={item.id}
-                          className="rounded-lg border-2 border-blue-200 bg-white p-5 shadow-sm hover:shadow-md transition-all flex flex-col"
-                        >
-                          <div className="mb-3 flex items-start justify-between gap-2">
-                            <h4 className="line-clamp-2 text-base font-bold text-gray-900">
-                              {item.subject_code}
-                            </h4>
-                            <span className="shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold bg-green-100 text-green-700 border-green-300">
-                              Đang mở
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Những môn bạn đã đăng ký sẽ xuất hiện ở đây khi đến giờ
+                    làm bài.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {availableNow.map((item) => {
+                    const countdown = getExamCountdownInfo(item)
+                    return (
+                      <div
+                        key={item.id}
+                        className="rounded-lg border-2 border-blue-200 bg-white p-5 shadow-sm hover:shadow-md transition-all flex flex-col"
+                      >
+                        <div className="mb-3 flex items-start justify-between gap-2">
+                          <h4 className="line-clamp-2 text-base font-bold text-gray-900">
+                            {item.subject_code}
+                          </h4>
+                          <span className="shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold bg-green-100 text-green-700 border-green-300">
+                            Đang mở
+                          </span>
+                        </div>
+                        <div className="mb-4 space-y-2 text-sm text-gray-600 flex-1">
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Loại:</span>
+                            <span className="font-medium text-gray-900">
+                              {item.exam_type === 'expertise'
+                                ? 'Chuyên môn'
+                                : 'Quy trình - KN trải nghiệm'}
                             </span>
                           </div>
-                          <div className="mb-4 space-y-2 text-sm text-gray-600 flex-1">
-                            <div className="flex justify-between">
-                              <span className="text-gray-500">Loại:</span>
-                              <span className="font-medium text-gray-900">
-                                {item.exam_type === 'expertise'
-                                  ? 'Chuyên môn'
-                                  : 'Quy trình - KN trải nghiệm'}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-500">Mở:</span>
-                              <span>
-                                {new Date(item.open_at).toLocaleDateString(
-                                  'vi-VN',
-                                )}{' '}
-                                {new Date(item.open_at).toLocaleTimeString(
-                                  'vi-VN',
-                                  { hour: '2-digit', minute: '2-digit' },
-                                )}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-500">Đóng:</span>
-                              <span>
-                                {new Date(item.close_at).toLocaleDateString(
-                                  'vi-VN',
-                                )}{' '}
-                                {new Date(item.close_at).toLocaleTimeString(
-                                  'vi-VN',
-                                  { hour: '2-digit', minute: '2-digit' },
-                                )}
-                              </span>
-                            </div>
-                            <div
-                              className={`mt-3 flex items-center justify-between rounded-md border px-3 py-2 ${countdown.className}`}
-                            >
-                              <span className="text-xs font-semibold">
-                                {countdown.label}
-                              </span>
-                              <span className="font-mono text-sm font-bold">
-                                {countdown.value}
-                              </span>
-                            </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Mở:</span>
+                            <span>
+                              {new Date(item.open_at).toLocaleDateString(
+                                'vi-VN',
+                              )}{' '}
+                              {new Date(item.open_at).toLocaleTimeString(
+                                'vi-VN',
+                                { hour: '2-digit', minute: '2-digit' },
+                              )}
+                            </span>
                           </div>
-                          <div className="pt-3 border-t border-gray-100">
-                            <Link
-                              href={`/user/assignments/exam/${item.id}`}
-                              className="inline-flex w-full items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition cursor-pointer"
-                            >
-                              {item.score !== null ||
-                              item.assignment_status === 'submitted'
-                                ? 'Làm bài'
-                                : 'Bắt đầu làm bài'}
-                            </Link>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Đóng:</span>
+                            <span>
+                              {new Date(item.close_at).toLocaleDateString(
+                                'vi-VN',
+                              )}{' '}
+                              {new Date(item.close_at).toLocaleTimeString(
+                                'vi-VN',
+                                { hour: '2-digit', minute: '2-digit' },
+                              )}
+                            </span>
+                          </div>
+                          <div
+                            className={`mt-3 flex items-center justify-between rounded-md border px-3 py-2 ${countdown.className}`}
+                          >
+                            <span className="text-xs font-semibold">
+                              {countdown.label}
+                            </span>
+                            <span className="font-mono text-sm font-bold">
+                              {countdown.value}
+                            </span>
                           </div>
                         </div>
-                      )
-                    })}
-                  </div>
-                )
-              })()
+                        <div className="pt-3 border-t border-gray-100">
+                          <Link
+                            href={`/user/assignments/exam/${item.id}`}
+                            className="inline-flex w-full items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition cursor-pointer"
+                          >
+                            {item.score !== null ||
+                              item.assignment_status === 'submitted'
+                              ? 'Làm bài'
+                              : 'Bắt đầu làm bài'}
+                          </Link>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()
             }
           </div>
         ) : activeMainTab === 'list' ? (
@@ -2415,8 +2313,7 @@ export default function TeacherAssignmentPage() {
                     return (
                       <div
                         key={data.month}
-                        className={`shrink-0 min-w-40 border rounded-lg p-3 snap-start transition-all cursor-pointer ${
-                          isStatHighlighted
+                        className={`shrink-0 min-w-40 border rounded-lg p-3 snap-start transition-all cursor-pointer ${isStatHighlighted
                             ? statHighlightClass
                             : isSelected
                               ? isOutsideRecentWindow && !hasGradedResult
@@ -2427,7 +2324,7 @@ export default function TeacherAssignmentPage() {
                                   ? 'border-purple-100 bg-purple-50/50 opacity-90 hover:opacity-100 hover:border-purple-200'
                                   : 'border-gray-200 bg-gray-50/60 opacity-70 hover:opacity-90 hover:border-gray-300'
                                 : 'border-gray-100 bg-gray-50 hover:border-blue-200 hover:bg-white'
-                        }`}
+                          }`}
                         onClick={() =>
                           setSelectedExamMonth(
                             isSelected ? '6months' : data.month,
@@ -2435,31 +2332,29 @@ export default function TeacherAssignmentPage() {
                         }
                       >
                         <div
-                          className={`text-xs font-semibold mb-2 border-b pb-1 text-center flex items-center justify-center gap-1.5 ${
-                            isExpertiseHighlight
+                          className={`text-xs font-semibold mb-2 border-b pb-1 text-center flex items-center justify-center gap-1.5 ${isExpertiseHighlight
                               ? 'text-purple-700 border-purple-200'
                               : isExperienceHighlight
                                 ? 'text-green-700 border-green-200'
-                                  : isMissingHighlight
-                                    ? 'text-amber-700 border-amber-200'
-                                    : isOutsideRecentWindow &&
-                                        !hasGradedResult &&
-                                        !hasExpertiseAvg &&
-                                        !hasExperienceMax
-                                      ? 'text-gray-400 border-gray-200'
-                                      : isOutsideRecentWindow
-                                        ? 'text-gray-700 border-gray-200'
-                                        : 'text-gray-600 border-gray-200'
-                          }`}
+                                : isMissingHighlight
+                                  ? 'text-amber-700 border-amber-200'
+                                  : isOutsideRecentWindow &&
+                                    !hasGradedResult &&
+                                    !hasExpertiseAvg &&
+                                    !hasExperienceMax
+                                    ? 'text-gray-400 border-gray-200'
+                                    : isOutsideRecentWindow
+                                      ? 'text-gray-700 border-gray-200'
+                                      : 'text-gray-600 border-gray-200'
+                            }`}
                         >
                           {formatMonthLabel(data.month)}
                           {isOutsideRecentWindow && !isStatHighlighted && (
                             <span
-                              className={`text-[9px] px-1 py-0.5 rounded font-normal ${
-                                hasGradedResult
+                              className={`text-[9px] px-1 py-0.5 rounded font-normal ${hasGradedResult
                                   ? 'bg-slate-100 text-slate-600'
                                   : 'bg-gray-200 text-gray-500'
-                              }`}
+                                }`}
                             >
                               {hasGradedResult ? 'Kỳ cũ' : 'Quá hạn'}
                             </span>
@@ -2482,71 +2377,65 @@ export default function TeacherAssignmentPage() {
                         </div>
                         <div className="space-y-2 text-[11px]">
                           <div
-                            className={`flex justify-between items-center px-2 py-1.5 rounded border ${
-                              isExpertiseHighlight
+                            className={`flex justify-between items-center px-2 py-1.5 rounded border ${isExpertiseHighlight
                                 ? 'bg-purple-50 border-purple-100'
                                 : hasExpertiseAvg &&
-                                    isOutsideRecentWindow &&
-                                    !isStatHighlighted &&
-                                    hasGradedResult
+                                  isOutsideRecentWindow &&
+                                  !isStatHighlighted &&
+                                  hasGradedResult
                                   ? 'bg-purple-50/70 border-purple-100'
                                   : isOutsideRecentWindow
                                     ? 'bg-gray-50 border-gray-100'
                                     : 'bg-white border-gray-100'
-                            }`}
+                              }`}
                           >
                             <span
-                              className={`font-medium ${
-                                isOutsideRecentWindow &&
-                                !isStatHighlighted &&
-                                !hasExpertiseAvg
+                              className={`font-medium ${isOutsideRecentWindow &&
+                                  !isStatHighlighted &&
+                                  !hasExpertiseAvg
                                   ? 'text-gray-400'
                                   : 'text-gray-600'
-                              }`}
+                                }`}
                             >
                               CM Chuyên sâu:
                             </span>
                             <span
-                              className={`font-bold ml-2 text-sm ${
-                                isExpertiseHighlight || hasExpertiseAvg
+                              className={`font-bold ml-2 text-sm ${isExpertiseHighlight || hasExpertiseAvg
                                   ? 'text-purple-700'
                                   : 'text-gray-400'
-                              }`}
+                                }`}
                             >
                               {data.avgExpertise ?? '-'}
                             </span>
                           </div>
                           <div
-                            className={`flex justify-between items-center px-2 py-1.5 rounded border ${
-                              isExperienceHighlight
+                            className={`flex justify-between items-center px-2 py-1.5 rounded border ${isExperienceHighlight
                                 ? 'bg-green-50 border-green-100'
                                 : hasExperienceMax &&
-                                    isOutsideRecentWindow &&
-                                    !isStatHighlighted &&
-                                    hasGradedResult
+                                  isOutsideRecentWindow &&
+                                  !isStatHighlighted &&
+                                  hasGradedResult
                                   ? 'bg-green-50/70 border-green-100'
                                   : isOutsideRecentWindow
                                     ? 'bg-gray-50 border-gray-100'
                                     : 'bg-white border-gray-100'
-                            }`}
+                              }`}
                           >
                             <span
-                              className={`font-medium ${
-                                isOutsideRecentWindow &&
-                                !isStatHighlighted &&
-                                !hasExperienceMax
+                              className={`font-medium ${isOutsideRecentWindow &&
+                                  !isStatHighlighted &&
+                                  !hasExperienceMax
                                   ? 'text-gray-400'
                                   : 'text-gray-600'
-                              }`}
+                                }`}
                             >
                               QT Trải nghiệm:
                             </span>
                             <span
-                              className={`font-bold ml-2 text-sm ${
-                                isExperienceHighlight || hasExperienceMax
+                              className={`font-bold ml-2 text-sm ${isExperienceHighlight || hasExperienceMax
                                   ? 'text-green-700'
                                   : 'text-gray-400'
-                              }`}
+                                }`}
                             >
                               {data.maxExperience ?? '-'}
                             </span>
@@ -2638,17 +2527,17 @@ export default function TeacherAssignmentPage() {
                 selectedExamMonth !== '6months' ||
                 scoreTypeFilter !== 'all' ||
                 scoreResultFilter !== 'all') && (
-                <div className="flex justify-end">
-                  <button
-                    onClick={clearFilters}
-                    title="Xóa tất cả bộ lọc"
-                    className="inline-flex items-center gap-2 px-3 py-2 text-red-600 bg-red-50 hover:bg-red-100 hover:text-red-700 rounded-lg transition-colors border border-red-100 text-sm font-medium"
-                  >
-                    <FilterX className="w-4 h-4" />
-                    Xóa bộ lọc
-                  </button>
-                </div>
-              )}
+                  <div className="flex justify-end">
+                    <button
+                      onClick={clearFilters}
+                      title="Xóa tất cả bộ lọc"
+                      className="inline-flex items-center gap-2 px-3 py-2 text-red-600 bg-red-50 hover:bg-red-100 hover:text-red-700 rounded-lg transition-colors border border-red-100 text-sm font-medium"
+                    >
+                      <FilterX className="w-4 h-4" />
+                      Xóa bộ lọc
+                    </button>
+                  </div>
+                )}
             </div>
 
             {/* 3. Detailed Month View */}
@@ -2769,25 +2658,25 @@ export default function TeacherAssignmentPage() {
                                     </div>
                                     {nowTs <
                                       new Date(item.open_at).getTime() && (
-                                      <div className="mt-3 flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700">
-                                        <span className="text-xs font-semibold">
-                                          Mở sau
-                                        </span>
-                                        <span className="font-mono text-sm font-bold">
-                                          {formatCountdown(
-                                            (new Date(item.open_at).getTime() -
-                                              nowTs) /
+                                        <div className="mt-3 flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700">
+                                          <span className="text-xs font-semibold">
+                                            Mở sau
+                                          </span>
+                                          <span className="font-mono text-sm font-bold">
+                                            {formatCountdown(
+                                              (new Date(item.open_at).getTime() -
+                                                nowTs) /
                                               1000,
-                                          )}
-                                        </span>
-                                      </div>
-                                    )}
+                                            )}
+                                          </span>
+                                        </div>
+                                      )}
                                     <div className="flex justify-between items-center bg-gray-50 border border-gray-100 p-2.5 rounded-lg mt-3">
                                       <span className="font-semibold text-gray-700">
                                         Điểm số:
                                       </span>
                                       {item.explanation_status ===
-                                      'accepted' ? (
+                                        'accepted' ? (
                                         <span className="text-blue-600 italic text-sm font-medium">
                                           Miễn thi (Đã duyệt GT)
                                         </span>
@@ -2817,14 +2706,14 @@ export default function TeacherAssignmentPage() {
 
                                   <div className="mt-auto pt-4 border-t border-gray-100">
                                     {item.can_take &&
-                                    nowTs >=
+                                      nowTs >=
                                       new Date(item.open_at).getTime() ? (
                                       <Link
                                         href={`/user/assignments/exam/${item.id}`}
                                         className="inline-flex w-full items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition cursor-pointer"
                                       >
                                         {item.score !== null ||
-                                        item.assignment_status === 'submitted'
+                                          item.assignment_status === 'submitted'
                                           ? 'Làm bài'
                                           : 'Bắt đầu làm bài'}
                                       </Link>
@@ -2860,12 +2749,11 @@ export default function TeacherAssignmentPage() {
                                         </Link>
                                       ) : (
                                         <div
-                                          className={`inline-flex w-full items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold border ${
-                                            item.explanation_status ===
-                                            'accepted'
+                                          className={`inline-flex w-full items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold border ${item.explanation_status ===
+                                              'accepted'
                                               ? 'bg-green-50 text-green-700 border-green-200'
                                               : 'bg-amber-50 text-amber-700 border-amber-200'
-                                          }`}
+                                            }`}
                                         >
                                           Giải trình:{' '}
                                           {formatExplanationStatus(
@@ -2882,43 +2770,42 @@ export default function TeacherAssignmentPage() {
                                         className="inline-flex w-full items-center justify-center rounded-lg bg-blue-50 border border-blue-100 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-100 transition cursor-pointer"
                                       >
                                         {nowTs <
-                                        new Date(item.open_at).getTime()
+                                          new Date(item.open_at).getTime()
                                           ? 'Chưa tới giờ mở'
                                           : 'Chi tiết bài thi'}
-                                        </button>
+                                      </button>
                                     )}
 
                                     {effectiveScore !== null &&
                                       (Number(item.selected_set_id) > 0 ||
                                         Boolean(item.feedback_id)) && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setSelectedFeedbackExam(item)
-                                        }
-                                        className={`mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-semibold transition ${
-                                          item.feedback_status === 'done'
-                                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                                            : item.feedback_status ===
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setSelectedFeedbackExam(item)
+                                          }
+                                          className={`mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-semibold transition ${item.feedback_status === 'done'
+                                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                              : item.feedback_status ===
                                                 'in_progress'
-                                              ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
-                                              : 'border-[#e7c6cb] bg-[#fff7f8] text-[#a1001f] hover:bg-[#fdecef]'
-                                        }`}
-                                      >
-                                        <MessageSquareText className="h-4 w-4" />
-                                        {!item.feedback_id
-                                          ? 'Đánh giá bộ đề'
-                                          : item.feedback_status === 'new'
-                                            ? 'Chỉnh sửa đánh giá'
-                                            : item.feedback_status ===
+                                                ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                                                : 'border-[#e7c6cb] bg-[#fff7f8] text-[#a1001f] hover:bg-[#fdecef]'
+                                            }`}
+                                        >
+                                          <MessageSquareText className="h-4 w-4" />
+                                          {!item.feedback_id
+                                            ? 'Đánh giá bộ đề'
+                                            : item.feedback_status === 'new'
+                                              ? 'Chỉnh sửa đánh giá'
+                                              : item.feedback_status ===
                                                 'in_progress'
-                                              ? 'Đánh giá: Đang xử lý'
-                                              : 'Đánh giá: Đã xử lý'}
-                                        {item.feedback_rating
-                                          ? ` · ${item.feedback_rating}/5`
-                                          : ''}
-                                      </button>
-                                    )}
+                                                ? 'Đánh giá: Đang xử lý'
+                                                : 'Đánh giá: Đã xử lý'}
+                                          {item.feedback_rating
+                                            ? ` · ${item.feedback_rating}/5`
+                                            : ''}
+                                        </button>
+                                      )}
                                   </div>
                                 </div>
                               )
@@ -2952,11 +2839,9 @@ export default function TeacherAssignmentPage() {
                 <div className="bg-linear-to-br from-blue-500 to-blue-600 p-3 text-white">
                   <div className="flex items-start justify-between mb-1.5">
                     <BookOpen className="w-5 h-5 shrink-0" />
-                    {assignment.status === 'published' && (
-                      <span className="px-1.5 py-0.5 bg-white/20 rounded-full text-[10px] font-semibold">
-                        Mở
-                      </span>
-                    )}
+                    <span className="px-1.5 py-0.5 bg-white/20 rounded-full text-[10px] font-semibold">
+                      Mở
+                    </span>
                   </div>
                   <h3 className="text-sm font-bold mb-1 line-clamp-2 leading-tight">
                     {assignment.assignment_title}
@@ -3001,26 +2886,24 @@ export default function TeacherAssignmentPage() {
 
                   {assignment.recent_submission && (
                     <div
-                      className={`mb-2.5 p-2.5 rounded-lg border ${
-                        assignment.recent_submission.is_passed
+                      className={`mb-2.5 p-2.5 rounded-lg border ${assignment.recent_submission.is_passed
                           ? 'bg-green-50 border-green-300'
                           : 'bg-amber-50 border-amber-300'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[10px] font-semibold text-gray-700">
                           Điểm gần nhất:
                         </span>
                         <span
-                          className={`text-lg font-bold ${
-                            assignment.recent_submission.is_passed
+                          className={`text-lg font-bold ${assignment.recent_submission.is_passed
                               ? 'text-green-600'
                               : 'text-amber-600'
-                          }`}
+                            }`}
                         >
                           {assignment.recent_submission.score}
                           <span className="text-xs text-gray-500">
-                            /{assignment.total_points}
+                            /{assignment.total_points || 10}
                           </span>
                         </span>
                       </div>
@@ -3037,22 +2920,23 @@ export default function TeacherAssignmentPage() {
                       }
                       startAssignment(assignment);
                     }}
-                    disabled={assignment.status !== 'published'}
-                    className={`w-full py-2 text-sm font-semibold h-auto cursor-pointer disabled:cursor-not-allowed ${
-                      assignment.status === 'published'
-                        ? assignment.video_id && !['completed', 'watched'].includes(assignment.video_completion_status || '')
-                          ? 'bg-gray-400 text-white hover:bg-gray-500'
-                          : 'shadow-sm hover:shadow-md bg-[#a1001f] text-white hover:bg-[#840018]'
-                        : 'bg-gray-200 text-gray-500 hover:bg-gray-200'
+                    className={`w-full py-2 text-sm font-semibold h-auto cursor-pointer ${
+                      assignment.video_id &&
+                      !['completed', 'watched'].includes(
+                        assignment.video_completion_status || '',
+                      )
+                        ? 'bg-gray-400 text-white hover:bg-gray-500'
+                        : 'shadow-sm hover:shadow-md bg-[#a1001f] text-white hover:bg-[#840018]'
                     }`}
                   >
-                    {assignment.status === 'published'
-                      ? assignment.video_id && !['completed', 'watched'].includes(assignment.video_completion_status || '')
-                        ? 'Cần xem video'
-                        : assignment.recent_submission
-                          ? 'Làm lại'
-                          : 'Bắt đầu'
-                      : 'Chưa mở'}
+                    {assignment.video_id &&
+                    !['completed', 'watched'].includes(
+                      assignment.video_completion_status || '',
+                    )
+                      ? 'Cần xem video'
+                      : assignment.recent_submission
+                        ? 'Làm lại'
+                        : 'Bắt đầu'}
                   </Button>
                 </div>
               </div>
@@ -3090,22 +2974,22 @@ export default function TeacherAssignmentPage() {
                   current.map((item) =>
                     item.id === selectedFeedbackExam.id
                       ? {
-                          ...item,
-                          feedback_id: savedReview.id,
-                          feedback_rating: savedReview.rating,
-                          feedback_status: savedReview.status,
-                        }
+                        ...item,
+                        feedback_id: savedReview.id,
+                        feedback_rating: savedReview.rating,
+                        feedback_status: savedReview.status,
+                      }
                       : item,
                   ),
                 )
                 setSelectedFeedbackExam((current) =>
                   current
                     ? {
-                        ...current,
-                        feedback_id: savedReview.id,
-                        feedback_rating: savedReview.rating,
-                        feedback_status: savedReview.status,
-                      }
+                      ...current,
+                      feedback_id: savedReview.id,
+                      feedback_rating: savedReview.rating,
+                      feedback_status: savedReview.status,
+                    }
                     : current,
                 )
               }}
@@ -3170,19 +3054,17 @@ export default function TeacherAssignmentPage() {
                     return (
                       <div
                         key={item.id}
-                        className={`flex items-center gap-3 rounded-lg border px-4 py-3 transition-all ${
-                          isPassed
+                        className={`flex items-center gap-3 rounded-lg border px-4 py-3 transition-all ${isPassed
                             ? 'border-green-200 bg-green-50'
                             : 'border-red-200 bg-red-50'
-                        }`}
+                          }`}
                       >
                         {/* Pass/Fail icon */}
                         <div
-                          className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-                            isPassed
+                          className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isPassed
                               ? 'bg-green-200 text-green-700'
                               : 'bg-red-200 text-red-700'
-                          }`}
+                            }`}
                         >
                           {isPassed ? (
                             <CheckCircle className="w-4 h-4" />
@@ -3211,9 +3093,8 @@ export default function TeacherAssignmentPage() {
                         {/* Score */}
                         <div className="shrink-0 text-right">
                           <p
-                            className={`text-base font-bold ${
-                              isPassed ? 'text-green-700' : 'text-red-700'
-                            }`}
+                            className={`text-base font-bold ${isPassed ? 'text-green-700' : 'text-red-700'
+                              }`}
                           >
                             {effectiveScore}{' '}
                             <span className="text-xs font-normal text-gray-400">
@@ -3221,11 +3102,10 @@ export default function TeacherAssignmentPage() {
                             </span>
                           </p>
                           <span
-                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                              isPassed
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isPassed
                                 ? 'bg-green-200 text-green-800'
                                 : 'bg-red-200 text-red-800'
-                            }`}
+                              }`}
                           >
                             {isPassed ? 'ĐẠT' : 'KHÔNG ĐẠT'}
                           </span>
