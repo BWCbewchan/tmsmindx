@@ -1,9 +1,11 @@
 "use client";
 
 import { Card } from "@/components/Card";
+import { ExamFeedbackStatsPanel } from "@/components/admin/exam-feedback/ExamFeedbackStatsPanel";
 import { Modal } from "@/components/ui/modal";
 import { PageContainer } from "@/components/PageContainer";
 import { SkeletonCard } from "@/components/skeletons";
+import { Tabs } from "@/components/Tabs";
 import { cn } from "@/lib/utils";
 import { Bot, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Code2, GripVertical, Palette, PlusCircle, Settings2, Trash2 } from "lucide-react";
 import Link from "next/link";
@@ -300,6 +302,7 @@ const buildProcessBlockCode = (customName: string): BlockCode => {
 
 
 export default function ProfessionalAssignmentLibraryPage() {
+  const [activePageTab, setActivePageTab] = useState<"library" | "feedback">("library");
   const [subjectConfigs, setSubjectConfigs] = useState<SubjectConfig[]>([]);
   const [sets, setSets] = useState<ExamSetRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2020,11 +2023,43 @@ export default function ProfessionalAssignmentLibraryPage() {
     }
   };
 
+  const pageTabs = [
+    { id: "library", label: "Thư viện bộ đề" },
+    { id: "feedback", label: "Thống kê đánh giá" },
+  ];
+
+  if (activePageTab === "feedback") {
+    return (
+      <PageContainer title="Bộ đề đánh giá chuyên môn">
+        <Tabs
+          tabs={pageTabs}
+          activeTab={activePageTab}
+          onChange={(tabId) =>
+            setActivePageTab(tabId as "library" | "feedback")
+          }
+          borderClassName="border-[#e7c6cb]"
+        />
+        <div className="mt-5">
+          <ExamFeedbackStatsPanel />
+        </div>
+      </PageContainer>
+    );
+  }
+
   return (
     <PageContainer
       title="Bộ đề đánh giá chuyên môn"
     >
-      <div className="mb-5 flex justify-end gap-3">
+      <Tabs
+        tabs={pageTabs}
+        activeTab={activePageTab}
+        onChange={(tabId) =>
+          setActivePageTab(tabId as "library" | "feedback")
+        }
+        borderClassName="border-[#e7c6cb]"
+      />
+
+      <div className="mb-5 mt-5 flex justify-end gap-3">
         <button
           type="button"
           onClick={handleOpenAutoCreateModal}

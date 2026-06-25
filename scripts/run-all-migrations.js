@@ -134,7 +134,173 @@ async function main() {
                         CREATE INDEX IF NOT EXISTS idx_system_events_session_id_created_at
                             ON system_events(session_id, created_at DESC);
                 ` },
-                { name: 'fix_assignment_answers_constraint', file: 'fix_assignment_answers_constraint.sql' }
+                { name: 'fix_assignment_answers_constraint', file: 'fix_assignment_answers_constraint.sql' },
+                { name: 'optimize_truyenthong_read_indexes', file: 'optimize_truyenthong_read_indexes.sql' },
+                { name: 'V93_work_schedule_range_index', file: null, sql: `
+                    CREATE INDEX IF NOT EXISTS idx_dangky_lich_lam_date_time
+                        ON dangky_lich_lam(ngay, gio_bat_dau, gio_ket_thuc);
+                ` },
+                { name: 'V94_backfill_communication_notifications', file: null, sql: `
+                    WITH active_recipients AS (
+                        SELECT LOWER(TRIM(email)) AS recipient_email
+                        FROM app_users
+                        WHERE is_active IS TRUE
+                            AND NULLIF(TRIM(email), '') IS NOT NULL
+
+                        UNION
+
+                        SELECT LOWER(
+                            TRIM(
+                                COALESCE(
+                                    NULLIF(TRIM(work_email), ''),
+                                    NULLIF(TRIM("Work email"), '')
+                                )
+                            )
+                        ) AS recipient_email
+                        FROM teachers
+                        WHERE LOWER(
+                            TRIM(
+                                COALESCE(
+                                    NULLIF(TRIM(status), ''),
+                                    NULLIF(TRIM("Status"), ''),
+                                    'active'
+                                )
+                            )
+                        ) NOT IN ('deactive', 'inactive', 'disabled')
+                    )
+                    INSERT INTO notifications (
+                        recipient_email,
+                        title,
+                        content,
+                        type,
+                        link,
+                        is_read,
+                        created_at
+                    )
+                    SELECT
+                        recipients.recipient_email,
+                        'Bài viết mới: ' || communications.title,
+                        COALESCE(communications.description, communications.title),
+                        'communication',
+                        '/user/truyenthong/' || communications.slug,
+                        FALSE,
+                        COALESCE(communications.published_at, communications.created_at, NOW())
+                    FROM active_recipients recipients
+                    CROSS JOIN communications
+                    WHERE recipients.recipient_email IS NOT NULL
+                        AND POSITION('@' IN recipients.recipient_email) > 1
+                        AND communications.status = 'published'
+                        AND COALESCE(communications.published_at, communications.created_at)
+                            >= NOW() - INTERVAL '180 days'
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM notifications existing
+                            WHERE LOWER(TRIM(existing.recipient_email)) = recipients.recipient_email
+                                AND existing.type = 'communication'
+                                AND existing.link = '/user/truyenthong/' || communications.slug
+                        );
+                ` },
+                { name: 'V95_exam_notification_dispatch', file: null, sql: `
+                    ALTER TABLE notifications
+                    ADD COLUMN IF NOT EXISTS dedupe_key VARCHAR(255);
+
+                    CREATE UNIQUE INDEX IF NOT EXISTS uq_notifications_recipient_dedupe
+                    ON notifications (LOWER(TRIM(recipient_email)), dedupe_key)
+                    WHERE dedupe_key IS NOT NULL;
+
+                    CREATE TABLE IF NOT EXISTS notification_dispatch_state (
+                        job_name VARCHAR(100) PRIMARY KEY,
+                        last_processed_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+
+                    INSERT INTO notification_dispatch_state (job_name, last_processed_at)
+                    VALUES ('exam_schedule_notifications', CURRENT_TIMESTAMP)
+                    ON CONFLICT (job_name) DO NOTHING;
+                ` },
+                { name: 'V98_exam_feedback_reviews', file: null, sql: `
+                    CREATE TABLE IF NOT EXISTS exam_feedback_reviews (
+                        id BIGSERIAL PRIMARY KEY,
+                        result_id INTEGER NOT NULL UNIQUE
+                            REFERENCES chuyen_sau_results(id) ON DELETE CASCADE,
+                        set_id INTEGER
+                            REFERENCES chuyen_sau_bode(id) ON DELETE SET NULL,
+                        set_code VARCHAR(100),
+                        set_name VARCHAR(500),
+                        subject_code VARCHAR(100),
+                        subject_name VARCHAR(500),
+                        reviewer_email VARCHAR(255) NOT NULL,
+                        reviewer_code VARCHAR(100),
+                        reviewer_name VARCHAR(255),
+                        rating SMALLINT CHECK (rating BETWEEN 1 AND 5),
+                        system_comment TEXT,
+                        subject_comment TEXT,
+                        status VARCHAR(20) NOT NULL DEFAULT 'new'
+                            CHECK (status IN ('new', 'in_progress', 'done')),
+                        handled_by_email VARCHAR(255),
+                        handled_at TIMESTAMP,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        CONSTRAINT ck_exam_feedback_has_content CHECK (
+                            rating IS NOT NULL
+                            OR LENGTH(BTRIM(COALESCE(system_comment, ''))) > 0
+                            OR LENGTH(BTRIM(COALESCE(subject_comment, ''))) > 0
+                        )
+                    );
+
+                    CREATE TABLE IF NOT EXISTS exam_feedback_review_questions (
+                        id BIGSERIAL PRIMARY KEY,
+                        review_id BIGINT NOT NULL
+                            REFERENCES exam_feedback_reviews(id) ON DELETE CASCADE,
+                        question_id INTEGER
+                            REFERENCES chuyen_sau_cauhoi(id) ON DELETE SET NULL,
+                        question_order INTEGER,
+                        question_text_snapshot TEXT NOT NULL,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(review_id, question_id)
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_exam_feedback_reviews_set_id
+                        ON exam_feedback_reviews(set_id);
+                    CREATE INDEX IF NOT EXISTS idx_exam_feedback_reviews_subject_code
+                        ON exam_feedback_reviews(subject_code);
+                    CREATE INDEX IF NOT EXISTS idx_exam_feedback_reviews_status_created_at
+                        ON exam_feedback_reviews(status, created_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_exam_feedback_reviews_created_at
+                        ON exam_feedback_reviews(created_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_exam_feedback_review_questions_question
+                        ON exam_feedback_review_questions(question_id);
+
+                    DROP TRIGGER IF EXISTS trg_exam_feedback_reviews_updated_at
+                        ON exam_feedback_reviews;
+                    CREATE TRIGGER trg_exam_feedback_reviews_updated_at
+                    BEFORE UPDATE ON exam_feedback_reviews
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_updated_at_column();
+                ` },
+                { name: 'V99_push_subscriptions', file: null, sql: `
+                    CREATE TABLE IF NOT EXISTS push_subscriptions (
+                        id BIGSERIAL PRIMARY KEY,
+                        recipient_email VARCHAR(255) NOT NULL,
+                        endpoint TEXT NOT NULL UNIQUE,
+                        p256dh TEXT NOT NULL,
+                        auth_secret TEXT NOT NULL,
+                        user_agent TEXT,
+                        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        last_success_at TIMESTAMP WITH TIME ZONE
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_recipient_email
+                        ON push_subscriptions(LOWER(recipient_email));
+
+                    DROP TRIGGER IF EXISTS trg_push_subscriptions_updated_at
+                        ON push_subscriptions;
+                    CREATE TRIGGER trg_push_subscriptions_updated_at
+                    BEFORE UPDATE ON push_subscriptions
+                    FOR EACH ROW
+                    EXECUTE FUNCTION update_updated_at_column();
+                ` }
         ];
 
 

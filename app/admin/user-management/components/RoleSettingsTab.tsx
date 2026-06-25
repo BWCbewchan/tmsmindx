@@ -149,7 +149,7 @@ export default function RoleSettingsTab() {
 
             {/* Permission editor panel */}
             {selectedRole && (
-                <div className="cursor-pointer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={() => setSelectedRole(null)}>
+                <div className="cursor-pointer fixed inset-0 z-modal-backdrop-custom flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={() => setSelectedRole(null)}>
                     <div className="cursor-pointer bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between mb-4 border-b pb-3">
                             <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -182,7 +182,7 @@ export default function RoleSettingsTab() {
 
             {/* Create Role Modal */}
             {showNewRoleDialog && (
-                <div className="cursor-pointer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={() => setShowNewRoleDialog(false)}>
+                <div className="cursor-pointer fixed inset-0 z-modal-backdrop-custom flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={() => setShowNewRoleDialog(false)}>
                     <div className="cursor-pointer bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between mb-4 border-b pb-3">
                             <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">

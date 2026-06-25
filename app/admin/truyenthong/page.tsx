@@ -6,6 +6,7 @@ import { SearchBar } from '@/components/SearchBar'
 import { TableSkeleton } from '@/components/skeletons'
 import { Tabs } from '@/components/Tabs'
 import TruyenThongStats from '@/components/truyenthong-stats'
+import MonthlyHonorsManager from '@/components/monthly-honors-manager'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Eye, EyeOff, FileText, ImageIcon, MessageCircle, Pencil, Plus } from 'lucide-react'
@@ -67,6 +68,7 @@ export default function TruyenthongDashboardPage() {
     const [filterStatus, setFilterStatus] = useState<'all' | 'draft' | 'published' | 'hidden'>('all')
 
     const queryParams = new URLSearchParams()
+    queryParams.set('include', 'comment_counts')
     if (filterStatus !== 'all') queryParams.append('status', filterStatus)
     if (searchTerm) queryParams.append('search', searchTerm)
 
@@ -103,6 +105,7 @@ export default function TruyenthongDashboardPage() {
                         Quản lý Slider
                     </Link>
                 </Button>
+                <MonthlyHonorsManager />
             </div>
 
             {/* Stats Dashboard */}

@@ -509,7 +509,7 @@ export default function Page2() {
       {/* Modal - Teacher Detail */}
       {modalOpen && modalData && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center p-4"
           onClick={() => setModalOpen(false)}
         >
           <div 

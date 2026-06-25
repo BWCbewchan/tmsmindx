@@ -928,7 +928,7 @@ export default function SystemMetricsPage() {
 
             {selectedCenterDetail && (
               <div
-                className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3 backdrop-blur-[2px] sm:p-4"
+                className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center bg-slate-950/45 p-3 backdrop-blur-[2px] sm:p-4"
                 onClick={() => setSelectedCenterDetail(null)}
               >
                 <div

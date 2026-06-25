@@ -764,7 +764,7 @@ export default function TabLichHoatDong({ onRefreshBadge, onOpenLeaveRequest }:P
         const isPast=startOfDay(dayDetailDate)<startOfDay(new Date())
         const statusLabel=(s:string)=>{switch(s){case 'pending_admin':return{text:'Chờ duyệt',cls:'bg-amber-100 text-amber-700'};case 'approved_unassigned':case 'approved_assigned':return{text:'Đã duyệt',cls:'bg-blue-100 text-blue-700'};case 'substitute_confirmed':return{text:'Hoàn tất',cls:'bg-emerald-100 text-emerald-700'};case 'rejected':return{text:'Từ chối',cls:'bg-red-100 text-red-700'};default:return{text:s,cls:'bg-gray-100 text-gray-700'}}}
         return(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={()=>setDayDetailDate(null)}>
+        <div className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center bg-black/40 p-4" onClick={()=>setDayDetailDate(null)}>
           <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={e=>e.stopPropagation()}>
             <div className="flex items-center justify-between rounded-t-2xl bg-[#a1001f] px-5 py-4">
               <div>
@@ -902,7 +902,7 @@ export default function TabLichHoatDong({ onRefreshBadge, onOpenLeaveRequest }:P
 
       {/* Slot Form Modal */}
       {selectedDate&&(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={()=>setSelectedDate(null)}>
+        <div className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center bg-black/40 p-4" onClick={()=>setSelectedDate(null)}>
           <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl" onClick={e=>e.stopPropagation()}>
             <div className="flex items-center justify-between rounded-t-2xl bg-[#a1001f] px-5 py-4">
               <div>

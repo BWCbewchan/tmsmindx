@@ -729,7 +729,7 @@ export default function AdminFeedbackPage() {
       </Modal>
 
       {previewImages && previewImages.length > 0 && (
-        <div className="fixed inset-0 z-1100 flex items-center justify-center bg-black/80 p-4">
+        <div className="fixed inset-0 z-modal-raised-custom flex items-center justify-center bg-black/80 p-4">
           <div className="relative w-full max-w-5xl">
             <button
               type="button"

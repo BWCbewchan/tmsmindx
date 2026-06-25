@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { preloadMascotFrames } from './mascotCache';
 
-export type MascotAnimation = 'standAndRead' | 'walk' | 'jump' | 'wave' | 'verify' | 'turn' | 'review' | 'walkToSit';
+export type MascotAnimation = 'standAndRead' | 'walk' | 'jump' | 'wave' | 'verify' | 'turn' | 'review' | 'walkToSit' | 'sitToStand';
 
 interface MascotProps {
   animation?: MascotAnimation;
   className?: string;
   style?: React.CSSProperties;
   frameRate?: number; // ms per frame
+  onComplete?: () => void;
 }
 
 const ANIMATION_FRAMES: Record<MascotAnimation, string[]> = {
@@ -23,13 +24,15 @@ const ANIMATION_FRAMES: Record<MascotAnimation, string[]> = {
   turn: [], // To be populated if needed
   review: [], // To be populated if needed
   walkToSit: Array.from({ length: 25 }, (_, i) => `/mascot/walkToSit/frame-${i + 1}.png`),
+  sitToStand: Array.from({ length: 25 }, (_, i) => `/mascot/sittostand/frame-${i + 1}.png`),
 };
 
 export const Mascot: React.FC<MascotProps> = ({
   animation = 'standAndRead',
   className = '',
   style,
-  frameRate = 100
+  frameRate = 100,
+  onComplete
 }) => {
   const [currentFrame, setCurrentFrame] = useState(0);
   const [loopCount, setLoopCount] = useState(0);
@@ -48,51 +51,68 @@ export const Mascot: React.FC<MascotProps> = ({
   }, [animation, frames]);
 
   useEffect(() => {
-    const isSprite = animation === 'walkToSit';
+    const isSprite = animation === 'walkToSit' || animation === 'sitToStand';
     const frameCount = isSprite ? 25 : frames?.length || 0;
 
     if (frameCount <= 1) return;
 
     const interval = setInterval(() => {
       setCurrentFrame((prev) => {
-        // Logic đặc biệt cho animation 'standAndRead'
-        if (animation === 'standAndRead') {
-          const FRAME_END = 22; // Frame 23 (index 22)
-          const FRAME_LOOP_START = 9; // Frame 10 (index 9)
-          const MAX_LOOPS = 3;
+         // Logic đặc biệt cho animation 'standAndRead'
+         if (animation === 'standAndRead') {
+           const FRAME_END = 24; // Frame 25 (index 24)
+           const FRAME_LOOP_START = 9; // Frame 10 (index 9)
+           const MAX_LOOPS = 3;
 
-          if (!isLooping) {
-            if (prev >= FRAME_END) {
-              setIsLooping(true);
-              setLoopCount(1);
-              return FRAME_LOOP_START;
-            }
-            return prev + 1;
-          } else {
-            if (prev >= FRAME_END) {
-              if (loopCount < MAX_LOOPS) {
-                setLoopCount((c) => c + 1);
-                return FRAME_LOOP_START;
-              } else {
-                setIsLooping(false);
-                setLoopCount(0);
-                return 0;
-              }
-            }
-            return prev + 1;
-          }
-        }
+           if (!isLooping) {
+             if (prev >= FRAME_END) {
+               setIsLooping(true);
+               setLoopCount(1);
+               return FRAME_LOOP_START;
+             }
+             return prev + 1;
+           } else {
+             if (prev >= FRAME_END) {
+               if (loopCount < MAX_LOOPS) {
+                 setLoopCount((c) => c + 1);
+                 return FRAME_LOOP_START;
+               } else {
+                 setIsLooping(false);
+                 setLoopCount(0);
+                 if (onComplete) {
+                   setTimeout(onComplete, 0);
+                 }
+                 return 0;
+               }
+             }
+             return prev + 1;
+           }
+         }
 
         // Logic mặc định cho các animation khác
-        if (animation === 'walkToSit' && prev >= frameCount - 1) {
-          return frameCount - 1;
+        if (animation === 'walkToSit' || animation === 'sitToStand') {
+          if (prev >= frameCount - 1) {
+            return frameCount - 1;
+          }
+          if (prev === frameCount - 2) {
+            if (onComplete) {
+              setTimeout(onComplete, 0);
+            }
+          }
+          return prev + 1;
         }
-        return (prev + 1) % frameCount;
+
+        // Lặp lại (như walk, jump) - kích hoạt onComplete khi quay về frame 0
+        const next = (prev + 1) % frameCount;
+        if (next === 0 && onComplete) {
+          setTimeout(onComplete, 0);
+        }
+        return next;
       });
     }, frameRate);
 
     return () => clearInterval(interval);
-  }, [frames, frameRate, animation, isLooping, loopCount]);
+  }, [frames, frameRate, animation, isLooping, loopCount, onComplete]);
 
 
   if (!frames || frames.length === 0) {

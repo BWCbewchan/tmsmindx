@@ -481,8 +481,8 @@ export default function TabNhanLop({ onRefreshBadge }: TabNhanLopProps) {
         }}
         title="Xác nhận từ chối nhận lớp thay"
         size="md"
-        backdropClassName="z-[100]"
-        containerClassName="z-[100]"
+        backdropClassName="z-modal-backdrop-custom"
+        containerClassName="z-modal-custom"
         footer={
           <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button

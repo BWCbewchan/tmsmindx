@@ -4,10 +4,12 @@ import { Button } from '@/components/ui/button'
 import { PageLayout, PageLayoutContent } from '@/components/ui/page-layout'
 import { toast as flatToast } from '@/lib/app-toast'
 import { useAuth } from '@/lib/auth-context'
-import { useAppSelector } from '@/lib/redux/hooks'
+import { authHeaders } from '@/lib/auth-headers'
+import { useAppSelector, useAppDispatch } from '@/lib/redux/hooks'
+import { setVideo } from '@/lib/redux/features/trainingSlice'
 import { useTeacher } from '@/lib/teacher-context'
 import { useToast } from '@/lib/use-toast'
-import { Loader2 } from 'lucide-react'
+import { Loader2, CheckCircle2, PlayCircle, Lock, Clock } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
     Suspense,
@@ -51,13 +53,174 @@ type LessonUser = {
   isAdmin?: boolean
 }
 
+interface PlaylistItemProps {
+  lesson: any
+  lessonId: string | null
+  isActive: boolean
+  isCompleted: boolean
+  onClick: () => void
+  assignment: any | null
+  router: any
+}
+
+function PlaylistItem({
+  lesson,
+  lessonId,
+  isActive,
+  isCompleted,
+  onClick,
+  assignment,
+  router,
+}: PlaylistItemProps) {
+  const isWatched = lesson.completion_status === 'watched'
+  const assignmentVideoCompleted = ['completed', 'watched'].includes(
+    assignment?.video_completion_status || '',
+  )
+  const canTakeQuiz = isCompleted || isWatched || assignmentVideoCompleted
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      }}
+      className={`w-full flex gap-3 p-3 transition text-left group hover:bg-slate-50/80 border-b border-slate-100 relative cursor-pointer
+        ${isActive ? 'bg-[#a1001f]/5 border-l-2 border-[#a1001f]' : ''}`}
+    >
+      {/* Thumbnail or Fallback */}
+      <div className="relative w-24 aspect-video rounded overflow-hidden bg-gray-100 flex-shrink-0 border border-slate-200/60">
+        {lesson.thumbnail_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={lesson.thumbnail_url}
+            alt=""
+            className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement
+              target.src =
+                'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYwIiBoZWlnaHQ9IjkwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxNjAiIGhlaWdodD0iOTAiIGZpbGw9IiNlNWU3ZWIiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iIzljYTNhZiIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE0Ij5WaWRlbzwvdGV4dD48L3N2Zz4='
+            }}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-rose-50 to-red-50">
+            <PlayCircle className="w-6 h-6 text-[#a1001f]/40" />
+          </div>
+        )}
+        
+        {/* Duration Badge */}
+        {lesson.duration_minutes > 0 && (
+          <span className="absolute bottom-1 right-1 bg-black/75 px-1 py-0.5 text-[9px] font-mono text-white rounded flex items-center gap-0.5 z-10">
+            <Clock className="w-2.5 h-2.5 text-white/90" />
+            {lesson.duration_minutes}p
+          </span>
+        )}
+      </div>
+
+      {/* Title & Progress info */}
+      <div className="min-w-0 flex-1 flex flex-col justify-between py-0.5">
+        <div>
+          <div className="text-[10px] font-bold text-[#a1001f] mb-0.5">
+            Bài {lesson.lesson_number}
+          </div>
+          <h3 className={`text-xs font-semibold leading-snug line-clamp-2 transition
+            ${isActive ? 'text-[#a1001f]' : 'text-slate-700 group-hover:text-[#a1001f]'}`}>
+            {lesson.name}
+          </h3>
+        </div>
+        
+        <div className="flex flex-col gap-2 mt-1.5">
+          {/* Bottom Row inside info: Status Badge */}
+          <div className="flex items-center justify-between">
+            {isCompleted ? (
+              <span className="inline-flex items-center gap-1 text-[10px] text-green-600 font-semibold">
+                <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                Đã hoàn thành
+              </span>
+            ) : lesson.completion_status === 'in_progress' ? (
+              <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 font-semibold">
+                <PlayCircle className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
+                Đang học
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 font-medium">
+                <PlayCircle className="w-3.5 h-3.5 text-slate-300" />
+                Chưa bắt đầu
+              </span>
+            )}
+
+            {lesson.score > 0 && (
+              <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1 py-0.5 rounded border border-slate-200">
+                Điểm: {lesson.score}
+              </span>
+            )}
+          </div>
+
+          {/* Action button: Làm bài tập */}
+          {assignment && (
+            <div className="w-full">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation() // prevent changing active video
+                  if (canTakeQuiz) {
+                    router.push(
+                      `/user/dao-tao-nang-cao?start_assignment_id=${assignment.id}&video_ok=1`,
+                    )
+                  } else {
+                    flatToast.error('Bạn cần hoàn thành xem video bài học trước khi làm bài tập này.', {
+                      icon: '📺',
+                    })
+                  }
+                }}
+                className={`w-full py-1.5 rounded-lg text-[11px] font-semibold text-center transition-all ${
+                  canTakeQuiz
+                    ? 'bg-[#a1001f] text-white hover:bg-[#8a001a] active:scale-95 shadow-xs cursor-pointer'
+                    : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-80'
+                }`}
+              >
+                Làm bài tập
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function LessonContent() {
   const router = useRouter()
-  const { user } = useAuth()
+  const dispatch = useAppDispatch()
+  const { user, token } = useAuth()
   const { teacherProfile, isLoading: isTeacherLoading } = useTeacher()
   const toast = useToast()
   const searchParams = useSearchParams()
   const lessonIdParam = searchParams.get('id')
+
+  // Ref to track token for event handlers (token thay đổi không trigger re-render)
+  const tokenRef = useRef(token)
+  useEffect(() => {
+    tokenRef.current = token
+  }, [token])
+
+  /**
+   * Gọi video.play() an toàn — bỏ qua AbortError (xảy ra khi element bị unmount
+   * hoặc segment switch trong lúc play() đang pending). Lỗi thực sự vẫn được log.
+   */
+  const safePlay = (video: HTMLVideoElement): Promise<void> =>
+    video.play().catch((e: unknown) => {
+      if (
+        e instanceof Error &&
+        (e.name === 'AbortError' || e.message?.includes('interrupted'))
+      ) {
+        return // bình thường khi unmount / segment switch
+      }
+      console.error('[Lesson] play() failed:', e)
+    })
 
   // Get video details from Redux
   const {
@@ -143,6 +306,7 @@ function LessonContent() {
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [isWaiting, setIsWaiting] = useState(false)
+  const [isSavingCompletion, setIsSavingCompletion] = useState(false)
   const [questions, setQuestions] = useState<Question[]>([])
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState<number | null>(
     null,
@@ -152,12 +316,76 @@ function LessonContent() {
     new Set(),
   )
   const videoRef = useRef<HTMLVideoElement>(null)
+  // When resuming a previously-watched video, we queue a seek via pendingSeekTime.
+  // This ref signals that once the seek is applied (in handleLoadedMetadata), we should
+  // auto-play — even if isPlayingRef is still false (user hasn't pressed Play yet on
+  // the resumed lesson).
+  const pendingResumePlayRef = useRef(false)
+
   const [videoPaused, setVideoPaused] = useState(false)
   const [showResult, setShowResult] = useState(false)
   const [isCorrectAnswer, setIsCorrectAnswer] = useState(false)
   const [currentAssignment, setCurrentAssignment] = useState<TrainingAssignment | null>(
     null,
   ) // Trạng thái bài tập của video hiện tại
+
+  const [allLessons, setAllLessons] = useState<any[]>([])
+  const [allAssignments, setAllAssignments] = useState<any[]>([])
+  const [isLoadingLessons, setIsLoadingLessons] = useState(false)
+
+  // Fetch all lessons and progress
+  useEffect(() => {
+    if (!user?.email) return
+    const fetchLessons = async () => {
+      setIsLoadingLessons(true)
+      try {
+        const teacherCode = teacherProfile?.code || user.email.split('@')[0].toLowerCase().trim()
+        const [dbRes, assignmentsRes] = await Promise.all([
+          fetch(`/api/training-db?code=${teacherCode}`, {
+            headers: authHeaders(token),
+          }),
+          fetch(`/api/training-assignments?status=published&teacher_code=${teacherCode}`, {
+            headers: authHeaders(token),
+          })
+        ])
+
+        if (dbRes.ok) {
+          const data = await dbRes.json()
+          if (data && Array.isArray(data.lessons)) {
+            setAllLessons(data.lessons)
+          }
+        }
+
+        if (assignmentsRes.ok) {
+          const assData = await assignmentsRes.json()
+          if (assData && Array.isArray(assData.data)) {
+            setAllAssignments(assData.data)
+          }
+        }
+      } catch (err) {
+        console.error('[Lesson] Failed to fetch lessons or assignments:', err)
+      } finally {
+        setIsLoadingLessons(false)
+      }
+    }
+    fetchLessons()
+  }, [user, teacherProfile, token, lessonIdParam, videoCompleted])
+
+  const handleLessonClick = (lesson: any) => {
+    if (lesson.id.toString() === lessonId) return
+    if (lesson.link) {
+      dispatch(
+        setVideo({
+          id: lesson.id,
+          link: lesson.link,
+          duration: lesson.duration_minutes || 0,
+          title: lesson.name,
+          segments: lesson.segments,
+        }),
+      )
+      router.push(`/user/dao-tao-nang-cao/lesson?id=${lesson.id}`)
+    }
+  }
 
   // Ref to track user for event handlers
   const userRef = useRef(user)
@@ -190,36 +418,50 @@ function LessonContent() {
     }
   }, [user, isTeacherLoading, teacherProfile, router])
 
-  // Helper to save progress
-  const saveCompletion = async (id: string | null, time: number) => {
+  // Helper to save progress — dùng useCallback để reference ổn định trong event closures
+  const saveCompletion = useCallback(async (id: string | null, time: number) => {
     const currentUser = userRef.current
     if (!id || !currentUser?.email) return
     try {
       const teacherCode = currentUser.email.split('@')[0].toLowerCase().trim()
-      await fetch('/api/training-progress', {
+      const res = await fetch('/api/training-progress', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(tokenRef.current),
+        },
         body: JSON.stringify({
           teacherCode,
           videoId: id,
           timeSpent: time,
           isCompleted: true,
-          totalDuration: time, // Send total duration to update metadata
+          totalDuration: time,
         }),
       })
+      if (!res.ok) {
+        console.error('[Lesson] saveCompletion failed:', res.status, await res.text().catch(() => ''))
+      }
+      // Signal training page để force-revalidate assignments cache
+      try {
+        sessionStorage.setItem('training_completion_invalidate', `${id}:${Date.now()}`)
+      } catch { /* ignore */ }
     } catch (err) {
       console.error('[Lesson] Failed to save completion:', err)
     }
-  }
+  // userRef và tokenRef là refs — không cần trong deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Load assignment for the current video
+  // deps: lessonId + token — re-fetch khi token vừa được set (tránh fetch lúc token chưa load)
   useEffect(() => {
+    if (!lessonId) return
+    const currentToken = tokenRef.current
     const loadAssignment = async () => {
-      if (!lessonId) return
       try {
-        // Fetch assignment linked to this video
         const res = await fetch(
           `/api/training-assignments?video_id=${lessonId}&status=published`,
+          { headers: authHeaders(currentToken) },
         )
         const data = (await res.json()) as {
           success: boolean
@@ -227,7 +469,6 @@ function LessonContent() {
         }
 
         if (data.success && data.data && data.data.length > 0) {
-          // Lấy bài tập đầu tiên (hoặc có thể thêm logic chọn bài tập phù hợp)
           setCurrentAssignment(data.data[0])
         } else {
           setCurrentAssignment(null)
@@ -237,7 +478,8 @@ function LessonContent() {
       }
     }
     loadAssignment()
-  }, [lessonId])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lessonId, token]) // token trong deps để retry khi auth sẵn sàng
 
   // (Rest of the component code...)
 
@@ -479,6 +721,19 @@ function LessonContent() {
     setIsCorrectAnswer(false)
     setIsPlaying(false)
     playbackAllowedRef.current = false
+    setCurrentIndex(0)
+    setPendingSeekTime(null)
+
+    // Reset anti-cheat state refs
+    isLockedRef.current = false
+    violationCountRef.current = 0
+    lastValidTimeRef.current = 0
+    wallStartRef.current = null
+    videoTimeAtWallRef.current = 0
+    isReplayingRef.current = false
+    lastPenaltyTimeRef.current = 0
+    lastSafePositionRef.current = 0
+    pendingResumePlayRef.current = false
 
     // Reset video element
     if (videoRef.current) {
@@ -543,7 +798,10 @@ function LessonContent() {
         const teacherCode = user.email.split('@')[0]
         const res = await fetch(
           `/api/training-progress?teacherCode=${teacherCode}&videoId=${lessonId}`,
-          { signal: controller.signal },
+          {
+            signal: controller.signal,
+            headers: authHeaders(token),
+          },
         )
         const data = (await res.json()) as {
           success: boolean
@@ -559,7 +817,13 @@ function LessonContent() {
           const startTimesSnapshot = startTimesRef.current
           const totalDurationSnapshot = totalDurationMapRef.current
 
-          if (time_spent_seconds > 0) {
+          if (completion_status === 'completed' || completion_status === 'watched') {
+            setVideoCompleted(true)
+            setProgress(100)
+            setIsPlaying(false)
+            isPlayingRef.current = false
+            playbackAllowedRef.current = false
+          } else if (time_spent_seconds > 0) {
             // Find target video segment
             let targetIndex = 0
             let timeInTargetVideo = time_spent_seconds
@@ -579,38 +843,62 @@ function LessonContent() {
             }
 
             if (targetIndex === currentIndexSnapshot) {
-              if (videoRef.current) {
+              // Always queue via pendingSeekTime so handleLoadedMetadata applies
+              // the seek after metadata is ready. Directly setting currentTime
+              // when readyState < 1 silently fails and causes the resume lag.
+              isReplayingRef.current = true
+              // Allow auto-play after seek — user intends to continue watching.
+              // Without this, handleLoadedMetadata's playbackAllowedRef check fails
+              // and the video seeks but never plays.
+              playbackAllowedRef.current = true
+              lastValidTimeRef.current = time_spent_seconds
+              lastSafePositionRef.current = timeInTargetVideo
+              // Pre-set wall-clock baseline to the RESUME position so that the
+              // anti-cheat loop does not see a giant jump from 0 → savedTime.
+              wallStartRef.current = Date.now()
+              videoTimeAtWallRef.current = timeInTargetVideo
+              if (
+                videoRef.current &&
+                videoRef.current.readyState >= 1
+              ) {
+                // Metadata already loaded — seek immediately
                 const offset =
                   videoRef.current.seekable.length > 0
                     ? videoRef.current.seekable.start(0)
                     : 0
-                isReplayingRef.current = true
-                lastValidTimeRef.current = time_spent_seconds
-                lastSafePositionRef.current = timeInTargetVideo
-                wallStartRef.current = null
                 videoRef.current.currentTime = timeInTargetVideo + offset
-                setTimeout(() => {
-                  isReplayingRef.current = false
-                }, 800)
+                // Signal auto-play after seek if not already playing
+                pendingResumePlayRef.current = true
+              } else {
+                // Metadata not yet loaded — queue for handleLoadedMetadata
+                setPendingSeekTime(timeInTargetVideo)
+                // Signal that handleLoadedMetadata should auto-play after seek
+                pendingResumePlayRef.current = true
               }
+              // Hold isReplaying guard for 3s to cover seek → buffer → canplay.
+              // 800ms was too short — anti-cheat interval (500ms) could fire
+              // after the guard expired but before resetWallClock in handlePlaying.
+              setTimeout(() => {
+                isReplayingRef.current = false
+              }, 3000)
             } else {
               setIsPlaying(false)
               isPlayingRef.current = false
               isReplayingRef.current = true
+              // Allow auto-play after seeking to the resume position.
+              playbackAllowedRef.current = true
               lastValidTimeRef.current = time_spent_seconds
               lastSafePositionRef.current = timeInTargetVideo
-              wallStartRef.current = null
+              // Pre-seed wall-clock at resume position to prevent false positives.
+              wallStartRef.current = Date.now()
+              videoTimeAtWallRef.current = timeInTargetVideo
               setCurrentIndex(targetIndex)
               setPendingSeekTime(timeInTargetVideo)
+              pendingResumePlayRef.current = true
               setTimeout(() => {
                 isReplayingRef.current = false
-              }, 800)
+              }, 3000)
             }
-          }
-
-          if (completion_status === 'completed') {
-            // setVideoCompleted(true); // Don't show overlay immediately
-            setProgress(100)
           }
         }
       } catch (err: unknown) {
@@ -644,7 +932,10 @@ function LessonContent() {
       try {
         await fetch('/api/training-progress', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...authHeaders(tokenRef.current),
+          },
           body: JSON.stringify({
             teacherCode,
             videoId: lessonId,
@@ -679,6 +970,7 @@ function LessonContent() {
       try {
         const response = await fetch(
           `/api/training-video-questions?video_id=${lessonId}`,
+          { headers: authHeaders(tokenRef.current) },
         )
         const data = (await response.json()) as {
           success: boolean
@@ -753,7 +1045,7 @@ function LessonContent() {
       !document.hidden &&
       document.visibilityState === 'visible'
     ) {
-      video.play().catch((e) => console.log('[Lesson] Play blocked:', e))
+      safePlay(video)
       setIsWaiting(false)
     }
 
@@ -787,7 +1079,9 @@ function LessonContent() {
       const gTime = (startTimes[currentIndex] ?? 0) + localCrtTime
       const lastTime = lastValidTimeRef.current
 
-      if (Math.abs(gTime - lastTime) > 3) {
+      // Skip seek enforcement during resume replaying to prevent snapping back to
+      // position 0 while the seek to the saved position is still being processed.
+      if (!isReplayingRef.current && Math.abs(gTime - lastTime) > 3) {
         video.currentTime =
           Math.max(
             0,
@@ -828,30 +1122,38 @@ function LessonContent() {
       lockPlaybackRate(video)
       const offset = video.seekable.length > 0 ? video.seekable.start(0) : 0
       if (pendingSeekTime !== null) {
-        video.currentTime = pendingSeekTime + offset
+        // Apply queued resume seek. After seeking, resume playback if:
+        //   (a) the player was already playing, OR
+        //   (b) loadProgress queued this seek for auto-resume (pendingResumePlayRef).
+        const seekTarget = pendingSeekTime
+        isReplayingRef.current = true
+        video.currentTime = seekTarget + offset
         setPendingSeekTime(null)
-      } else {
-        if (playbackAllowedRef.current && isPlayingRef.current && visible) {
-          video
-            .play()
-            .catch((e) =>
-              console.log(
-                '[Lesson] Auto-play policy blocked next video play:',
-                e,
-              ),
-            )
+        // Reset wall-clock baseline to the SEEK TARGET position immediately.
+        // This prevents the anti-cheat loop from seeing a jump from 0 → seekTarget
+        // and triggering a false "abnormal speed" warning.
+        wallStartRef.current = Date.now()
+        videoTimeAtWallRef.current = seekTarget
+        lastSafePositionRef.current = seekTarget
+        setTimeout(() => {
+          isReplayingRef.current = false
+        }, 3000)
+        const shouldPlay =
+          playbackAllowedRef.current &&
+          visible &&
+          (isPlayingRef.current || pendingResumePlayRef.current)
+        pendingResumePlayRef.current = false
+        if (shouldPlay) {
+          safePlay(video)
+          setIsPlaying(true)
+          isPlayingRef.current = true
           setIsWaiting(false)
         }
-      }
-
-      if (
-        playbackAllowedRef.current &&
-        (isPlayingRef.current || pendingSeekTime !== null) &&
-        visible
-      ) {
-        video.play().catch(console.error)
-        setIsPlaying(true)
-        isPlayingRef.current = true
+      } else {
+        if (playbackAllowedRef.current && isPlayingRef.current && visible) {
+          safePlay(video)
+          setIsWaiting(false)
+        }
       }
 
       // For single-segment videos, always use the real duration from the browser.
@@ -866,16 +1168,18 @@ function LessonContent() {
     }
 
     const handleCanPlay = () => {
-      if (
+      const shouldResume =
         playbackAllowedRef.current &&
-        isPlayingRef.current &&
         !document.hidden &&
-        document.visibilityState === 'visible'
-      ) {
-        video.play().catch((e) => console.log('Auto-play issue:', e))
+        document.visibilityState === 'visible' &&
+        (isPlayingRef.current || pendingResumePlayRef.current)
+      if (shouldResume) {
+        pendingResumePlayRef.current = false
+        safePlay(video)
         setIsWaiting(false)
       }
     }
+
 
     const handleEnded = () => {
       if (currentIndex < videoSegments.length - 1) {
@@ -895,11 +1199,7 @@ function LessonContent() {
             document.visibilityState === 'hidden' ||
             !!(document as Document & { webkitHidden?: boolean }).webkitHidden
           if (playbackAllowedRef.current && isPlayingRef.current && !isHidden) {
-            nextVideoEl
-              .play()
-              .catch((e) =>
-                console.error('[Lesson] Gapless playback blocked:', e),
-              )
+            safePlay(nextVideoEl)
             setIsPlaying(true)
           } else {
             setIsPlaying(false)
@@ -968,13 +1268,16 @@ function LessonContent() {
 
         fetch('/api/training-progress', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...authHeaders(tokenRef.current),
+          },
           body: JSON.stringify({
             teacherCode,
             videoId: lessonIdRef.current,
             timeSpent: globalTime,
             isCompleted: false,
-            totalDuration: globalDuration > 0 ? globalDuration : undefined, // Update duration
+            totalDuration: globalDuration > 0 ? globalDuration : undefined,
           }),
         }).catch((err) =>
           console.error('[Lesson] Failed to save on pause:', err),
@@ -1092,7 +1395,10 @@ function LessonContent() {
     try {
       const response = await fetch('/api/training-video-questions/answer', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(tokenRef.current),
+        },
         body: JSON.stringify({
           question_id: question.id,
           selected_answer: userAnswer,
@@ -1138,7 +1444,7 @@ function LessonContent() {
     setVideoPaused(false)
     if (videoRef.current) {
       playbackAllowedRef.current = true
-      videoRef.current.play()
+      safePlay(videoRef.current)
       setIsPlaying(true)
     }
   }
@@ -1151,7 +1457,7 @@ function LessonContent() {
         setIsPlaying(false)
       } else {
         playbackAllowedRef.current = true
-        videoRef.current.play()
+        safePlay(videoRef.current)
         setIsPlaying(true)
       }
     }
@@ -1213,8 +1519,8 @@ function LessonContent() {
   if (!videoUrl) return null // Render nothing while redirecting
 
   return (
-    <div className="bg-black h-screen overflow-hidden">
-      <div className="flex flex-col h-full">
+    <div className="bg-black min-h-screen overflow-x-hidden lg:h-screen lg:overflow-hidden">
+      <div className="flex flex-col lg:h-full">
         {/* Header - compact */}
         <div className="bg-gradient-to-r from-purple-900 to-indigo-900 px-4 py-2 flex items-center gap-3 z-50">
           <button
@@ -1246,11 +1552,17 @@ function LessonContent() {
           </div>
         </div>
 
-        {/* Video player container */}
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col lg:flex-row lg:overflow-hidden">
+          {/* Left Column: Player + Info Bar */}
+          <div className="flex-1 flex flex-col lg:h-full lg:overflow-hidden">
+
+            {/* Video player container */}
         <div
           ref={playerContainerRef}
-          className="flex-1 relative bg-black overflow-hidden"
+          className="relative bg-black overflow-hidden w-full aspect-video lg:aspect-auto lg:flex-1"
           onMouseMove={handleMouseMove}
+          onTouchStart={() => setShowControls(true)}
           onMouseLeave={() => isPlaying && setShowControls(false)}
         >
           {/* Multi-video buffering logic: We render ALL video segments but only ONE is visible and attached to videoRef.
@@ -1271,6 +1583,7 @@ function LessonContent() {
                 src={segment.url}
                 preload={isActive || isNext ? 'auto' : 'none'}
                 className={`w-full h-full object-contain ${isActive ? 'block' : 'hidden'}`}
+                style={{ maxHeight: '100%' }}
                 onClick={isActive ? togglePlayPause : undefined}
                 onContextMenu={(e) => e.preventDefault()}
                 playsInline
@@ -1292,10 +1605,10 @@ function LessonContent() {
             <div className="absolute inset-0 flex items-center justify-center bg-black/30">
               <button
                 onClick={togglePlayPause}
-                className="bg-white/90 hover:bg-white rounded-full p-8 transition-all hover:scale-110"
+                className="bg-white/90 hover:bg-white rounded-full p-5 sm:p-8 transition-all hover:scale-110 active:scale-95"
               >
                 <svg
-                  className="w-16 h-16 text-purple-600"
+                  className="w-10 h-10 sm:w-16 sm:h-16 text-purple-600"
                   fill="currentColor"
                   viewBox="0 0 20 20"
                 >
@@ -1494,8 +1807,8 @@ function LessonContent() {
 
           {/* Question modal overlay */}
           {currentQuestionIdx !== null && (
-            <div className="absolute inset-0 bg-transparent flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg shadow-2xl p-8 max-w-md w-full mx-4 border border-gray-200">
+            <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-50 p-2">
+              <div className="bg-white rounded-lg shadow-2xl p-4 sm:p-8 max-w-md w-full max-h-full overflow-y-auto border border-gray-200">
                 <div className="mb-6">
                   {/* Result indicator */}
                   {showResult && (
@@ -1669,11 +1982,11 @@ function LessonContent() {
 
           {/* Completion overlay */}
           {videoCompleted && (
-            <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-40">
-              <div className="bg-white rounded-xl p-8 max-w-md w-full text-center space-y-6 animate-fade-in">
-                <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-40 p-2">
+              <div className="bg-white rounded-xl p-4 sm:p-8 max-w-md w-full text-center space-y-3 sm:space-y-6 animate-fade-in max-h-full overflow-y-auto">
+                <div className="w-14 h-14 sm:w-20 sm:h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
                   <svg
-                    className="w-10 h-10 text-green-600"
+                  className="w-7 h-7 sm:w-10 sm:h-10 text-green-600"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -1688,7 +2001,7 @@ function LessonContent() {
                 </div>
 
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                  <h2 className="text-lg sm:text-2xl font-bold text-gray-900 mb-1 sm:mb-2">
                     Chúc mừng bạn đã hoàn thành!
                   </h2>
                   <p className="text-gray-600">
@@ -1698,34 +2011,76 @@ function LessonContent() {
 
                 <div className="grid grid-cols-1 gap-3 w-full">
                   <Button
-                    onClick={() => {
-                      if (currentAssignment) {
-                        // User requested to keep flow in /user/dao-tao-nang-cao
-                        router.push(
-                          `/user/dao-tao-nang-cao?start_assignment_id=${currentAssignment.id}`,
+                    disabled={isSavingCompletion}
+                    onClick={async () => {
+                      if (isSavingCompletion) return
+                      setIsSavingCompletion(true)
+                      try {
+                        // ── CRITICAL FIX: Đảm bảo completion đã được lưu vào DB
+                        // TRƯỚC KHI navigate — tránh race condition khiến
+                        // training-assignments API trả về data cũ (video chưa completed)
+                        await saveCompletion(
+                          lessonIdRef.current,
+                          totalDurationMap || duration,
                         )
-                      } else {
-                        // Fallback to training list if no assignment found
-                        router.push(`/user/dao-tao-nang-cao`)
+
+                        // Thử lấy assignment nếu chưa có (token có thể chưa ready lúc load)
+                        let assignmentId = currentAssignment?.id
+                        if (!assignmentId && lessonId) {
+                          try {
+                            const res = await fetch(
+                              `/api/training-assignments?video_id=${lessonId}&status=published`,
+                              { headers: authHeaders(tokenRef.current) },
+                            )
+                            const data = await res.json() as { success: boolean; data?: TrainingAssignment[] }
+                            if (data.success && data.data && data.data.length > 0) {
+                              setCurrentAssignment(data.data[0])
+                              assignmentId = data.data[0].id
+                            }
+                          } catch { /* fallback below */ }
+                        }
+                        if (assignmentId) {
+                          router.push(`/user/dao-tao-nang-cao?start_assignment_id=${assignmentId}&video_ok=1`)
+                        } else {
+                          router.push(`/user/dao-tao-nang-cao`)
+                        }
+                      } catch {
+                        // Nếu save lỗi, vẫn cho navigate (fallback)
+                        router.push(
+                          currentAssignment?.id
+                            ? `/user/dao-tao-nang-cao?start_assignment_id=${currentAssignment.id}&video_ok=1`
+                            : `/user/dao-tao-nang-cao`,
+                        )
+                      } finally {
+                        setIsSavingCompletion(false)
                       }
                     }}
-                    className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 h-auto text-lg rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1"
+                    className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-bold py-3 h-auto text-lg rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1"
                   >
                     <div className="flex items-center justify-center gap-2">
-                      <svg
-                        className="w-6 h-6"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
-                        />
-                      </svg>
-                      Làm bài tập & Kiểm tra
+                      {isSavingCompletion ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          <span>Đang lưu kết quả...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg
+                            className="w-6 h-6"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
+                            />
+                          </svg>
+                          Làm bài tập & Kiểm tra
+                        </>
+                      )}
                     </div>
                   </Button>
 
@@ -1750,16 +2105,11 @@ function LessonContent() {
 
                         // Seek về 0 rồi play
                         video.currentTime = 0
-                        video
-                          .play()
-                          .then(() => {
-                            // Tắt flag replay sau khi play thành công
-                            isReplayingRef.current = false
-                          })
-                          .catch((e) => {
-                            console.error('[Lesson] Replay play failed:', e)
-                            isReplayingRef.current = false
-                          })
+                        safePlay(video).then(() => {
+                          isReplayingRef.current = false
+                        }).catch(() => {
+                          isReplayingRef.current = false
+                        })
                       }
                       setVideoCompleted(false)
                       setProgress(0)
@@ -1777,7 +2127,7 @@ function LessonContent() {
 
         {/* Bottom info bar - only in non-fullscreen */}
         {!isFullscreen && (
-          <div className="bg-gradient-to-r from-purple-900 to-indigo-900 text-white px-4 py-3 flex items-center gap-4 text-xs">
+          <div className="bg-gradient-to-r from-purple-900 to-indigo-900 text-white px-3 py-2 sm:px-4 sm:py-3 flex flex-wrap items-center gap-2 sm:gap-4 text-xs">
             <div className="flex items-center gap-2">
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                 <path
@@ -1817,7 +2167,7 @@ function LessonContent() {
               <Button
                 variant="ghost"
                 onClick={() =>
-                  router.push(`/user/assignments?lesson_id=${lessonId}`)
+                  router.push(`/user/dao-tao-nang-cao?start_assignment_id=${lessonId}&video_ok=1`)
                 }
                 className="bg-white/10 hover:bg-white/20 hover:text-white px-4 py-1.5 font-semibold transition flex items-center gap-2 h-auto text-white"
               >
@@ -1839,8 +2189,54 @@ function LessonContent() {
           </div>
         )}
       </div>
+
+      {/* Right Column: Playlist — mobile only, hidden on lg+ */}
+      {!isFullscreen && (
+        <div className="w-full lg:hidden bg-white border-t border-slate-200 flex flex-col overflow-hidden">
+          <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-800 uppercase tracking-wider font-sans">Danh sách bài học</span>
+            <span className="text-[10px] text-slate-600 bg-slate-200/80 px-1.5 py-0.5 rounded font-semibold font-mono">
+              {allLessons.length} bài
+            </span>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto divide-y divide-slate-100 custom-scrollbar">
+            {isLoadingLessons && allLessons.length === 0 ? (
+              <div className="flex flex-col items-center justify-center p-8 text-gray-500 space-y-2">
+                <Loader2 className="w-6 h-6 animate-spin text-[#a1001f]" />
+                <span className="text-xs">Đang tải danh sách...</span>
+              </div>
+            ) : allLessons.length === 0 ? (
+              <div className="p-8 text-center text-xs text-gray-500">
+                Không tìm thấy bài học nào.
+              </div>
+            ) : (
+              allLessons.map((lesson) => {
+                const isActive = lesson.id.toString() === lessonId
+                const isCompleted = lesson.completion_status === 'completed'
+                const assignment = allAssignments.find((a) => a.video_id === lesson.id) || null
+                
+                return (
+                  <PlaylistItem
+                    key={lesson.id}
+                    lesson={lesson}
+                    lessonId={lessonId}
+                    isActive={isActive}
+                    isCompleted={isCompleted}
+                    onClick={() => handleLessonClick(lesson)}
+                    assignment={assignment}
+                    router={router}
+                  />
+                )
+              })
+            )}
+          </div>
+        </div>
+      )}
     </div>
-  )
+  </div>
+</div>
+)
 }
 
 export default function LessonPage() {

@@ -732,7 +732,7 @@ export default function OnboardingVideosPage() {
       </Card>
 
       {editingVideo && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm" onClick={closeEdit}>
+        <div className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm" onClick={closeEdit}>
           <div
             className="w-full max-w-6xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
             onClick={(event) => event.stopPropagation()}

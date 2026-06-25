@@ -43,67 +43,57 @@ export function effectiveVideoCompletionFromRaw(
     completedAtStr = Number.isNaN(d.getTime()) ? null : d.toISOString()
   }
 
-  // ⚠️ CRITICAL FIX: Chỉ cho phép 'completed' nếu:
-  // 1. Có bài nộp (hasPlatformQuizEvidenceForVideo = true)
-  // 2. VÀ (đã có completion_status = 'completed' HOẶC đã xem đủ video)
-  // Điều này ngăn user làm bài tập mà chưa xem video
+  // ── CASE 1: Đã có bài nộp kiểm tra trên TMS ─────────────────────────────
+  // Ưu tiên cao nhất: nếu giáo viên đã nộp bài → chắc chắn đã xem video
   if (input.hasPlatformQuizEvidenceForVideo) {
-    // Nếu đã có completion_status = 'completed' từ trước → giữ nguyên
+    // Nếu DB đã ghi completed → giữ nguyên
     if (raw === 'completed') {
       return { completion_status: 'completed', completed_at: completedAtStr }
     }
-    
-    // Nếu chưa completed nhưng có bài nộp → kiểm tra xem đã xem video chưa
-    const dur = Math.max(0, Number(input.durationSeconds) || 0)
-    const watched = Math.max(0, Number(input.mergedWatchedSeconds) || 0)
-    const cappedWatch = dur > 0 ? Math.min(watched, dur * 1.05) : watched
-    
-    const ratioOk = dur > 0
-      ? cappedWatch >= dur * TRAINING_WATCH_COMPLETION_RATIO
-      : cappedWatch >= TRAINING_WATCH_FALLBACK_MIN_SECONDS
-    
-    const watchOk = input.hasTmsWatchHeartbeat && ratioOk
-    
-    // Chỉ cho phép 'completed' nếu đã xem đủ video
-    if (watchOk) {
-      return { completion_status: 'completed', completed_at: completedAtStr }
+    // Đã nộp bài → tính là completed dù không có heartbeat
+    // (bài nộp là bằng chứng đủ mạnh nhất, không cần time check)
+    return {
+      completion_status: 'completed',
+      completed_at: completedAtStr ?? new Date().toISOString(),
     }
-    
-    // Nếu có bài nộp nhưng chưa xem đủ video → chỉ là 'watched' hoặc 'in_progress'
-    // (Trường hợp này có thể xảy ra nếu import data từ hệ thống cũ)
-    if (watched > 0) {
-      return { completion_status: 'in_progress', completed_at: null }
-    }
-    
-    // Có bài nộp nhưng chưa xem video → 'not_started'
-    return { completion_status: 'not_started', completed_at: null }
   }
 
-  // Nếu đã completed từ trước (không có bài nộp mới) → giữ nguyên
+  // ── CASE 2: DB đã ghi completed/watched (import từ sheet cũ hoặc TMS) ───
+  // Tin tưởng trạng thái đã lưu khi không có heartbeat TMS.
+  // Lý do: dữ liệu import từ Google Sheet hợp lệ — giáo viên đã học
+  // trên edpuzzle trước khi có TMS, không có server_time/heartbeat.
+  // Cũng bao gồm: user vừa xem xong và saveCompletion đã lưu 'completed'
+  // (hasTmsWatchHeartbeat có thể chưa có nếu đây là lần mở video đầu tiên).
   if (raw === 'completed') {
-    return { completion_status: 'completed', completed_at: completedAtStr }
+    return { completion_status: 'completed', completed_at: completedAtStr ?? new Date().toISOString() }
+  }
+  if (raw === 'watched') {
+    return { completion_status: 'watched', completed_at: completedAtStr }
   }
 
+  // ── CASE 3: Không có trạng thái lưu trước — tính từ thời gian xem TMS ───
+  // Chỉ áp dụng khi giáo viên đang xem video trực tiếp trên TMS
+  // (có heartbeat hoặc server_time từ progress API)
   const dur = Math.max(0, Number(input.durationSeconds) || 0)
   const watched = Math.max(0, Number(input.mergedWatchedSeconds) || 0)
-  const cappedWatch =
-    dur > 0 ? Math.min(watched, dur * 1.05) : watched
+  const cappedWatch = dur > 0 ? Math.min(watched, dur * 1.05) : watched
 
   const ratioOk =
     dur > 0
       ? cappedWatch >= dur * TRAINING_WATCH_COMPLETION_RATIO
       : cappedWatch >= TRAINING_WATCH_FALLBACK_MIN_SECONDS
-  
-  // Chỉ khi xem đủ video trên TMS mới là 'watched'
+
+  // Cần có bằng chứng heartbeat TMS — tránh nhầm với time_spent import thủ công
   const watchOk = input.hasTmsWatchHeartbeat && ratioOk
 
   if (watchOk) {
     return { completion_status: 'watched', completed_at: completedAtStr }
   }
 
-  if (watched > 0) {
+  if (watched > 0 && input.hasTmsWatchHeartbeat) {
     return { completion_status: 'in_progress', completed_at: null }
   }
+
   return { completion_status: 'not_started', completed_at: null }
 }
 

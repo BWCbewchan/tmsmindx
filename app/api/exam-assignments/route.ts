@@ -101,11 +101,14 @@ export async function GET(request: NextRequest) {
         csm.ma_mon                                               AS subject_code,
         csm.ten_mon                                              AS subject_name,
         csm.ma_khoi                                              AS subject_block,
+        COALESCE(csm.loai_ky_thi, 'expertise')                  AS exam_type,
         -- Thời gian làm bài thực tế: đọc từ event_schedules (ket_thuc - bat_dau), fallback từ cột môn học
         COALESCE(ev_dur.duration_min, csm.thoi_gian_thi_phut, 90)::int AS duration_minutes,
         csr.id_mon,
-        COALESCE(csr.id_de_thi, fallback_chonde.id_de)          AS selected_set_id,
+        COALESCE(csr.id_de_thi, submission_set.id_de_thi, fallback_chonde.id_de)
+                                                                  AS selected_set_id,
         csr.id_su_kien::text                                     AS event_schedule_id,
+        COALESCE((ev_dur.flow_round)::int, 0)                    AS flow_round,
         csr.thang_dk,
         csr.nam_dk,
         csr.dot,
@@ -166,21 +169,39 @@ export async function GET(request: NextRequest) {
         COALESCE((
           SELECT COUNT(*)::int
           FROM chuyen_sau_bode_cauhoi bq
-          WHERE bq.id_de = COALESCE(csr.id_de_thi, fallback_chonde.id_de)
+          WHERE bq.id_de = COALESCE(csr.id_de_thi, submission_set.id_de_thi, fallback_chonde.id_de)
         ), 0) AS total_questions,
         EXISTS (
           SELECT 1
           FROM chuyen_sau_bode_cauhoi bq
-          WHERE bq.id_de = COALESCE(csr.id_de_thi, fallback_chonde.id_de)
+          WHERE bq.id_de = COALESCE(csr.id_de_thi, submission_set.id_de_thi, fallback_chonde.id_de)
         ) AS has_questions,
         -- Explanation status from chuyen_sau_giaitrinh.xu_ly_diem
         ${giaitrinh_explanation_status}
         ${giaitrinh_explanation_id}
         NULL::text AS admin_note,
+        feedback.id::int AS feedback_id,
+        feedback.rating::int AS feedback_rating,
+        feedback.status AS feedback_status,
         csr.tao_luc  AS created_at,
         csr.tao_luc  AS updated_at
       FROM chuyen_sau_results csr
       LEFT JOIN chuyen_sau_monhoc csm ON csm.id = csr.id_mon
+      LEFT JOIN LATERAL (
+        SELECT submission.id_de_thi
+        FROM chuyen_sau_bainop submission
+        WHERE submission.id_ket_qua = csr.id
+          AND submission.id_de_thi IS NOT NULL
+        ORDER BY COALESCE(
+          submission.submitted_at,
+          submission.nop_luc,
+          submission.cham_luc,
+          submission.created_at,
+          submission.tao_luc
+        ) DESC NULLS LAST,
+        submission.id DESC
+        LIMIT 1
+      ) submission_set ON csr.id_de_thi IS NULL
       -- Fallback bộ đề từ chonde_thang khi id_de_thi chưa được set
       LEFT JOIN LATERAL (
         SELECT ct.id_de
@@ -189,20 +210,22 @@ export async function GET(request: NextRequest) {
           AND ct.nam = COALESCE(csr.nam_dk, EXTRACT(YEAR FROM NOW())::int)
           AND ct.thang = COALESCE(csr.thang_dk, EXTRACT(MONTH FROM NOW())::int)
         LIMIT 1
-      ) fallback_chonde ON (csr.id_de_thi IS NULL)
-      LEFT JOIN chuyen_sau_bode   es  ON es.id = COALESCE(csr.id_de_thi, fallback_chonde.id_de)
+      ) fallback_chonde ON COALESCE(csr.id_de_thi, submission_set.id_de_thi) IS NULL
+      LEFT JOIN chuyen_sau_bode es
+        ON es.id = COALESCE(csr.id_de_thi, submission_set.id_de_thi, fallback_chonde.id_de)
       -- Lấy thời gian làm bài từ event_schedules: ưu tiên id_su_kien, fallback tìm theo tháng/năm/môn
       LEFT JOIN LATERAL (
         SELECT
           (EXTRACT(EPOCH FROM (ket_thuc_luc - bat_dau_luc)) / 60)::int AS duration_min,
           bat_dau_luc AT TIME ZONE 'Asia/Ho_Chi_Minh' AS event_open_at,
-          ket_thuc_luc AT TIME ZONE 'Asia/Ho_Chi_Minh' AS event_close_at
+          ket_thuc_luc AT TIME ZONE 'Asia/Ho_Chi_Minh' AS event_close_at,
+          COALESCE((metadata->>'flow_round')::int, 0) AS flow_round
         FROM event_schedules
-        WHERE loai_su_kien = 'exam'
-          AND (
+        WHERE (
             (csr.id_su_kien IS NOT NULL AND id = csr.id_su_kien)
             OR (
               csr.id_su_kien IS NULL
+              AND loai_su_kien = 'exam'
               AND chuyen_nganh = csm.ma_mon
               AND EXTRACT(YEAR  FROM bat_dau_luc) = COALESCE(csr.nam_dk,  EXTRACT(YEAR  FROM NOW()))
               AND EXTRACT(MONTH FROM bat_dau_luc) = COALESCE(csr.thang_dk, EXTRACT(MONTH FROM NOW()))
@@ -212,6 +235,7 @@ export async function GET(request: NextRequest) {
         LIMIT 1
       ) ev_dur ON TRUE
       ${giaitrinh_join}
+      LEFT JOIN exam_feedback_reviews feedback ON feedback.result_id = csr.id
       WHERE TRUE
     `;
 

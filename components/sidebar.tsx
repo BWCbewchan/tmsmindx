@@ -3,6 +3,7 @@
 import { useAuth } from '@/lib/auth-context'
 import { filterManagementPermissions } from '@/lib/admin-permission-routes'
 import { useSidebar } from '@/lib/sidebar-context'
+import { getFilteredAdminMenuItems as getFilteredAdminMenuItemsUtil } from '@/lib/menu-permissions'
 import { isTempHiddenUserRoute } from '@/lib/temp-hidden-user-routes'
 import { cn } from '@/lib/utils'
 import {
@@ -16,8 +17,11 @@ import {
   GraduationCap,
   Home,
   LogOut,
+  Mail,
   Megaphone,
   Menu,
+  PanelBottom,
+  Search,
   Settings,
   Sparkles,
   Users,
@@ -31,13 +35,40 @@ import { Button } from '@/components/ui/button'
 import { Icon } from '@/components/ui/primitives/icon'
 import { authHeaders } from '@/lib/auth-headers'
 import useSWR from 'swr'
+import NotificationBell from '@/components/NotificationBell'
+import GlobalSearch from '@/components/GlobalSearch'
+
+const NOTIFICATION_COUNT_REFRESH_MS = 180_000
+const NOTIFICATION_DEDUPING_MS = 60_000
 
 export function Sidebar() {
-  const { isOpen, setIsOpen, requestExpandLabels } = useSidebar()
+  const { isOpen, setIsOpen, requestExpandLabels, navMode, setNavMode } = useSidebar()
   const [expandedMenus, setExpandedMenus] = useState<string[]>([])
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [isMac, setIsMac] = useState(false)
   const { user, token, logout } = useAuth()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const ua = navigator.userAgent || navigator.platform || ''
+      setIsMac(/Mac|iPod|iPhone|iPad/.test(ua))
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isK = e.key === 'k' || e.key === 'K'
+      const isShortcut = ((isMac ? e.metaKey : e.ctrlKey) || e.ctrlKey || e.metaKey) && isK
+      if (isShortcut) {
+        e.preventDefault()
+        setIsSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isMac])
 
   const fetcher = useMemo(
     () => (url: string) =>
@@ -54,7 +85,13 @@ export function Sidebar() {
   const { data: unreadData } = useSWR(
     user?.email ? '/api/notifications/unread-count' : null,
     fetcher,
-    { refreshInterval: 15000 }
+    {
+      refreshInterval: NOTIFICATION_COUNT_REFRESH_MS,
+      refreshWhenHidden: false,
+      refreshWhenOffline: false,
+      revalidateOnFocus: true,
+      dedupingInterval: NOTIFICATION_DEDUPING_MS,
+    },
   )
   const unreadCount = unreadData?.count || 0
 
@@ -136,7 +173,7 @@ export function Sidebar() {
 
   const adminMenuItems = [
     { href: '/admin/dashboard', label: 'Bảng Điều Khiển', icon: Home },
-    { href: '/user/thong-bao', label: 'Thông báo', icon: Bell },
+    { href: '/admin/thong-bao', label: 'Thông báo', icon: Bell },
     {
       href: '/admin/truyenthong',
       label: 'Quản Lý Truyền Thông',
@@ -147,26 +184,6 @@ export function Sidebar() {
       label: 'Đào tạo đầu vào',
       icon: Users,
       submenu: [
-        {
-          href: '/admin/hr-candidates',
-          label: 'Danh sách ứng viên',
-        },
-        {
-          href: '/admin/hr-onboarding/videos',
-          label: 'Video đào tạo đầu vào',
-        },
-        {
-          href: '/admin/hr-candidates/training-calendar',
-          label: 'Lịch đào tạo',
-        },
-        {
-          href: '/admin/hr-candidates/pedagogy-training',
-          label: 'Tập huấn sư phạm',
-        },
-        {
-          href: '/admin/hr-candidates/input-assessment',
-          label: 'Quản lý đánh giá đầu vào',
-        },
         {
           href: '/admin/hr-candidates/gen-planner?region=south',
           label: 'Miền Nam (HCM + Tỉnh Nam)',
@@ -271,6 +288,7 @@ export function Sidebar() {
       icon: Settings,
       submenu: [
         { href: '/admin/user-management', label: 'Quản lý tài khoản' },
+        { href: '/admin/quan-ly-be-mai', label: 'Quản lý bé Mai' },
         { href: '/admin/feedback', label: 'Feedback Manager' },
         {
           href: '/admin/feedback?source=datasource',
@@ -279,6 +297,7 @@ export function Sidebar() {
         { href: '/admin/database', label: 'Database Manager' },
         { href: '/admin/cloudinary', label: 'Cloudinary Manager' },
         { href: '/admin/s3-supabase-manager', label: 'S3 Supabase Manager' },
+        { href: '/admin/email-monitor', label: 'Giám sát Email', icon: Mail },
       ],
     },
     {
@@ -379,102 +398,7 @@ export function Sidebar() {
 
   // Filter admin menu items based on user permissions
   const getFilteredAdminMenuItems = () => {
-    if (!user) return []
-
-    const normalizedRole = normalizeRoleToken(user.role)
-    const isSuperAdmin =
-      normalizedRole === 'super_admin' ||
-      (user.userRoles || []).some(
-        (code) => normalizeRoleToken(code) === 'super_admin',
-      )
-
-    if (isSuperAdmin) return adminMenuItems
-
-    // manager và admin luôn có quyền truy cập deal-luong
-    const DEAL_LUONG_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong']
-    const basePermissions = filterManagementPermissions(user.permissions || [])
-    const permissions = ['manager', 'admin'].includes(normalizedRole)
-      ? Array.from(new Set([...basePermissions, ...DEAL_LUONG_ROUTES]))
-      : basePermissions
-
-    const hasAnyK12Access = permissions.some((p) => {
-      const normalizedPath = p.split('?')[0]
-      return (
-        normalizedPath === '/admin/page2' ||
-        normalizedPath.startsWith('/admin/page2/')
-      )
-    })
-
-    const effectivePermissions = hasAnyK12Access
-      ? Array.from(
-        new Set([...permissions, '/admin/page2', '/admin/page2/manage']),
-      )
-      : permissions
-
-    const roleCodes = (user.userRoles || []).map((code) =>
-      normalizeRoleToken(code),
-    )
-    const hasTrainingInputRole = roleCodes.some(
-      (code) => code === 'hr' || code === 'te' || code === 'tf',
-    )
-    if (effectivePermissions.length === 0 && !hasTrainingInputRole) return []
-
-    const hasPermissionForHref = (href: string) => {
-      const targetPath = href.split('?')[0]
-      return permissions.some(
-        (p) =>
-          targetPath === p ||
-          targetPath.startsWith(`${p}/`) ||
-          p.startsWith(`${targetPath}/`),
-      )
-    }
-
-    const filterMenuItemsByPermissions = (items: any[]): any[] => {
-      return items
-        .map((item) => {
-          const isK12PolicyGroup =
-            item?.label === 'Quy Trình, Quy Định K12 Teaching'
-          if (
-            isK12PolicyGroup &&
-            item?.submenu &&
-            Array.isArray(item.submenu)
-          ) {
-            const canOpenK12Group =
-              hasPermissionForHref('/admin/page2') ||
-              hasPermissionForHref('/admin/page2/manage') ||
-              pathname.startsWith('/admin/page2')
-
-            if (canOpenK12Group) {
-              return item
-            }
-          }
-
-          const isTrainingInputMenu = item?.href === '/admin/hr-candidates'
-          if (isTrainingInputMenu && hasTrainingInputRole) {
-            return item
-          }
-
-          if (item?.href === '/admin/system-metrics') {
-            return null
-          }
-
-          if (item?.submenu && Array.isArray(item.submenu)) {
-            const filteredChildren = filterMenuItemsByPermissions(item.submenu)
-            if (filteredChildren.length > 0) {
-              return { ...item, submenu: filteredChildren }
-            }
-          }
-
-          if (item?.href && hasPermissionForHref(item.href)) {
-            return item
-          }
-
-          return null
-        })
-        .filter(Boolean)
-    }
-
-    return filterMenuItemsByPermissions(adminMenuItems)
+    return getFilteredAdminMenuItemsUtil(adminMenuItems, user, pathname)
   }
 
   const menuItems = isUserArea ? userMenuItems : getFilteredAdminMenuItems()
@@ -604,11 +528,12 @@ export function Sidebar() {
   return (
     <>
       {/* Mobile header: visible on pages, hidden while sidebar is open */}
-      {!isOpen && (
+      {!isOpen && navMode === 'sidebar' && (
         <div className="fixed left-0 right-0 top-0 z-sidebar-toggle lg:hidden">
           <div className="flex h-14 items-center justify-between border border-gray-200 bg-white px-3 py-2 shadow-sm">
             <Link
               href={isUserArea ? '/user/truyenthong' : '/admin/truyenthong'}
+              prefetch={false}
               className="flex items-center gap-2 hover:opacity-80 transition-opacity"
             >
               <Image
@@ -628,13 +553,16 @@ export function Sidebar() {
                 </p>
               </div>
             </Link>
-            <button
-              onClick={() => setIsOpen(true)}
-              aria-label="Mở sidebar"
-              className="rounded-md p-1.5 text-[#1f1f1f] transition-all duration-200 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a1001f] focus-visible:ring-offset-2"
-            >
-              <Menu className="h-3 w-5" />
-            </button>
+            <div className="flex items-center gap-3">
+              <NotificationBell className="notification-bell-inline" />
+              <button
+                onClick={() => setIsOpen(true)}
+                aria-label="Mở sidebar"
+                className="rounded-md p-1.5 text-[#1f1f1f] transition-all duration-200 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a1001f] focus-visible:ring-offset-2"
+              >
+                <Menu className="h-3 w-5" />
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -647,15 +575,31 @@ export function Sidebar() {
         />
       )}
 
-      {/* Desktop toggle button when sidebar is collapsed */}
-      {!isOpen && (
-        <button
-          onClick={() => setIsOpen(true)}
-          className="fixed top-3 left-3 z-sidebar-toggle hidden rounded-lg border border-gray-200 bg-white p-2 shadow-md transition-all duration-300 group animate-in fade-in-0 slide-in-from-left-2 hover:scale-105 hover:border-[#a1001f] hover:bg-[#a1001f] hover:text-white hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a1001f] focus-visible:ring-offset-2 lg:block"
-          aria-label="Mở sidebar"
-        >
-          <Menu className="h-4 w-4 transition-transform group-hover:rotate-180 duration-300" />
-        </button>
+      {/* Desktop control buttons when sidebar is collapsed */}
+      {!isOpen && navMode === 'sidebar' && (
+        <div className="fixed top-3 left-3 z-sidebar-toggle hidden items-center gap-2 lg:flex animate-in fade-in-0 slide-in-from-left-2">
+          <button
+            onClick={() => setIsOpen(true)}
+            className="rounded-lg border border-gray-200 bg-white p-2.5 shadow-md transition-all duration-300 group hover:scale-105 hover:border-[#a1001f] hover:bg-[#a1001f] hover:text-white hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a1001f] focus-visible:ring-offset-2"
+            aria-label="Mở sidebar"
+          >
+            <Menu className="h-4 w-4 transition-transform group-hover:rotate-180 duration-300" />
+          </button>
+          
+          <button
+            type="button"
+            onClick={() => setIsSearchOpen(true)}
+            aria-label={`Tìm kiếm (${isMac ? '⌘K' : 'Ctrl+K'})`}
+            className="group/icon relative flex items-center justify-center rounded-[10px] transition-all duration-150 ease-out bg-black/[0.06] text-[#1d1d1f] hover:bg-[#a1001f] hover:text-white active:scale-[0.93] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a1001f] focus-visible:ring-offset-2 shadow-md border border-gray-200/50"
+            style={{ width: '37px', height: '37px' }}
+          >
+            <Search className="h-4 w-4" />
+            <span className="pointer-events-none absolute -bottom-10 left-1/2 -translate-x-1/2 z-[60] hidden sm:block whitespace-nowrap rounded-lg bg-[#1d1d1f]/90 px-2.5 py-1.5 text-white text-[12px] font-medium shadow-lg opacity-0 transition-opacity duration-100 group-hover/icon:opacity-100">
+              Tìm kiếm&nbsp;<span className="opacity-50 text-[11px]">{isMac ? '⌘K' : 'Ctrl+K'}</span>
+              <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-[#1d1d1f]/90" />
+            </span>
+          </button>
+        </div>
       )}
 
       {/* Sidebar - Modern glass-morphism design */}
@@ -673,6 +617,7 @@ export function Sidebar() {
           <div className="relative flex h-14 items-center justify-between bg-[#a1001f] px-4 text-white shadow-md py-2">
             <Link
               href={isUserArea ? '/user/truyenthong' : '/admin/truyenthong'}
+              prefetch={false}
               onClick={() => setIsOpen(false)}
               className="flex items-center gap-2 hover:opacity-80 transition-opacity"
             >
@@ -701,6 +646,22 @@ export function Sidebar() {
 
           {/* Navigation - Modern cards with smooth hover effects */}
           <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1 pb-4 custom-scrollbar">
+            {/* Prominent Search box on Sidebar */}
+            <div className="pb-2">
+              <button
+                type="button"
+                onClick={() => setIsSearchOpen(true)}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-300 transition-all duration-200 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a1001f] focus-visible:ring-offset-2"
+                aria-label="Tìm kiếm"
+              >
+                <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                <span className="flex-1 text-xs text-gray-500 font-medium">Tìm kiếm...</span>
+                <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-white border border-gray-200 text-[10px] text-gray-400 font-mono leading-none">
+                  {isMac ? '⌘K' : 'Ctrl+K'}
+                </kbd>
+              </button>
+            </div>
+
             {menuItems.map((item) => {
               const Icon = item.icon
               const hasSubmenu = 'submenu' in item
@@ -747,6 +708,7 @@ export function Sidebar() {
                         {item.href ? (
                           <Link
                             href={item.href}
+                            prefetch={false}
                             data-tour={getTourTargetForHref(item.href)}
                             onClick={() => {
                               toggleSubmenu(item.label)
@@ -861,6 +823,7 @@ export function Sidebar() {
                                         <Link
                                           key={nestedItem.href}
                                           href={nestedItem.href}
+                                          prefetch={false}
                                           data-tour={getTourTargetForHref(
                                             nestedItem.href,
                                           )}
@@ -890,6 +853,7 @@ export function Sidebar() {
                               <Link
                                 key={subItem.href}
                                 href={subItem.href}
+                                prefetch={false}
                                 data-tour={getTourTargetForHref(subItem.href)}
                                 onClick={closeSidebarOnMobile}
                                 className={cn(
@@ -909,6 +873,7 @@ export function Sidebar() {
                   ) : (
                     <Link
                       href={item.href}
+                      prefetch={false}
                       data-tour={getTourTargetForHref(item.href)}
                       onClick={() => {
                         handleTopLevelTabNavigation()
@@ -954,7 +919,7 @@ export function Sidebar() {
                   size="sm"
                   className="mb-2 w-full justify-start text-xs"
                 >
-                  <Link href="/admin/dashboard" onClick={closeSidebarOnMobile}>
+                  <Link href="/admin/dashboard" prefetch={false} onClick={closeSidebarOnMobile}>
                     <Icon icon={BarChart3} size="sm" />
                     Chuyển sang quản lý
                   </Link>
@@ -967,7 +932,7 @@ export function Sidebar() {
                   size="sm"
                   className="mb-2 w-full justify-start border-[#a1001f]/30 text-xs text-[#a1001f] hover:bg-[#a1001f]/5 hover:text-[#a1001f]"
                 >
-                  <Link href="/user/truyenthong" onClick={closeSidebarOnMobile}>
+                  <Link href="/user/truyenthong" prefetch={false} onClick={closeSidebarOnMobile}>
                     <Icon icon={GraduationCap} size="sm" />
                     Chuyển sang giáo viên
                   </Link>
@@ -975,6 +940,7 @@ export function Sidebar() {
               )}
               <Link
                 href={profileHref}
+                prefetch={false}
                 onClick={closeSidebarOnMobile}
                 className={cn(
                   'mb-2 block cursor-pointer rounded-lg border p-2 shadow-sm transition-all duration-300 hover:scale-[1.01] hover:border-[#a1001f]/30 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a1001f] focus-visible:ring-offset-2',
@@ -1016,6 +982,20 @@ export function Sidebar() {
                 </div>
               </Link>
 
+              {/* Switch to Dock mode */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="mb-2 w-full justify-start text-xs border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                onClick={() => {
+                  setNavMode('dock')
+                  closeSidebarOnMobile()
+                }}
+              >
+                <PanelBottom className="h-3.5 w-3.5 mr-1" />
+                Chuyển sang Dock
+              </Button>
+
               <Button
                 variant="outline"
                 size="sm"
@@ -1040,6 +1020,11 @@ export function Sidebar() {
           onClick={() => setIsOpen(false)}
         />
       )}
+
+      <GlobalSearch
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+      />
     </>
   )
 }

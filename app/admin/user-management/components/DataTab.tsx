@@ -759,7 +759,7 @@ function CentersLeadersPanel() {
       {/* Edit leader form modal */}
       {editLeader && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center bg-black/50 p-4"
           onClick={() => setEditLeader(null)}
         >
           <div
@@ -1225,7 +1225,7 @@ function CentersLeadersPanel() {
 
       {newCenterOpen && (
         <div
-          className="cursor-pointer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto"
+          className="cursor-pointer fixed inset-0 z-modal-backdrop-custom flex items-center justify-center p-4 bg-black/50 overflow-y-auto"
           onClick={() => !saving && setNewCenterOpen(false)}
         >
           <div
@@ -1391,7 +1391,7 @@ function CentersLeadersPanel() {
       {/* Edit center form modal */}
       {editCenter && (
         <div
-          className="cursor-pointer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto"
+          className="cursor-pointer fixed inset-0 z-modal-backdrop-custom flex items-center justify-center p-4 bg-black/50 overflow-y-auto"
           onClick={() => setEditCenter(null)}
         >
           <div
@@ -1724,7 +1724,7 @@ function RolesPanel() {
 
       {editRole && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center bg-black/50 p-4"
           onClick={() => setEditRole(null)}
         >
           <div

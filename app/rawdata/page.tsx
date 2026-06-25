@@ -240,7 +240,7 @@ function RawDataContent() {
 
         {modalOpen && selectedMonth && (
           <div
-            className="fixed inset-0 bg-white bg-opacity-80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+            className="fixed inset-0 bg-white bg-opacity-80 backdrop-blur-sm flex items-center justify-center z-modal-backdrop-custom p-4"
             onClick={() => setModalOpen(false)}
           >
             <div

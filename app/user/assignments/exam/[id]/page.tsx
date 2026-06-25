@@ -2,6 +2,7 @@
 
 import { PageContainer } from '@/components/PageContainer';
 import { PageSkeleton } from '@/components/skeletons/PageSkeleton';
+import { ExamFeedbackForm } from '@/components/assignments/ExamFeedbackForm';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
 import { authHeaders } from '@/lib/auth-headers';
@@ -478,6 +479,16 @@ export default function ExamAssignmentTakingPage() {
               <span className="text-lg text-gray-400">/ {assignment.total_points}</span>
             </div>
             <p className="text-sm text-gray-500 mb-6">Tỷ lệ đúng: {percentage.toFixed(1)}%</p>
+
+            <ExamFeedbackForm
+              resultId={assignment.id}
+              initialQuestions={questions.map((question) => ({
+                id: question.id,
+                order_number: question.order_number,
+                question_text: question.question_text,
+              }))}
+              className="mb-6 text-left"
+            />
 
             <Link href="/user/assignments" className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
               <ArrowLeft className="w-4 h-4" />

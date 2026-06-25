@@ -116,8 +116,7 @@ export default function Modal({
 
   return (
     <div
-      className="fixed inset-0 flex items-start justify-center overflow-y-auto p-2 pt-[max(env(safe-area-inset-top),0.5rem)] sm:items-center sm:p-6"
-      style={{ zIndex: 2000 }}
+      className="fixed inset-0 z-modal-backdrop-custom flex items-start justify-center overflow-y-auto p-2 pt-[max(env(safe-area-inset-top),0.5rem)] sm:items-center sm:p-6"
     >
       {/* Backdrop with minimal opacity */}
       <div

@@ -1,8 +1,7 @@
 'use client'
 
-import { useAuth } from '@/lib/auth-context'
 import { CalendarDays, ChevronLeft, ChevronRight, Filter, Users, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 const WEEKDAY_LABELS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
 
@@ -182,7 +181,7 @@ function FilterDialog({ filter, setFilter, allCenters, onClose }: {
   const isFiltering = filter.khungGio !== null || filter.coSo !== null || filter.khoi !== null || filter.linhHoat !== null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between rounded-t-2xl bg-[#a1001f] px-5 py-4">
           <div className="flex items-center gap-2">
@@ -293,7 +292,7 @@ function DetailModal({ detail, filter, areas, isSuperAdmin, onClose }: {
   const khacKhoi = hasKhoiFilter ? allMentors.filter(m => getKhoiLabel(m.khoi_final) !== filter.khoi) : []
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
         className={`w-full rounded-2xl bg-white shadow-2xl flex flex-col ${twoColumns ? 'max-w-5xl' : 'max-w-lg'}`}
         style={{ height: '884px', maxHeight: '90vh' }}
@@ -370,7 +369,6 @@ function DetailModal({ detail, filter, areas, isSuperAdmin, onClose }: {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function QuanLyLichLamViecPage() {
-  const { user } = useAuth()
   const [focusDate, setFocusDate] = useState(() => new Date())
   const [cache, setCache] = useState<Record<CellKey, CellData>>({})
   const [loading, setLoading] = useState<Record<CellKey, boolean>>({})
@@ -398,51 +396,44 @@ export default function QuanLyLichLamViecPage() {
 
   const cellKey = (date: Date, khung: KhungGio) => `${formatDateKey(date)}_${khung.from}_${khung.to}`
 
-  const fetchCell = useCallback(async (date: Date, khung: KhungGio) => {
-    const key = cellKey(date, khung)
-    setLoading(prev => {
-      if (prev[key]) return prev
-      return { ...prev, [key]: true }
-    })
-    try {
-      const res = await fetch(`/api/admin/lich-lam-viec?date=${formatDateKey(date)}&from=${khung.from}&to=${khung.to}`)
-      const data = await res.json()
-      if (res.ok && data.success) {
-        setCache(prev => {
-          if (prev[key] !== undefined) return prev
-          return { ...prev, [key]: data.data || [] }
+  useEffect(() => {
+    const controller = new AbortController()
+    const keys = weekDays.flatMap(date =>
+      KHUNG_GIO.map(khung => cellKey(date, khung))
+    )
+    setLoading(Object.fromEntries(keys.map(key => [key, true])))
+
+    const loadWeek = async () => {
+      try {
+        const params = new URLSearchParams({
+          start: formatDateKey(weekDays[0]),
+          end: formatDateKey(weekDays[weekDays.length - 1]),
+          slots: KHUNG_GIO.map(khung => `${khung.from}-${khung.to}`).join(','),
         })
-      }
-    } catch {}
-    finally {
-      setLoading(prev => ({ ...prev, [key]: false }))
-    }
-  }, [])
-
-  useEffect(() => {
-    weekDays.forEach(date => KHUNG_GIO.forEach(khung => fetchCell(date, khung)))
-  }, [weekStart])
-
-  useEffect(() => {
-    fetch('/api/admin/lich-lam-viec/centers')
-      .then(r => r.json())
-      .then(d => { if (d.success) setAllCenters(d.centers) })
-      .catch(() => {})
-  }, [])
-
-  // Lấy khu vực quản lý của admin hiện tại
-  useEffect(() => {
-    if (!user?.email) return
-    fetch(`/api/admin/my-areas?email=${encodeURIComponent(user.email)}`)
-      .then(r => r.json())
-      .then(d => {
-        if (d.success) {
-          setIsSuperAdmin(d.isSuperAdmin || false)
-          setMyAreas(d.isSuperAdmin ? null : (d.areas || []))
+        const response = await fetch(`/api/admin/lich-lam-viec?${params}`, {
+          signal: controller.signal,
+        })
+        const data = await response.json()
+        if (response.ok && data.success) {
+          setCache(data.data || {})
+          setAllCenters(data.meta?.centers || [])
+          setIsSuperAdmin(Boolean(data.meta?.isSuperAdmin))
+          setMyAreas(data.meta?.isSuperAdmin ? null : (data.meta?.areas || []))
         }
-      })
-      .catch(() => {})
-  }, [user?.email])
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          setCache({})
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading({})
+        }
+      }
+    }
+
+    void loadWeek()
+    return () => controller.abort()
+  }, [weekDays])
 
   const getCellData = (date: Date, khung: KhungGio): CellData => cache[cellKey(date, khung)] || []
 

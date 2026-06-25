@@ -10,6 +10,9 @@ interface CroppedImageProps {
   cropData?: string | null
   className?: string
   style?: React.CSSProperties
+  loading?: 'eager' | 'lazy'
+  decoding?: 'async' | 'auto' | 'sync'
+  fetchPriority?: 'high' | 'low' | 'auto'
 }
 
 /**
@@ -24,7 +27,16 @@ interface CroppedImageProps {
  *   - Scale ảnh lên: scale = 1/crop.w (theo chiều ngang) hoặc 1/crop.h (theo chiều dọc)
  *   - Dịch ảnh: translateX = -crop.x * scaledImgW, translateY = -crop.y * scaledImgH
  */
-export default function CroppedImage({ src, alt, cropData, className = '', style }: CroppedImageProps) {
+export default function CroppedImage({
+  src,
+  alt,
+  cropData,
+  className = '',
+  style,
+  loading = 'lazy',
+  decoding = 'async',
+  fetchPriority = 'auto',
+}: CroppedImageProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
   const [imgNatural, setImgNatural] = useState({ w: 0, h: 0 })
@@ -42,14 +54,6 @@ export default function CroppedImage({ src, alt, cropData, className = '', style
     if (containerRef.current) ro.observe(containerRef.current)
     return () => ro.disconnect()
   }, [])
-
-  useEffect(() => {
-    if (!src) return
-    const normalizedSrc = normalizeStorageUrl(src)
-    const img = new window.Image()
-    img.onload = () => setImgNatural({ w: img.naturalWidth, h: img.naturalHeight })
-    img.src = normalizedSrc
-  }, [src])
 
   const imgStyle = React.useMemo((): React.CSSProperties => {
     const isFullCrop = crop.x === 0 && crop.y === 0 && crop.w === 1 && crop.h === 1
@@ -137,6 +141,13 @@ export default function CroppedImage({ src, alt, cropData, className = '', style
         src={normalizeStorageUrl(src) || '/placeholder.svg'}
         alt={alt}
         draggable={false}
+        loading={loading}
+        decoding={decoding}
+        fetchPriority={fetchPriority}
+        onLoad={(event) => {
+          const image = event.currentTarget
+          setImgNatural({ w: image.naturalWidth, h: image.naturalHeight })
+        }}
         style={imgStyle}
       />
     </div>

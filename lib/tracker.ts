@@ -1,10 +1,10 @@
 /**
  * Client-side event tracking for System Metrics Dashboard.
- * Batches events and sends them every 5s or when buffer exceeds 10 items.
+ * Batches events and sends them every 30s or when the buffer exceeds 20 items.
  */
 
-const FLUSH_INTERVAL = 5_000
-const FLUSH_THRESHOLD = 10
+const FLUSH_INTERVAL = 30_000
+const FLUSH_THRESHOLD = 20
 
 interface TrackEvent {
   event_name: string
@@ -68,7 +68,7 @@ export function getDeviceType(): 'mobile' | 'desktop' {
 function enqueue(event: TrackEvent) {
   buffer.push(event)
   if (buffer.length >= FLUSH_THRESHOLD) {
-    flush()
+    void flush()
   }
 }
 
@@ -89,6 +89,16 @@ async function flush() {
     if (buffer.length < 100) {
       buffer.push(...batch)
     }
+  }
+}
+
+function flushOnPageHide() {
+  void flush()
+}
+
+function flushOnVisibilityChange() {
+  if (document.visibilityState === 'hidden') {
+    void flush()
   }
 }
 
@@ -117,7 +127,7 @@ export function trackSessionStart() {
 
 export function trackSessionEnd() {
   trackEvent('session_end')
-  flush() // Flush immediately on session end
+  void flush()
 }
 
 export function trackApiRequest(
@@ -144,19 +154,14 @@ export function startTracker() {
   if (typeof window === 'undefined') return
   if (flushTimer) return
 
-  flushTimer = setInterval(flush, FLUSH_INTERVAL)
-
-  // Flush on page unload
-  window.addEventListener('beforeunload', () => {
-    flush()
-  })
-
-  // Flush on visibility change (tab hidden)
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') {
-      flush()
+  flushTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      void flush()
     }
-  })
+  }, FLUSH_INTERVAL)
+
+  window.addEventListener('pagehide', flushOnPageHide)
+  document.addEventListener('visibilitychange', flushOnVisibilityChange)
 }
 
 export function stopTracker() {
@@ -164,5 +169,7 @@ export function stopTracker() {
     clearInterval(flushTimer)
     flushTimer = null
   }
-  flush()
+  window.removeEventListener('pagehide', flushOnPageHide)
+  document.removeEventListener('visibilitychange', flushOnVisibilityChange)
+  void flush()
 }

@@ -11,7 +11,7 @@ export interface GraphQLRequest {
  */
 export async function callLmsApi<T>(request: GraphQLRequest, authHeader?: string): Promise<T> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // Timeout sau 10s
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // Tăng timeout lên 30s
 
   try {
     const response = await fetch(LMS_API_URL, {
@@ -28,14 +28,16 @@ export async function callLmsApi<T>(request: GraphQLRequest, authHeader?: string
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      await response.text().catch(() => '');
-      throw new Error(`LMS API responded with status ${response.status}`);
+      const errorText = await response.text().catch(() => '');
+      console.error(`[lms-api] HTTP ${response.status} error:`, errorText);
+      throw new Error(`LMS API responded with status ${response.status}: ${errorText}`);
     }
 
     const result = await response.json();
 
     if (result.errors?.length) {
       const messages = result.errors.map((e: any) => e.message).join('; ');
+      console.error('[lms-api] GraphQL errors:', result.errors);
       throw new Error(`GraphQL error: ${messages}`);
     }
 

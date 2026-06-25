@@ -541,7 +541,7 @@ export function UpcomingEventsSidebar() {
 
             {isPopupPreferenceDialogOpen && typeof document !== 'undefined' && createPortal(
                 <div
-                    className="fixed inset-0 z-9999 flex items-center justify-center bg-black/55 backdrop-blur-sm p-4"
+                    className="fixed inset-0 z-critical-overlay-custom flex items-center justify-center bg-black/55 backdrop-blur-sm p-4"
                     onClick={() => setIsPopupPreferenceDialogOpen(false)}
                 >
                     <div

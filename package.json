@@ -18,6 +18,7 @@
     "start": "next start",
     "lint": "eslint",
     "db:migrate": "node scripts/run-all-migrations.js",
+    "push:keys": "node scripts/generate-vapid-keys.js",
     "ngrok:auth": "ngrok config add-authtoken",
     "ngrok": "ngrok http 3000 --pooling-enabled"
   },

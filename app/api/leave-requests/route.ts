@@ -1,6 +1,7 @@
 import { requireBearerDbRoles } from '@/lib/auth-server';
 import { normalizeText as normalizeCampusText } from '@/lib/campus-data';
 import { getAccessibleCenters } from '@/lib/center-access';
+import { resolveCenterBuEmail } from '@/lib/center-bu-email-fallback';
 import {
     rejectIfEmailNotSelf,
     requireBearerSession,
@@ -10,10 +11,84 @@ import {
   stripSubstituteDeclineAuditFromAdminNote,
   withAdminNoteRedactedForTeacherView,
 } from '@/lib/leave-request-admin-note-sanitize';
-import { getPublicBaseUrl } from '@/lib/public-base-url';
 import pool from '@/lib/db';
+import {
+  sendLeaveAdminRejectedEmail,
+  sendLeaveRequestSubmittedEmail,
+  sendLeaveSubstituteConfirmedEmail,
+} from '@/lib/leave-request-emails';
 import { createNotification } from '@/lib/notification-service';
 import { NextRequest, NextResponse } from 'next/server';
+import type { PoolClient } from 'pg';
+
+/** Trả connection trước khi gửi mail/thông báo — tránh deadlock pool (dev max=1). */
+function releaseLeaveDbClient(client: PoolClient | undefined): undefined {
+  if (client) client.release();
+  return undefined;
+}
+
+type LeaveCenterRouting = {
+  valid: boolean;
+  centerId: number | null;
+  campusBuEmail: string | null;
+};
+
+async function resolveLeaveCenterRouting(
+  client: PoolClient,
+  requestedCenterId: number | null,
+  campus: string,
+): Promise<LeaveCenterRouting> {
+  const result =
+    requestedCenterId != null
+      ? await client.query(
+          `SELECT id, email, short_code, full_name
+           FROM centers
+           WHERE id = $1 AND status = 'Active'
+           LIMIT 1`,
+          [requestedCenterId],
+        )
+      : await client.query(
+          `SELECT id, email, short_code, full_name
+           FROM centers
+           WHERE status = 'Active'
+             AND (
+               LOWER(TRIM(full_name)) = LOWER(TRIM($1))
+               OR LOWER(TRIM(COALESCE(short_code, ''))) = LOWER(TRIM($1))
+             )
+           ORDER BY
+             CASE WHEN LOWER(TRIM(full_name)) = LOWER(TRIM($1)) THEN 0 ELSE 1 END,
+             id
+           LIMIT 1`,
+          [campus],
+        );
+
+  if (requestedCenterId != null && result.rowCount === 0) {
+    return {
+      valid: false,
+      centerId: requestedCenterId,
+      campusBuEmail: null,
+    };
+  }
+
+  const center = result.rows[0] as
+    | {
+        id: number;
+        email?: string | null;
+        short_code?: string | null;
+        full_name?: string | null;
+      }
+    | undefined;
+
+  return {
+    valid: true,
+    centerId: center?.id ?? requestedCenterId,
+    campusBuEmail: resolveCenterBuEmail(
+      center ?? {
+        full_name: campus,
+      },
+    ),
+  };
+}
 
 type LeaveStatus =
   | 'pending_admin'
@@ -388,9 +463,6 @@ export async function POST(request: NextRequest) {
     const center_id_raw =
       (body as { center_id?: unknown; centerId?: unknown }).center_id ??
       (body as { centerId?: unknown }).centerId;
-    const campus_bu_email_raw =
-      (body as { campus_bu_email?: unknown; campus_email?: unknown })
-        .campus_bu_email ?? (body as { campus_email?: unknown }).campus_email;
 
     let resolvedCenterId: number | null = null;
     if (
@@ -408,51 +480,25 @@ export async function POST(request: NextRequest) {
       resolvedCenterId = cid;
     }
 
-    let campusBuEmailDb: string | null = null;
-    if (
-      typeof campus_bu_email_raw === 'string' &&
-      campus_bu_email_raw.trim().length > 0
-    ) {
-      const em = campus_bu_email_raw.trim();
-      if (em.length > 255) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: 'Email BU cơ sở không quá 255 ký tự.',
-          },
-          { status: 400 },
-        );
-      }
-      if (!/\S+@\S+\.\S+/.test(em)) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: 'Email BU cơ sở chưa đúng định dạng.',
-          },
-          { status: 400 },
-        );
-      }
-      campusBuEmailDb = em;
-    }
-
     client = await pool.connect();
 
-    if (resolvedCenterId != null) {
-      const ccheck = await client.query(
-        `SELECT id FROM centers WHERE id = $1 AND status = 'Active' LIMIT 1`,
-        [resolvedCenterId],
+    const centerRouting = await resolveLeaveCenterRouting(
+      client,
+      resolvedCenterId,
+      String(campus ?? ''),
+    );
+    if (!centerRouting.valid) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Cơ sở đã chọn không tồn tại hoặc không còn hoạt động (center_id).',
+        },
+        { status: 400 },
       );
-      if (ccheck.rowCount === 0) {
-        return NextResponse.json(
-          {
-            success: false,
-            error:
-              'Cơ sở đã chọn không tồn tại hoặc không còn hoạt động (center_id).',
-          },
-          { status: 400 },
-        );
-      }
     }
+    resolvedCenterId = centerRouting.centerId;
+    const campusBuEmailDb = centerRouting.campusBuEmail;
 
     const countSameClass = await client.query(
       `
@@ -528,6 +574,40 @@ export async function POST(request: NextRequest) {
 
     const result = await client.query(insertQuery, values);
     const newRequest = result.rows[0];
+    client = releaseLeaveDbClient(client);
+
+    const emailDelivery = await sendLeaveRequestSubmittedEmail(
+      {
+        request_id: String(newRequest.id),
+        teacher_name: String(newRequest.teacher_name ?? teacher_name),
+        teacher_email: String(newRequest.email ?? email).trim(),
+        campus: String(newRequest.campus ?? campus),
+        campus_bu_email: campusBuEmailDb || undefined,
+        email_subject: email_subject || undefined,
+        class_code: String(newRequest.class_code ?? trimmedClassCode),
+        leave_date:
+          newRequest.leave_date != null
+            ? String(newRequest.leave_date)
+            : String(leave_date),
+        class_time: String(newRequest.class_time ?? trimmedClassTime),
+        leave_session: String(newRequest.leave_session ?? trimmedLeaveSession),
+        student_count: String(newRequest.student_count ?? normalizedStudentCount),
+        reason: String(newRequest.reason ?? reason),
+        class_status:
+          newRequest.class_status != null
+            ? String(newRequest.class_status)
+            : class_status || undefined,
+        substitute_teacher:
+          normalizedHasSubstitute && substitute_teacher
+            ? String(substitute_teacher).trim()
+            : undefined,
+        substitute_email:
+          normalizedHasSubstitute && substitute_email
+            ? String(substitute_email).trim()
+            : undefined,
+      },
+      { action: 'create', initiatedBy: String(email).trim() },
+    );
 
     // Gửi thông báo trong app cho GV xin nghỉ
     await createNotification({
@@ -552,7 +632,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Tạo yêu cầu xin nghỉ thành công',
-      data: newRequest
+      data: newRequest,
+      email_delivery: emailDelivery,
     });
   } catch (error: any) {
     console.error('leave-requests POST error:', error);
@@ -648,71 +729,60 @@ export async function PATCH(request: NextRequest) {
         }
 
         const rejectedRow = rejectedResult.rows[0] as Record<string, unknown>;
+        client = releaseLeaveDbClient(client);
 
-        try {
-          await fetch(
-            `${getPublicBaseUrl()}/api/emails`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                ...(process.env.INTERNAL_API_SECRET
-                  ? { 'x-internal-api-secret': process.env.INTERNAL_API_SECRET }
-                  : {}),
-              },
-              body: JSON.stringify({
-                type: 'leave_admin_rejected',
-                data: {
-                  request_id: String(rejectedRow.id ?? id),
-                  teacher_name: String(rejectedRow.teacher_name ?? ''),
-                  teacher_email: String(rejectedRow.email ?? '').trim() || undefined,
-                  campus:
-                    rejectedRow.campus != null
-                      ? String(rejectedRow.campus)
-                      : undefined,
-                  class_code:
-                    rejectedRow.class_code != null
-                      ? String(rejectedRow.class_code)
-                      : undefined,
-                  leave_date:
-                    rejectedRow.leave_date != null
-                      ? String(rejectedRow.leave_date)
-                      : undefined,
-                  class_time:
-                    rejectedRow.class_time != null
-                      ? String(rejectedRow.class_time)
-                      : undefined,
-                  leave_session:
-                    rejectedRow.leave_session != null
-                      ? String(rejectedRow.leave_session)
-                      : undefined,
-                  reason:
-                    rejectedRow.reason != null
-                      ? String(rejectedRow.reason)
-                      : undefined,
-                  admin_note:
-                    rejectedRow.admin_note != null
-                      ? String(rejectedRow.admin_note)
-                      : undefined,
-                  admin_name:
-                    rejectedRow.admin_name != null
-                      ? String(rejectedRow.admin_name)
-                      : undefined,
-                  admin_email:
-                    rejectedRow.admin_email != null
-                      ? String(rejectedRow.admin_email)
-                      : undefined,
-                  campus_bu_email:
-                    rejectedRow.campus_bu_email != null
-                      ? String(rejectedRow.campus_bu_email).trim() || undefined
-                      : undefined,
-                },
-              }),
-            },
-          );
-        } catch (mailError) {
-          console.error('leave-requests admin_review reject email error:', mailError);
-        }
+        await sendLeaveAdminRejectedEmail(
+          {
+            request_id: String(rejectedRow.id ?? id),
+            teacher_name: String(rejectedRow.teacher_name ?? ''),
+            teacher_email: String(rejectedRow.email ?? '').trim() || undefined,
+            campus:
+              rejectedRow.campus != null
+                ? String(rejectedRow.campus)
+                : undefined,
+            class_code:
+              rejectedRow.class_code != null
+                ? String(rejectedRow.class_code)
+                : undefined,
+            leave_date:
+              rejectedRow.leave_date != null
+                ? String(rejectedRow.leave_date)
+                : undefined,
+            class_time:
+              rejectedRow.class_time != null
+                ? String(rejectedRow.class_time)
+                : undefined,
+            leave_session:
+              rejectedRow.leave_session != null
+                ? String(rejectedRow.leave_session)
+                : undefined,
+            reason:
+              rejectedRow.reason != null
+                ? String(rejectedRow.reason)
+                : undefined,
+            admin_note:
+              rejectedRow.admin_note != null
+                ? String(rejectedRow.admin_note)
+                : undefined,
+            admin_name:
+              rejectedRow.admin_name != null
+                ? String(rejectedRow.admin_name)
+                : undefined,
+            admin_email:
+              rejectedRow.admin_email != null
+                ? String(rejectedRow.admin_email)
+                : undefined,
+            campus_bu_email:
+              rejectedRow.campus_bu_email != null
+                ? String(rejectedRow.campus_bu_email).trim() || undefined
+                : undefined,
+          },
+          {
+            action: 'admin_review',
+            decision: 'rejected',
+            initiatedBy: sessionAdminEmail,
+          },
+        );
 
         // Gửi thông báo trong app
         await createNotification({
@@ -757,6 +827,7 @@ export async function PATCH(request: NextRequest) {
       }
 
       const approvedRow = approvedResult.rows[0];
+      client = releaseLeaveDbClient(client);
 
       // Gửi thông báo trong app cho GV xin nghỉ
       await createNotification({
@@ -979,9 +1050,6 @@ export async function PATCH(request: NextRequest) {
       const center_id_raw =
         (body as { center_id?: unknown; centerId?: unknown }).center_id ??
         (body as { centerId?: unknown }).centerId;
-      const campus_bu_email_raw =
-        (body as { campus_bu_email?: unknown; campus_email?: unknown })
-          .campus_bu_email ?? (body as { campus_email?: unknown }).campus_email;
 
       let resolvedCenterId: number | null = null;
       if (
@@ -999,49 +1067,23 @@ export async function PATCH(request: NextRequest) {
         resolvedCenterId = cid;
       }
 
-      let campusBuEmailDb: string | null = null;
-      if (
-        typeof campus_bu_email_raw === 'string' &&
-        campus_bu_email_raw.trim().length > 0
-      ) {
-        const em = campus_bu_email_raw.trim();
-        if (em.length > 255) {
-          return NextResponse.json(
-            {
-              success: false,
-              error: 'Email BU cơ sở không quá 255 ký tự.',
-            },
-            { status: 400 },
-          );
-        }
-        if (!/\S+@\S+\.\S+/.test(em)) {
-          return NextResponse.json(
-            {
-              success: false,
-              error: 'Email BU cơ sở chưa đúng định dạng.',
-            },
-            { status: 400 },
-          );
-        }
-        campusBuEmailDb = em;
-      }
-
-      if (resolvedCenterId != null) {
-        const ccheck = await client.query(
-          `SELECT id FROM centers WHERE id = $1 AND status = 'Active' LIMIT 1`,
-          [resolvedCenterId],
+      const centerRouting = await resolveLeaveCenterRouting(
+        client,
+        resolvedCenterId,
+        String(campus ?? ''),
+      );
+      if (!centerRouting.valid) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              'Cơ sở đã chọn không tồn tại hoặc không còn hoạt động (center_id).',
+          },
+          { status: 400 },
         );
-        if (ccheck.rowCount === 0) {
-          return NextResponse.json(
-            {
-              success: false,
-              error:
-                'Cơ sở đã chọn không tồn tại hoặc không còn hoạt động (center_id).',
-            },
-            { status: 400 },
-          );
-        }
       }
+      resolvedCenterId = centerRouting.centerId;
+      const campusBuEmailDb = centerRouting.campusBuEmail;
 
       const rowEmail = String(existingRow.email ?? '').trim();
       const dup = await client.query(
@@ -1201,6 +1243,7 @@ export async function PATCH(request: NextRequest) {
       }
 
       const assignedRow = assignResult.rows[0];
+      client = releaseLeaveDbClient(client);
 
       // Gửi thông báo trong app cho GV được phân công dạy thay
       if (assignedRow.substitute_email) {
@@ -1335,43 +1378,35 @@ export async function PATCH(request: NextRequest) {
       }
 
       const confirmedRow = confirmResult.rows[0];
+      client = releaseLeaveDbClient(client);
 
-      try {
-        await fetch(`${getPublicBaseUrl()}/api/emails`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(process.env.INTERNAL_API_SECRET
-              ? { 'x-internal-api-secret': process.env.INTERNAL_API_SECRET }
-              : {}),
-          },
-          body: JSON.stringify({
-            type: 'leave_approved_substitute_confirmed',
-            data: {
-              teacher_name: confirmedRow.teacher_name,
-              teacher_email: confirmedRow.email,
-              campus: confirmedRow.campus,
-              class_code: confirmedRow.class_code,
-              leave_date: confirmedRow.leave_date,
-              class_time: confirmedRow.class_time,
-              leave_session: confirmedRow.leave_session,
-              substitute_teacher: confirmedRow.substitute_teacher,
-              substitute_email: confirmedRow.substitute_email,
-              reason: confirmedRow.reason,
-              admin_note: confirmedRow.admin_note,
-              admin_name: confirmedRow.admin_name,
-              admin_email: confirmedRow.admin_email,
-              substitute_confirmed_at: confirmedRow.substitute_confirmed_at,
-              campus_bu_email:
-                confirmedRow.campus_bu_email != null
-                  ? String(confirmedRow.campus_bu_email).trim() || undefined
-                  : undefined,
-            },
-          }),
-        });
-      } catch (mailError) {
-        console.error('leave-requests substitute_confirm email error:', mailError);
-      }
+      await sendLeaveSubstituteConfirmedEmail(
+        {
+          teacher_name: confirmedRow.teacher_name,
+          teacher_email: confirmedRow.email,
+          campus: confirmedRow.campus,
+          class_code: confirmedRow.class_code,
+          leave_date: confirmedRow.leave_date,
+          class_time: confirmedRow.class_time,
+          leave_session: confirmedRow.leave_session,
+          substitute_teacher: confirmedRow.substitute_teacher,
+          substitute_email: confirmedRow.substitute_email,
+          reason: confirmedRow.reason,
+          admin_note: confirmedRow.admin_note,
+          admin_name: confirmedRow.admin_name,
+          admin_email: confirmedRow.admin_email,
+          substitute_confirmed_at: confirmedRow.substitute_confirmed_at,
+          campus_bu_email:
+            confirmedRow.campus_bu_email != null
+              ? String(confirmedRow.campus_bu_email).trim() || undefined
+              : undefined,
+        },
+        {
+          action: 'substitute_confirm',
+          requestId: String(confirmedRow.id ?? id),
+          initiatedBy: auth.sessionEmail,
+        },
+      );
 
       // Gửi thông báo trong app cho GV xin nghỉ
       await createNotification({
@@ -1466,6 +1501,7 @@ export async function PATCH(request: NextRequest) {
       }
 
       const declined = declineResult.rows[0] as Record<string, unknown>;
+      client = releaseLeaveDbClient(client);
       const outDeclined = auth.privileged
         ? declined
         : {

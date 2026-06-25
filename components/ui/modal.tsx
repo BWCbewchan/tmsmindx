@@ -228,7 +228,7 @@ export function Modal({
     return (
       <div
         className={cn(
-          'fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-2 pt-[max(env(safe-area-inset-top),0.5rem)] sm:items-center sm:p-6',
+          'fixed inset-0 z-modal-backdrop-custom flex items-start justify-center overflow-y-auto p-2 pt-[max(env(safe-area-inset-top),0.5rem)] sm:items-center sm:p-6',
           'animate-in fade-in duration-200',
           backdropClassName
         )}
@@ -311,7 +311,7 @@ export function Modal({
   return (
     <div
       className={cn(
-        'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto',
+        'fixed inset-0 z-modal-backdrop-custom flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto',
         'animate-in fade-in duration-200',
         backdropClassName
       )}

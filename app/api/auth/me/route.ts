@@ -1,5 +1,6 @@
 import { resolveAppUserAccessForEmail } from '@/lib/app-user-access';
 import { requireBearerSession } from '@/lib/datasource-api-auth';
+import { checkTeacherExistsByEmailDetailed } from '@/lib/db-helpers';
 import { NextRequest, NextResponse } from 'next/server';
 
 /** Trả về thông tin user theo Bearer (không tin email từ query/body). */
@@ -11,6 +12,10 @@ export async function GET(request: NextRequest) {
     if (!auth.ok) return auth.response;
 
     const access = await resolveAppUserAccessForEmail(auth.sessionEmail);
+    const teacherSync =
+      access.role === 'teacher' && !access.isAdmin
+        ? await checkTeacherExistsByEmailDetailed(auth.sessionEmail)
+        : undefined;
     const assignedCenters = access.assignedCenters.map((center) => ({
       id: center.id,
       full_name: center.full_name,
@@ -43,6 +48,12 @@ export async function GET(request: NextRequest) {
       permissions: access.permissions,
       userRoles: access.userRoles,
       assignedCenters,
+      teacherSync: teacherSync
+        ? {
+            foundInDatabase: teacherSync.exists,
+            dbUnavailable: teacherSync.dbUnavailable,
+          }
+        : undefined,
     });
   } catch (error: unknown) {
     console.error('auth/me error:', error);

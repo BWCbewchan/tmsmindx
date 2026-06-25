@@ -557,7 +557,7 @@ export default function AdminProfilePage() {
 
             {/* Avatar Upload Modal */}
             {showAvatarModal && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-start pt-20 sm:items-center sm:justify-center sm:pt-0 justify-center z-50 p-4">
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-start pt-20 sm:items-center sm:justify-center sm:pt-0 justify-center z-modal-backdrop-custom p-4">
                     <div className="bg-white rounded-3xl max-w-xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
                         <div className="sticky top-0 z-10 bg-[#a1001f] p-6 border-b border-[#870019] flex items-center justify-between">
                             <h2 className="text-2xl font-black text-white">

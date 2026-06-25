@@ -180,8 +180,14 @@ export async function sendEmailAlert(event: AuditEvent & { id?: number }): Promi
   const now  = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
   const icon = SEVERITY_ICON[event.severity] ?? '⚠️';
 
+  const startedAt = Date.now();
+  const { normalizeEmailRecipients, recordEmailDelivery } =
+    await import('@/lib/email-delivery-log');
+  const toRecipients = normalizeEmailRecipients(adminEmail);
+
   try {
     const nodemailer = await import('nodemailer');
+    const { ensureEmailLogoInHtml, prepareEmailForSend } = await import('@/lib/email-branding');
     const transporter = nodemailer.createTransport({
       host:   process.env.MAIL_HOST    ?? 'smtp.gmail.com',
       port:   parseInt(process.env.MAIL_PORT ?? '465', 10),
@@ -192,11 +198,7 @@ export async function sendEmailAlert(event: AuditEvent & { id?: number }): Promi
       },
     });
 
-    await transporter.sendMail({
-      from:    `"TMS Security" <${process.env.MAILDEV_INCOMING_USER}>`,
-      to:      adminEmail,
-      subject: `${icon} [${event.severity}] Security Alert — ${event.action}`,
-      html: `
+    const alertHtml = ensureEmailLogoInHtml(`
         <h2>${icon} Security Alert — ${event.severity}</h2>
         <table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;font-family:monospace">
           <tr><td><b>Action</b></td><td>${event.action}</td></tr>
@@ -210,9 +212,50 @@ export async function sendEmailAlert(event: AuditEvent & { id?: number }): Promi
           ${event.old_data ? `<tr><td><b>Before</b></td><td><pre>${JSON.stringify(event.old_data, null, 2)}</pre></td></tr>` : ''}
           ${event.new_data ? `<tr><td><b>After</b></td><td><pre>${JSON.stringify(event.new_data, null, 2)}</pre></td></tr>` : ''}
         </table>
-      `,
+      `);
+    const { html, attachments } = prepareEmailForSend(alertHtml);
+
+    const info = await transporter.sendMail({
+      from:    `"TMS Security" <${process.env.MAILDEV_INCOMING_USER}>`,
+      to:      adminEmail,
+      subject: `${icon} [${event.severity}] Security Alert — ${event.action}`,
+      html,
+      ...(attachments.length > 0 ? { attachments } : {}),
+    });
+    await recordEmailDelivery({
+      status: 'sent',
+      senderEmail: process.env.MAILDEV_INCOMING_USER,
+      toRecipients,
+      ccRecipients: [],
+      subject: `${icon} [${event.severity}] Security Alert — ${event.action}`,
+      emailType: 'security_alert',
+      source: 'lib/security-alert',
+      durationMs: Date.now() - startedAt,
+      providerMessageId: String(info?.messageId ?? ''),
+      smtpResponse: String(info?.response ?? ''),
+      metadata: {
+        severity: event.severity,
+        action: event.action,
+        auditEventId: event.id ?? null,
+      },
     });
   } catch (err) {
+    await recordEmailDelivery({
+      status: 'failed',
+      senderEmail: process.env.MAILDEV_INCOMING_USER,
+      toRecipients,
+      ccRecipients: [],
+      subject: `${icon} [${event.severity}] Security Alert — ${event.action}`,
+      emailType: 'security_alert',
+      source: 'lib/security-alert',
+      durationMs: Date.now() - startedAt,
+      error: err,
+      metadata: {
+        severity: event.severity,
+        action: event.action,
+        auditEventId: event.id ?? null,
+      },
+    });
     console.error('[SecurityAlert] Email failed:', (err as Error).message);
   }
 }

@@ -120,7 +120,7 @@ function CandidatePopupCell({
             exit={{ opacity: 0, y: rowIndex < 3 ? -10 : 10 }}
             onMouseEnter={showPopup}
             onMouseLeave={scheduleHide}
-            className={`absolute left-0 z-[9999] w-[380px] max-w-[calc(100vw-2rem)] rounded-xl border border-gray-200 bg-white p-3 shadow-2xl ring-1 ring-black/5 ${
+            className={`absolute left-0 z-popup-custom w-[380px] max-w-[calc(100vw-2rem)] rounded-xl border border-gray-200 bg-white p-3 shadow-2xl ring-1 ring-black/5 ${
               rowIndex < 3 ? 'top-full mt-1' : 'bottom-full mb-1'
             }`}
           >

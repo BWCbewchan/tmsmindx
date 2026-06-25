@@ -27,6 +27,10 @@ async function ensureBucket() {
   }
 }
 
+function makeProxyUrl(bucket: string, key: string): string {
+  return `/api/storage-image?bucket=${encodeURIComponent(bucket)}&key=${encodeURIComponent(key)}`;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const auth = await requireBearerAdminOrSuperMutation(req);
@@ -73,11 +77,14 @@ export async function POST(req: NextRequest) {
     );
 
     const publicUrl = getPublicObjectUrl(BUCKET_NAME, key);
+    const proxyUrl = makeProxyUrl(BUCKET_NAME, key);
 
     return NextResponse.json({
       // Các field mới cho S3
       presignedUrl,
       publicUrl,
+      proxyUrl,
+      url: proxyUrl,
       key,
       bucket: BUCKET_NAME,
       // Giữ lại các field cũ để UploadVideoContext không bị lỗi ngay

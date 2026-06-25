@@ -52,7 +52,7 @@ const PopoverContent = React.forwardRef<
       sideOffset={sideOffset}
       className={cn(
         // Z-index: 1500 (above modals)
-        "z-[1500]",
+        "z-popup-custom",
         // Base styles using Box component patterns
         "w-72 rounded-lg border border-gray-200 bg-white shadow-lg",
         // Animations - Material Design inspired

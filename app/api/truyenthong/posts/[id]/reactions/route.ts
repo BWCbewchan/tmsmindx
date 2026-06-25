@@ -12,7 +12,9 @@ export async function GET(
 
         const client = await pool.connect();
         try {
-            const lookup = await findCommunicationPostByIdentifier(client, id);
+            const lookup = await findCommunicationPostByIdentifier(client, id, {
+                summary: true,
+            });
             if (lookup.invalid) {
                 return NextResponse.json({ error: 'Post identifier is invalid' }, { status: 400 });
             }

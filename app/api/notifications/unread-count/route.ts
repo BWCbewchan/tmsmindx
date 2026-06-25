@@ -1,5 +1,6 @@
 import { requireBearerSession } from '@/lib/datasource-api-auth';
 import pool from '@/lib/db';
+import { processDueExamScheduleNotifications } from '@/lib/exam-notification-dispatcher';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(request: NextRequest) {
@@ -12,6 +13,8 @@ export async function GET(request: NextRequest) {
     let client;
     try {
       client = await pool.connect();
+      await processDueExamScheduleNotifications(client);
+
       const result = await client.query(
         `SELECT COUNT(*)::int AS count
          FROM notifications

@@ -724,7 +724,7 @@ export default function DatabasePage() {
 
             {/* ─── Insert Modal ─────────────────────────────── */}
             {showInsertModal && selectedTable && (
-                <div className="cursor-pointer fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowInsertModal(false)}>
+                <div className="cursor-pointer fixed inset-0 z-modal-backdrop-custom flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowInsertModal(false)}>
                     <div className="cursor-pointer bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
                             <h3 className="font-bold text-sm text-gray-900">Insert into {selectedTable}</h3>

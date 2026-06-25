@@ -38,7 +38,7 @@ type SelectOption = {
 };
 
 const selectStyles: StylesConfig<SelectOption, true> = {
-  menuPortal: base => ({ ...base, zIndex: 9999 }),
+  menuPortal: base => ({ ...base, zIndex: 1500 }),
   control: (base, state) => ({
     ...base,
     borderColor: state.isFocused ? '#a1001f' : '#e2e8f0',

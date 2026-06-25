@@ -2,7 +2,8 @@ import useSWR from 'swr'
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json())
 
-const REFRESH_INTERVAL = 30_000 // 30 seconds
+const REFRESH_INTERVAL = 60_000
+const DEDUPING_INTERVAL = 30_000
 
 // ── System Health ────────────────────────────────────
 
@@ -31,8 +32,10 @@ export function useSystemHealth(requestEmail?: string) {
 
   return useSWR<SystemHealthData>(endpoint, fetcher, {
     refreshInterval: REFRESH_INTERVAL,
+    refreshWhenHidden: false,
+    refreshWhenOffline: false,
     revalidateOnFocus: true,
-    dedupingInterval: 10_000,
+    dedupingInterval: DEDUPING_INTERVAL,
   })
 }
 
@@ -85,7 +88,9 @@ export function useEngagement(period: string, requestEmail?: string) {
 
   return useSWR<EngagementData>(endpoint, fetcher, {
     refreshInterval: REFRESH_INTERVAL,
+    refreshWhenHidden: false,
+    refreshWhenOffline: false,
     revalidateOnFocus: true,
-    dedupingInterval: 10_000,
+    dedupingInterval: DEDUPING_INTERVAL,
   })
 }

@@ -92,7 +92,7 @@ export const GET = withApiProtection(async (request: NextRequest) => {
         dateStr = `${columns[7]}/${columns[8]}`;
       }
 
-      const isCountedInAverage = !(score === 0 && emailExplanation === "Đã email giải trình");
+      const isCountedInAverage = !(score === 0 && emailExplanation !== "");
 
       const record: TestRecord = {
         area: columns[0]?.trim() || "",

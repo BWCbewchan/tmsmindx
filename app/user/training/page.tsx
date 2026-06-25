@@ -11,6 +11,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table'
+import { buildBrowserLoginRedirectPath } from '@/lib/auth-redirect'
 import { useAuth } from '@/lib/auth-context'
 import { setVideo } from '@/lib/redux/features/trainingSlice'
 import { useAppDispatch } from '@/lib/redux/hooks'
@@ -144,10 +145,8 @@ export default function TrainingPage() {
     if (!submitCode) return
 
     mutate(`/api/training-db?code=${submitCode}`)
-    if (teacherProfile?.code) {
-      mutate(`/api/training-assignments?status=published&teacher_code=${teacherProfile.code}`)
-    }
-  }, [mutate, submitCode, teacherProfile?.code])
+    mutate(`/api/training-assignments?status=published&teacher_code=${submitCode}`)
+  }, [mutate, submitCode])
 
   // Khi startAssignmentId biến mất (user quay về từ bài kiểm tra) → refetch ngay
   const prevStartAssignmentIdRef = useRef(startAssignmentId)
@@ -199,7 +198,7 @@ export default function TrainingPage() {
       localStorage.removeItem('token')
       localStorage.removeItem('user')
       localStorage.removeItem('refreshToken')
-      window.location.href = '/login'
+      window.location.href = buildBrowserLoginRedirectPath(window.location)
       throw new Error('Unauthorized')
     }
 
@@ -276,6 +275,30 @@ export default function TrainingPage() {
 
   const teacher = teacherData?.teacher || null
 
+  // Teacher code dùng cho assignments API — ưu tiên submitCode (= email prefix = match với scores DB)
+  // teacher.code (canonical) có thể khác với email prefix nên dùng submitCode để đảm bảo match
+  const assignmentsTeacherCode = submitCode || teacher?.code || ''
+
+  // Force-revalidate khi lesson page đã lưu completion (bypass dedupingInterval)
+  useEffect(() => {
+    if (!submitCode) return
+
+    const flag = sessionStorage.getItem('training_completion_invalidate')
+    if (!flag) return
+
+    // Xóa flag trước để tránh loop
+    sessionStorage.removeItem('training_completion_invalidate')
+
+    // Force revalidate bypass dedup — truyền undefined data + revalidate: true
+    mutate(`/api/training-db?code=${submitCode}`, undefined, { revalidate: true })
+    mutate(
+      `/api/training-assignments?status=published&teacher_code=${submitCode}`,
+      undefined,
+      { revalidate: true },
+    )
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]) // pathname thay đổi = user vừa navigate về trang này
+
   // Refetch khi pathname thay đổi (user navigate về /user/dao-tao-nang-cao từ lesson page)
   useEffect(() => {
     refetchTrainingData()
@@ -285,12 +308,24 @@ export default function TrainingPage() {
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState !== 'visible') return
+      // Check completion flag khi tab focus lại
+      const flag = sessionStorage.getItem('training_completion_invalidate')
+      if (flag && submitCode) {
+        sessionStorage.removeItem('training_completion_invalidate')
+        mutate(`/api/training-db?code=${submitCode}`, undefined, { revalidate: true })
+        mutate(
+          `/api/training-assignments?status=published&teacher_code=${submitCode}`,
+          undefined,
+          { revalidate: true },
+        )
+        return
+      }
       refetchTrainingData()
     }
     document.addEventListener('visibilitychange', handleVisibility)
     return () =>
       document.removeEventListener('visibilitychange', handleVisibility)
-  }, [refetchTrainingData])
+  }, [mutate, refetchTrainingData, submitCode, teacherProfile?.code])
 
   const { data: trainingData, isLoading: isLoadingTraining } = useSWR<TrainingData>(
     teacher && user ? `/api/training-db?code=${submitCode}` : null,
@@ -303,13 +338,15 @@ export default function TrainingPage() {
     },
   )
   const { data: assignmentsData, isLoading: isLoadingAssignments } = useSWR<TrainingAssignmentsResponse>(
-    teacher && user
-      ? `/api/training-assignments?status=published&teacher_code=${teacher.code}`
+    assignmentsTeacherCode && teacher && user
+      ? `/api/training-assignments?status=published&teacher_code=${assignmentsTeacherCode}`
       : null,
     secureFetcher,
     {
       revalidateOnFocus: true,
-      dedupingInterval: 30000,
+      // Giảm từ 5000 → 2000ms để data refresh nhanh hơn sau khi navigate từ lesson page
+      // (tránh hiện thị data cũ khi user vừa xem xong video và bấm "Làm bài tập")
+      dedupingInterval: 2000,
     },
   )
   const completedLessons = useMemo(() => {
@@ -467,7 +504,7 @@ export default function TrainingPage() {
   // localStorage guard modal
   if (missingProfile) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center bg-black/50 backdrop-blur-sm">
         <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 text-center">
           <div className="text-4xl mb-4">⚠️</div>
           <h2 className="text-lg font-bold text-slate-800 mb-2">
@@ -577,7 +614,15 @@ export default function TrainingPage() {
                         lesson.completion_status === 'completed'
                       const isWatched =
                         lesson.completion_status === 'watched'
-                      const canTakeQuiz = isCompleted || isWatched
+                      // Fallback: kiểm tra thêm video_completion_status từ assignments API
+                      // để handle trường hợp training-db cache chưa sync kịp
+                      const assignmentForLesson = (assignmentsData?.data || []).find(
+                        (a: TrainingAssignment) => a.video_id === lesson.id,
+                      )
+                      const assignmentVideoCompleted = ['completed', 'watched'].includes(
+                        assignmentForLesson?.video_completion_status || '',
+                      )
+                      const canTakeQuiz = isCompleted || isWatched || assignmentVideoCompleted
                       const notStarted = lesson.score === 0
                       const passed = lesson.score >= 7
                       const lessonNumber = lesson.lesson_number || idx + 1
@@ -770,7 +815,7 @@ export default function TrainingPage() {
                                       e.stopPropagation()
                                       if (canTakeQuiz) {
                                         router.push(
-                                          `/user/dao-tao-nang-cao?start_assignment_id=${assignment.id}`,
+                                          `/user/dao-tao-nang-cao?start_assignment_id=${assignment.id}&video_ok=1`,
                                         )
                                       } else {
                                         import('@/lib/app-toast').then(({ toast }) => {

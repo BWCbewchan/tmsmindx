@@ -100,37 +100,44 @@ export async function GET(request: NextRequest) {
       conditions.push(`mh.ma_khoi = $${values.length + 1}`);
       values.push(blockCode);
     }
-    // Chỉ lấy những bài đã thi
-    conditions.push(`r.trang_thai IN ('da_nop', 'dang_thi')`);
+    // Chỉ lấy những bài đã có xử lý hoặc đã thi (dựa vào xu_ly_diem)
+    conditions.push(`(r.xu_ly_diem IS NOT NULL OR r.diem IS NOT NULL)`);
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const result = await pool.query(
       `SELECT
          r.id                   AS result_id,
-         r.user_id,
-         r.firebase_uid,
-         r.email,
          r.ho_ten               AS full_name,
-         r.ma_de                AS set_code,
-         r.so_diem              AS score,
-         r.tong_cau             AS total_questions,
-         r.so_cau_dung          AS correct_count,
-         r.trang_thai           AS status,
-         r.thoi_gian_bat_dau    AS started_at,
-         r.thoi_gian_nop        AS submitted_at,
+         r.dia_chi_email        AS email,
+         bd.ma_de               AS set_code,
+         r.diem                 AS score,
+         r.cau_dung             AS correct_count,
+         r.xu_ly_diem           AS status,
+         bn.bat_dau_luc         AS started_at,
+         bn.nop_luc             AS submitted_at,
          r.tao_luc              AS created_at,
          mh.ma_mon              AS subject_code,
          mh.ten_mon             AS subject_name,
          mh.ma_khoi             AS block_code,
          mh.loai_ky_thi         AS exam_type,
          bd.diem_dat            AS passing_score,
-         bd.tong_diem           AS max_score
+         bd.tong_diem           AS max_score,
+         (SELECT COUNT(*) FROM chuyen_sau_bode_cauhoi bc WHERE bc.id_de = bd.id)::int AS total_questions
        FROM chuyen_sau_results r
        JOIN chuyen_sau_monhoc mh ON mh.id = r.id_mon
-       LEFT JOIN chuyen_sau_bode bd ON bd.ma_de = r.ma_de
+       -- JOIN với bode qua id_de_thi (không qua ma_de vì r.ma_de không tồn tại)
+       LEFT JOIN chuyen_sau_bode bd ON bd.id = r.id_de_thi
+       -- JOIN với bainop để lấy thông tin thời gian bắt đầu và nộp bài
+       LEFT JOIN LATERAL (
+         SELECT bat_dau_luc, nop_luc
+         FROM chuyen_sau_bainop
+         WHERE id_ket_qua = r.id
+         ORDER BY tao_luc DESC
+         LIMIT 1
+       ) bn ON TRUE
        ${where}
-       ORDER BY r.thoi_gian_nop DESC NULLS LAST`,
+       ORDER BY bn.nop_luc DESC NULLS LAST, r.tao_luc DESC`,
       values
     );
 
@@ -336,9 +343,10 @@ export async function POST(request: NextRequest) {
     await client.query(
       `UPDATE chuyen_sau_results SET
          thoi_gian_kiem_tra = TO_CHAR(NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh', 'HH24:MI DD/MM/YYYY'),
-         id_su_kien         = COALESCE(id_su_kien, $1::uuid)
-       WHERE id = $2`,
-      [eventId, result_id]
+         id_su_kien         = COALESCE(id_su_kien, $1::uuid),
+         id_de_thi          = COALESCE(id_de_thi, $2)
+       WHERE id = $3`,
+      [eventId, resolvedSetId, result_id]
     );
 
     await client.query('COMMIT');
@@ -528,10 +536,7 @@ export async function PUT(request: NextRequest) {
          diem_tho             = $1,
          diem_tho_toi_da      = $2,
          phan_tram            = $3,
-         diem_chuan_hoa       = $4,
-         raw_score            = $1,
-         percentage           = $3,
-         submitted_at         = NOW()
+         diem_chuan_hoa       = $4
        WHERE id = $5`,
       [rawScore, totalPoints, percentage, score10, bainopId]
     );
@@ -541,11 +546,10 @@ export async function PUT(request: NextRequest) {
       `UPDATE chuyen_sau_results SET
          diem         = $1,
          cau_dung     = $2,
-         trang_thai   = 'da_nop',
-         thoi_gian_nop = NOW(),
+         id_de_thi    = COALESCE(id_de_thi, $3),
          xu_ly_diem   = 'đã hoàn thành'
-       WHERE id = $3`,
-      [score10, correctCount, result_id]
+       WHERE id = $4`,
+      [score10, correctCount, resolvedSetId, result_id]
     );
 
     await client.query('COMMIT');

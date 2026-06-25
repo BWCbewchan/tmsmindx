@@ -159,7 +159,7 @@ export function Toast({
 export function ToastContainer({ children }: { children: React.ReactNode }) {
   return (
     <Box
-      className="fixed top-4 right-4 z-[1600] flex flex-col gap-2 w-full max-w-sm pointer-events-none"
+      className="fixed top-4 right-4 z-toast flex flex-col gap-2 w-full max-w-sm pointer-events-none"
       aria-live="polite"
       aria-atomic="true"
     >

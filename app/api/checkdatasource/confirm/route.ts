@@ -115,19 +115,45 @@ export const POST = withApiProtection(async (request: NextRequest) => {
         snapshotJson,
       ]
     );
-    
-    // Nếu giáo viên đăng nhập lần đầu tiên (~ Insert mới) hoặc trả về là success,
-    // ta trả về cờ "isNewTeacher" để phía client có thể quyết định gọi API import điểm.
-    const isNewTeacher = queryResult.rows[0]?.is_insert === true;
 
-    return NextResponse.json({ success: true, persisted: true, isNewTeacher });
+    // ── Xác định cần import điểm không ────────────────────────────────────────
+    // Logic cũ: isNewTeacher = xmax===0 (INSERT mới) — sai khi giáo viên đã có
+    // trong teachers từ trước (do HR nhập tay / backfill) nhưng chưa có điểm.
+    //
+    // Logic mới: kiểm tra trực tiếp xem training_teacher_video_scores có dòng
+    // nào của teacher_code này chưa — đây mới là điều kiện thực sự cần import.
+    // Chỉ query khi cần (is_insert=true HOẶC là lần đầu login khi đã có record).
+    let needsScoreImport = false;
+    try {
+      const scoreCheck = await pool.query(
+        `SELECT 1 FROM training_teacher_video_scores
+         WHERE LOWER(TRIM(teacher_code)) = $1
+         LIMIT 1`,
+        [code.toLowerCase().trim()],
+      );
+      needsScoreImport = (scoreCheck.rowCount ?? 0) === 0;
+    } catch {
+      // Nếu query lỗi, để client quyết định dựa trên is_insert như cũ
+      needsScoreImport = queryResult.rows[0]?.is_insert === true;
+    }
+
+    return NextResponse.json({
+      success: true,
+      persisted: true,
+      // isNewTeacher: true → client sẽ gọi import-teacher-scores
+      // Giữ tên field để không cần thay đổi client code
+      isNewTeacher: needsScoreImport,
+    });
+
   } catch (error: unknown) {
     if (isDatabaseUnavailableError(error)) {
-      // Cho phép client coi như thành công để user vẫn vào được app; đồng bộ DB khi slot trở lại.
+      // DB quá tải — cho user vào app, không biết trạng thái điểm
+      // Trả isNewTeacher: true để client thử import (import API có idempotency guard)
       return NextResponse.json({
         success: true,
         persisted: false,
         dbUnavailable: true,
+        isNewTeacher: true,
         warning:
           "Máy chủ database đang quá tải. Bạn vẫn có thể vào hệ thống; dữ liệu xác nhận sẽ được lưu khi kết nối ổn định.",
       });

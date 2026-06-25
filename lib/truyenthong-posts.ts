@@ -20,6 +20,7 @@ export async function findCommunicationPostByIdentifier(
     query: (text: string, params?: unknown[]) => Promise<{ rows: any[] }>;
   },
   identifier: string,
+  options: { summary?: boolean } = {},
 ): Promise<{ invalid: boolean; post: any | null }> {
   const normalized = identifier.trim();
 
@@ -27,13 +28,17 @@ export async function findCommunicationPostByIdentifier(
     return { invalid: true, post: null };
   }
 
+  const columns = options.summary
+    ? 'id, slug, status, like_count, post_type'
+    : '*';
+
   let result = await client.query(
-    'SELECT * FROM communications WHERE slug = $1',
+    `SELECT ${columns} FROM communications WHERE slug = $1`,
     [normalized],
   );
 
   if (result.rows.length === 0 && /^\d+$/.test(normalized)) {
-    result = await client.query('SELECT * FROM communications WHERE id = $1', [
+    result = await client.query(`SELECT ${columns} FROM communications WHERE id = $1`, [
       Number(normalized),
     ]);
   }

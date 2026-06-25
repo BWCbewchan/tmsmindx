@@ -1,4 +1,4 @@
-/* Z-Index Scale - Use these values consistently across the app */
+/* Z-Index Scale - Use these semantic classes consistently across the app. */
 
 /* Base layers */
 .z-base {
@@ -14,6 +14,9 @@
 }
 .z-content-raised {
   z-index: 10;
+}
+.z-mascot {
+  z-index: 15;
 }
 
 /* Sticky/Fixed elements - 20-39 */
@@ -38,26 +41,32 @@
   z-index: 50;
 }
 
-/* Modals/Overlays - 60-89 */
+/* Modals/Overlays - blocking UI must always stay above floating widgets. */
 .z-modal-backdrop {
-  z-index: 60;
+  z-index: 1300;
 }
 .z-modal {
-  z-index: 70;
+  z-index: 1400;
+}
+.z-modal-raised {
+  z-index: 1450;
 }
 .z-popover {
-  z-index: 75;
+  z-index: 1500;
+}
+.z-loading-overlay {
+  z-index: 1600;
 }
 
-/* Critical UI - 90-99 */
+/* Critical UI */
 .z-toast {
-  z-index: 90;
+  z-index: 1700;
 }
 .z-tooltip {
-  z-index: 95;
+  z-index: 1800;
 }
 .z-critical {
-  z-index: 99;
+  z-index: 1900;
 }
 
 /* Tailwind utilities for consistent usage */
@@ -71,8 +80,23 @@
   z-index: 35;
 }
 .z-modal-custom {
-  z-index: 70;
+  z-index: 1400;
 }
 .z-modal-backdrop-custom {
-  z-index: 60;
+  z-index: 1300;
+}
+.z-modal-raised-custom {
+  z-index: 1450;
+}
+.z-popup-custom {
+  z-index: 1500;
+}
+.z-loading-overlay-custom {
+  z-index: 1600;
+}
+.z-floating-status-custom {
+  z-index: 100;
+}
+.z-critical-overlay-custom {
+  z-index: 1900;
 }

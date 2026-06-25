@@ -670,7 +670,7 @@ export default function ScreensTab() {
             </div>
 
             {showForm && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm">
+                <div className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm">
                     <div
                         role="dialog"
                         aria-modal="true"

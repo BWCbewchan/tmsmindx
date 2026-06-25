@@ -4,6 +4,7 @@ import { toast } from '@/lib/app-toast'
 import { filterManagementPermissions } from '@/lib/admin-permission-routes'
 import { authHeaders } from '@/lib/auth-headers'
 import { logger } from '@/lib/logger'
+import type { TeacherSyncState } from '@/lib/teacher-session-routing'
 import { useRouter } from 'next/navigation'
 import {
     createContext,
@@ -29,13 +30,14 @@ interface User {
     short_code: string | null
     email?: string
   }>
+  teacherSync?: TeacherSyncState
 }
 
 interface AuthContextType {
   user: User | null
   token: string | null
   isLoading: boolean
-  logout: () => void
+  logout: (redirectPath?: string) => void
   updateUser: (user: User, token: string) => void
   refreshPermissions: () => Promise<void>
 }
@@ -161,6 +163,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             assignedCenters: Array.isArray(data.assignedCenters)
               ? data.assignedCenters
               : cachedUser?.assignedCenters ?? [],
+            teacherSync:
+              data.teacherSync &&
+              typeof data.teacherSync.foundInDatabase === 'boolean' &&
+              typeof data.teacherSync.dbUnavailable === 'boolean'
+                ? {
+                    foundInDatabase: data.teacherSync.foundInDatabase,
+                    dbUnavailable: data.teacherSync.dbUnavailable,
+                  }
+                : cachedUser?.teacherSync,
           })
 
           setUser(nextUser)
@@ -197,7 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []) // Empty dependency array - only run once
 
-  const logout = useCallback(() => {
+  const logout = useCallback((redirectPath = '/login') => {
     try {
       logger.info('Logging out user')
 
@@ -212,7 +223,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       toast.success('Đăng xuất thành công!', { icon: '👋' })
       logger.success('User logged out successfully')
 
-      router.push('/login')
+      router.push(redirectPath)
     } catch (error: any) {
       logger.error('Error during logout', { error: error.message })
       toast.error('Có lỗi khi đăng xuất')

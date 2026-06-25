@@ -581,7 +581,7 @@ export default function UsersTab() {
 
             {/* Add existing panel */}
             {panel === 'addExisting' && (
-                <div className="cursor-pointer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={close}>
+                <div className="cursor-pointer fixed inset-0 z-modal-backdrop-custom flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={close}>
                     <div className="cursor-pointer bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between mb-2">
                             <h3 className="text-lg font-bold flex items-center gap-2 text-gray-900"><UserCheck className="h-5 w-5 text-green-600" />Thêm tài khoản đã có & phân quyền</h3>
@@ -627,7 +627,7 @@ export default function UsersTab() {
 
             {/* Create panel */}
             {panel === 'create' && (
-                <div className="cursor-pointer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={close}>
+                <div className="cursor-pointer fixed inset-0 z-modal-backdrop-custom flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={close}>
                     <div className="cursor-pointer bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between mb-5 border-b pb-3">
                             <h3 className="text-lg font-bold flex items-center gap-2 text-gray-900"><Plus className="h-5 w-5 text-[#a1001f]" />Tạo tài khoản mới (nội bộ)</h3>
@@ -675,7 +675,7 @@ export default function UsersTab() {
 
             {/* Roles assignment panel */}
             {panel === 'roles' && sel && (
-                <div className="cursor-pointer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={close}>
+                <div className="cursor-pointer fixed inset-0 z-modal-backdrop-custom flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={close}>
                     <div className="cursor-pointer bg-white rounded-xl shadow-2xl p-6 w-full max-w-3xl" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between mb-2">
                             <h3 className="text-lg font-bold flex items-center gap-2 text-gray-900"><Key className="h-5 w-5 text-indigo-600" />Gán role quản lý cho: <span className="text-indigo-600">{sel.display_name}</span></h3>
@@ -717,7 +717,7 @@ export default function UsersTab() {
 
             {/* Centers assignment panel */}
             {panel === 'centers' && sel && (
-                <div className="cursor-pointer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={close}>
+                <div className="cursor-pointer fixed inset-0 z-modal-backdrop-custom flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={close}>
                     <div className="cursor-pointer bg-white rounded-xl shadow-2xl p-6 w-full max-w-4xl" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between mb-3 border-b pb-3">
                             <h3 className="text-lg font-bold flex items-center gap-2 text-gray-900">
@@ -798,7 +798,7 @@ export default function UsersTab() {
 
             {/* View Centers panel */}
             {panel === 'viewCenters' && sel && (
-                <div className="cursor-pointer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={close}>
+                <div className="cursor-pointer fixed inset-0 z-modal-backdrop-custom flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={close}>
                     <div className="cursor-pointer bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between mb-3 border-b pb-3">
                             <h3 className="text-lg font-bold flex items-center gap-2 text-gray-900">
@@ -849,7 +849,7 @@ export default function UsersTab() {
 
             {/* Change password panel */}
             {panel === 'password' && sel && (
-                <div className="cursor-pointer fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={close}>
+                <div className="cursor-pointer fixed inset-0 z-modal-backdrop-custom flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={close}>
                     <div className="cursor-pointer bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between mb-4 border-b pb-3">
                             <h3 className="text-lg font-bold flex items-center gap-2 text-gray-900"><Lock className="h-5 w-5 text-amber-500" />Đổi mật khẩu</h3>

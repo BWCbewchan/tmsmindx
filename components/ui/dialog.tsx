@@ -11,8 +11,8 @@
  * Built with base components (Box, Stack, Heading, Text) for consistency.
  * 
  * Z-Index Scale:
- * - Backdrop: 1300 (z-modal-backdrop)
- * - Content: 1400 (z-modal)
+ * - Backdrop: z-modal-backdrop-custom
+ * - Content: z-modal-custom
  * 
  * @example
  * ```tsx
@@ -86,7 +86,7 @@ const Dialog = ({
     if (!open || !mounted) return null
 
     return createPortal(
-        <Box className="fixed inset-0 z-[1300] flex items-center justify-center">
+        <Box className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center">
             {/* Backdrop - z-index: 1300 */}
             <Box
                 className="fixed inset-0 bg-black/50 backdrop-blur-sm animate-in fade-in-0 duration-200"
@@ -95,7 +95,7 @@ const Dialog = ({
             />
             
             {/* Content Container - z-index: 1400 */}
-            <Box className="relative z-[1400] w-full max-w-lg p-4 sm:p-0 flex items-center justify-center">
+            <Box className="relative z-modal-custom w-full max-w-lg p-4 sm:p-0 flex items-center justify-center">
                 {children}
             </Box>
         </Box>,

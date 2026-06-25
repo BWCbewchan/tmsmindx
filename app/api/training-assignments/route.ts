@@ -24,21 +24,39 @@ function parseQuestionOptions(value: unknown): unknown {
   }
 }
 
-// GET: Láº¥y danh sÃ¡ch assignments
+// GET: Lấy danh sách assignments
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const video_id = searchParams.get('video_id');
-    // Normalize teacher_code: lowercase + trim Ä‘á»ƒ trÃ¡nh case mismatch
+    // Normalize teacher_code: lowercase + trim để tránh case mismatch
     const teacher_code = (searchParams.get('teacher_code') || '').toLowerCase().trim() || null;
-    // status column Ä‘Ã£ bá»‹ xÃ³a (migration V42) â€” khÃ´ng dÃ¹ng ná»¯a
+    // status column đã bị xóa (migration V42) — không dùng nữa
+
+    let allTeacherCodes: string[] = [];
+    if (teacher_code) {
+      // Resolve canonical code và email prefix từ teachers table
+      const resolveRes = await pool.query(
+        `SELECT LOWER(TRIM(code)) AS canonical_code, LOWER(TRIM(user_name)) AS user_name
+         FROM teachers
+         WHERE LOWER(TRIM(code)) = $1
+            OR LOWER(TRIM(user_name)) = $1
+            OR LOWER(SPLIT_PART(work_email, '@', 1)) = $1
+         LIMIT 1`,
+        [teacher_code],
+      );
+      const resolvedRow = resolveRes.rows[0];
+      const canonicalCode = resolvedRow?.canonical_code || teacher_code;
+      const emailPrefixCode = resolvedRow?.user_name || teacher_code;
+      allTeacherCodes = [...new Set([canonicalCode, emailPrefixCode, teacher_code])].filter(Boolean);
+    }
 
     const quizEvidenceByVideoQuery = `
       SELECT DISTINCT tva.video_id
       FROM training_assignment_submissions tas
       INNER JOIN training_video_assignments tva ON tva.id = tas.assignment_id
-      WHERE LOWER(TRIM(tas.teacher_code)) = $1
+      WHERE LOWER(TRIM(tas.teacher_code)) = ANY($1::text[])
         AND tva.video_id IS NOT NULL
         AND (
           tas.status = 'graded'
@@ -75,7 +93,7 @@ export async function GET(request: Request) {
     const [result, quizEvidenceResult] = await Promise.all([
       pool.query(query, params),
       teacher_code
-        ? pool.query(quizEvidenceByVideoQuery, [teacher_code])
+        ? pool.query(quizEvidenceByVideoQuery, [allTeacherCodes])
         : Promise.resolve({ rows: [] as { video_id: number }[] }),
     ]);
 
@@ -83,7 +101,7 @@ export async function GET(request: Request) {
       (quizEvidenceResult.rows as { video_id: number }[]).map((r) => r.video_id),
     );
 
-    // Láº¥y sá»‘ lÆ°á»£ng cÃ¢u há»i cho má»—i assignment
+    // Lấy số lượng câu hỏi cho mỗi assignment
     if (result.rows.length > 0) {
       const assignmentIds = result.rows.map(row => row.id);
 
@@ -100,16 +118,16 @@ export async function GET(request: Request) {
         return acc;
       }, {} as Record<number, number>);
 
-      // Fetch teacher submissions náº¿u cÃ³ teacher_code
+      // Fetch teacher submissions nếu có teacher_code
       const submissionsMap: Record<number, any> = {};
       if (teacher_code) {
         const submissionsResult = await pool.query(
           `SELECT DISTINCT ON (assignment_id) *
            FROM training_assignment_submissions
-           WHERE LOWER(TRIM(teacher_code)) = $1 AND assignment_id = ANY($2)
+           WHERE LOWER(TRIM(teacher_code)) = ANY($1::text[]) AND assignment_id = ANY($2)
              AND status IN ('submitted', 'graded')
            ORDER BY assignment_id, submitted_at DESC NULLS LAST`,
-          [teacher_code, assignmentIds]
+          [allTeacherCodes, assignmentIds]
         );
         submissionsResult.rows.forEach(sub => {
           submissionsMap[sub.assignment_id] = sub;
@@ -159,8 +177,8 @@ export async function GET(request: Request) {
                       COALESCE(server_time_seconds, 0) AS server_time_seconds,
                       last_heartbeat_at
                FROM training_teacher_video_scores
-               WHERE LOWER(TRIM(teacher_code)) = $1 AND video_id = ANY($2::int[])`,
-              [teacher_code, allScoreVideoIds],
+               WHERE LOWER(TRIM(teacher_code)) = ANY($1::text[]) AND video_id = ANY($2::int[])`,
+              [allTeacherCodes, allScoreVideoIds],
             );
             scoresRes.rows.forEach(
               (srow: {

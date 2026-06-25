@@ -122,6 +122,26 @@ interface EventParticipant {
   responded_at: string;
 }
 
+interface ExamParticipant {
+  id: number;
+  teacher_code: string;
+  teacher_name: string;
+  teacher_email: string;
+  teacher_center: string;
+  area: string;
+  registration_type: string;
+  subject_name: string;
+  exam_type: string;
+  block_code: string;
+  month: number | null;
+  year: number | null;
+  batch: string | null;
+  score: number | null;
+  score_status: string;
+  registered_at: string;
+  status: 'completed' | 'registered';
+}
+
 interface TeachingReviewParticipant {
   id: number;
   event_id: string;
@@ -375,7 +395,7 @@ export default function ProfessionalEvaluationSchedulePage() {
   const [showParticipantsModal, setShowParticipantsModal] = useState(false);
   const [participantsLoading, setParticipantsLoading] = useState(false);
   const [selectedParticipantEvent, setSelectedParticipantEvent] = useState<EvaluationEvent | null>(null);
-  const [acceptedParticipants, setAcceptedParticipants] = useState<Array<EventParticipant | TeachingReviewParticipant>>([]);
+  const [acceptedParticipants, setAcceptedParticipants] = useState<Array<EventParticipant | TeachingReviewParticipant | ExamParticipant>>([]);
   const [showLectureRegisterModal, setShowLectureRegisterModal] = useState(false);
   const [selectedLectureEvent, setSelectedLectureEvent] = useState<EvaluationEvent | null>(null);
   const [teacherQuery, setTeacherQuery] = useState("");
@@ -813,7 +833,7 @@ export default function ProfessionalEvaluationSchedulePage() {
         throw new Error(data?.error || 'Không thể tải danh sách tham gia');
       }
 
-      setAcceptedParticipants((data.data || []) as Array<EventParticipant | TeachingReviewParticipant>);
+      setAcceptedParticipants((data.data || []) as Array<EventParticipant | TeachingReviewParticipant | ExamParticipant>);
     } catch (error: any) {
       setAcceptedParticipants([]);
       toast.error(error?.message || 'Không thể tải danh sách tham gia');
@@ -1531,7 +1551,7 @@ export default function ProfessionalEvaluationSchedulePage() {
       </Card>
 
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-xl rounded-xl bg-white shadow-2xl h-[85vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <h3 className="text-lg font-bold text-foreground">{editingEventId ? 'Cập nhật sự kiện' : 'Thêm mới sự kiện'}</h3>
@@ -1645,38 +1665,37 @@ export default function ProfessionalEvaluationSchedulePage() {
                       />
                     </div>
 
-                    {formData.registrationTemplate === "supplement" && (
-                      <div className="grid grid-cols-2 gap-3 mt-2 p-3 rounded-lg border border-blue-100 bg-blue-50/50">
-                        <div>
-                          <label className="mb-1 block text-xs font-semibold text-blue-700">Giờ bắt đầu mở *</label>
-                          <input
-                            type="time"
-                            value={formData.registrationStartTime}
-                            onChange={(event) =>
-                              setFormData((previous) => ({
-                                ...previous,
-                                registrationStartTime: event.target.value,
-                              }))
-                            }
-                            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm bg-white"
-                          />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-xs font-semibold text-blue-700">Giờ kết thúc *</label>
-                          <input
-                            type="time"
-                            value={formData.registrationEndTime}
-                            onChange={(event) =>
-                              setFormData((previous) => ({
-                                ...previous,
-                                registrationEndTime: event.target.value,
-                              }))
-                            }
-                            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm bg-white"
-                          />
-                        </div>
+                    {/* Hiển thị input thời gian cho CẢ chính thức và bổ sung */}
+                    <div className="grid grid-cols-2 gap-3 mt-2 p-3 rounded-lg border border-blue-100 bg-blue-50/50">
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-blue-700">Giờ bắt đầu mở *</label>
+                        <input
+                          type="time"
+                          value={formData.registrationStartTime}
+                          onChange={(event) =>
+                            setFormData((previous) => ({
+                              ...previous,
+                              registrationStartTime: event.target.value,
+                            }))
+                          }
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm bg-white"
+                        />
                       </div>
-                    )}
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold text-blue-700">Giờ kết thúc *</label>
+                        <input
+                          type="time"
+                          value={formData.registrationEndTime}
+                          onChange={(event) =>
+                            setFormData((previous) => ({
+                              ...previous,
+                              registrationEndTime: event.target.value,
+                            }))
+                          }
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm bg-white"
+                        />
+                      </div>
+                    </div>
                   </>
                 ) : formData.eventType === "exam" ? (
                   <>
@@ -2148,7 +2167,7 @@ export default function ProfessionalEvaluationSchedulePage() {
       )}
 
       {showDayEventsModal && selectedDate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-2xl rounded-xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
               <h3 className="text-lg font-bold text-foreground">
@@ -2292,14 +2311,16 @@ export default function ProfessionalEvaluationSchedulePage() {
       )}
 
       {showParticipantsModal && selectedParticipantEvent && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 p-4">
+        <div className="fixed inset-0 z-modal-raised-custom flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-2xl rounded-xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
               <div>
                 <h3 className="text-lg font-bold text-gray-900">
                   {selectedParticipantEvent.eventType === 'teaching_review'
                     ? 'Danh sách đăng ký duyệt giảng'
-                    : 'Danh sách xác nhận tham gia'}
+                    : selectedParticipantEvent.eventType === 'exam'
+                      ? 'Danh sách giáo viên đăng ký kiểm tra'
+                      : 'Danh sách xác nhận tham gia'}
                 </h3>
                 <p className="mt-0.5 text-xs text-gray-500">
                   {selectedParticipantEvent.title} • {formatEventTimeRange(selectedParticipantEvent.startAt, selectedParticipantEvent.endAt)}
@@ -2316,51 +2337,62 @@ export default function ProfessionalEvaluationSchedulePage() {
             <div className="max-h-[60vh] overflow-y-auto p-4">
               {participantsLoading ? (
                 <div className="rounded-lg border border-gray-200 p-6 text-center text-sm text-gray-500">
-                  Đang tải danh sách {selectedParticipantEvent.eventType === 'teaching_review' ? 'đăng ký duyệt giảng' : 'tham gia'}...
+                  Đang tải danh sách {selectedParticipantEvent.eventType === 'teaching_review' ? 'đăng ký duyệt giảng' : 'đăng ký'}...
                 </div>
               ) : acceptedParticipants.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">
                   {selectedParticipantEvent.eventType === 'teaching_review'
                     ? 'Chưa có đăng ký duyệt giảng nào.'
-                    : 'Chưa có mentor tham gia.'}
+                    : selectedParticipantEvent.eventType === 'exam'
+                      ? 'Chưa có giáo viên đăng ký kiểm tra.'
+                      : 'Chưa có mentor tham gia.'}
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {acceptedParticipants.map((participant, index) => (
-                    <div key={participant.id} className="rounded-lg border border-gray-200 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-semibold text-gray-900">
-                            {index + 1}. {participant.teacher_name || participant.teacher_code}
-                          </p>
-                          <p className="text-xs text-gray-600">Mã GV: {participant.teacher_code}</p>
-                          {participant.teacher_email && (
-                            <p className="text-xs text-gray-600">Email: {participant.teacher_email}</p>
-                          )}
-                          {'teacher_center' in participant && participant.teacher_center && (
-                            <p className="text-xs text-gray-600">Cơ sở: {participant.teacher_center}</p>
-                          )}
-                          {'status' in participant && (
-                            <p className="text-xs text-gray-600">Trạng thái: {participant.status}</p>
+                  {acceptedParticipants.map((participant, index) => {
+                    const isExam = selectedParticipantEvent.eventType === 'exam';
+                    const examP = isExam ? (participant as ExamParticipant) : null;
+                    return (
+                      <div key={participant.id} className="rounded-lg border border-gray-200 p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-gray-900">
+                              {index + 1}. {participant.teacher_name || participant.teacher_code}
+                            </p>
+                            <p className="text-xs text-gray-600">Mã GV: {participant.teacher_code}</p>
+                            {'teacher_center' in participant && participant.teacher_center && (
+                              <p className="text-xs text-gray-600">Cơ sở: {participant.teacher_center}</p>
+                            )}
+                            {isExam && examP && examP.subject_name && (
+                              <p className="text-xs text-gray-600">Môn: <span className="font-medium text-gray-800">{examP.subject_name}</span></p>
+                            )}
+                            {isExam && examP && (
+                              <p className="text-xs text-gray-600">
+                                Loại: {examP.registration_type?.toLowerCase().includes('bổ sung') || examP.registration_type?.toLowerCase().includes('bo sung') ? 'Bổ sung' : 'Chính thức'}
+                              </p>
+                            )}
+                          </div>
+                          {!isExam && 'status' in participant ? (
+                            <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                              {(participant as TeachingReviewParticipant).status}
+                            </span>
+                          ) : (
+                            <span className="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700">
+                              Đã xác nhận
+                            </span>
                           )}
                         </div>
-                        {'status' in participant ? (
-                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
-                            {participant.status}
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700">
-                            Đã xác nhận
-                          </span>
-                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
 
-            <div className="flex justify-end border-t border-gray-200 px-4 py-3">
+            <div className="flex items-center justify-between border-t border-gray-200 px-4 py-3">
+              <p className="text-xs text-gray-500">
+                {acceptedParticipants.length > 0 && `${acceptedParticipants.length} người`}
+              </p>
               <button
                 onClick={() => setShowParticipantsModal(false)}
                 className="rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold hover:bg-gray-50"

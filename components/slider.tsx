@@ -58,6 +58,12 @@ export default function Slider({ posts }: SliderProps) {
 
     if (!posts.length) return null
 
+    const mountedImageIndexes = new Set([
+        currentSlide,
+        (currentSlide + 1) % posts.length,
+        (currentSlide - 1 + posts.length) % posts.length,
+    ])
+
     return (
         <div
             className="relative w-full aspect-video rounded-2xl overflow-hidden bg-gray-900 group shadow-xl ring-1 ring-black/5"
@@ -74,23 +80,17 @@ export default function Slider({ posts }: SliderProps) {
                 >
                     {/* Image — sử dụng CroppedImage để hiển thị đúng vùng thumbnail đã cập nhật */}
                     <div className="absolute inset-0">
-                        {/* Background blur để tăng độ sâu (depth) */}
-                        { }
-                        <img
-                            src={normalizeStorageUrl(post.banner_image || post.featured_image) || "/placeholder-banner.jpg"}
-                            alt={post.title}
-                            className="w-full h-full object-cover object-center scale-105"
-                            style={{ filter: 'blur(10px) brightness(0.7)' }}
-                        />
-                        {/* Ảnh chính đã được crop */}
-                        <div className="absolute inset-0">
+                        {mountedImageIndexes.has(index) && (
                             <CroppedImage
-                                src={post.banner_image || post.featured_image || "/placeholder-banner.jpg"}
+                                src={normalizeStorageUrl(post.banner_image || post.featured_image) || "/placeholder-banner.jpg"}
                                 alt={post.title}
                                 cropData={post.thumbnail_position}
                                 className="w-full h-full"
+                                loading={index === currentSlide ? 'eager' : 'lazy'}
+                                fetchPriority={index === currentSlide ? 'high' : 'low'}
+                                decoding="async"
                             />
-                        </div>
+                        )}
                     </div>
 
                     {/* Double gradient overlay */}
@@ -117,7 +117,11 @@ export default function Slider({ posts }: SliderProps) {
                                 textShadow: '0 2px 12px rgba(0,0,0,0.7), 0 1px 3px rgba(0,0,0,0.9)'
                             }}
                         >
-                            <Link href={`/user/truyenthong/${post.slug || post.id}`} className="hover:text-white/90 transition-colors">
+                            <Link
+                                href={`/user/truyenthong/${post.slug || post.id}`}
+                                prefetch={false}
+                                className="hover:text-white/90 transition-colors"
+                            >
                                 {post.title}
                             </Link>
                         </h3>
@@ -133,7 +137,7 @@ export default function Slider({ posts }: SliderProps) {
 
                         {/* CTA */}
                         <div className="mt-4 sm:mt-5">
-                            <Link href={`/user/truyenthong/${post.slug || post.id}`}>
+                            <Link href={`/user/truyenthong/${post.slug || post.id}`} prefetch={false}>
                                 <Button
                                     size="lg"
                                     className="bg-white text-gray-900 hover:bg-gray-100 font-bold rounded-full px-6 sm:px-8 py-4 sm:py-6 text-sm sm:text-base shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-0.5"

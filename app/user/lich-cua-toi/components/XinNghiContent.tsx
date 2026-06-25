@@ -27,6 +27,8 @@ import {
     CheckCircle2,
     ChevronDown,
     CircleX,
+    MapPin,
+    Users,
     Plus,
     RefreshCcw,
     Search,
@@ -272,6 +274,8 @@ export default function XinNghiContent({ initialLeaveDate, externalOpen, onCreat
   const { user, token } = useAuth()
   const { teacherProfile } = useTeacher()
   const campusPickerRef = useRef<HTMLDivElement | null>(null)
+  const dateDropdownRef = useRef<HTMLDivElement | null>(null)
+  const [showDateDropdown, setShowDateDropdown] = useState(false)
 
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([])
   const [campusFilter, setCampusFilter] = useState<string[]>([])
@@ -291,6 +295,439 @@ export default function XinNghiContent({ initialLeaveDate, externalOpen, onCreat
   const [classTimeStart, setClassTimeStart] = useState<string | null>(null)
   const [classTimeEnd, setClassTimeEnd] = useState<string | null>(null)
   const [statFilter, setStatFilter] = useState<StatFilter | null>(null)
+
+  // ─── Dữ liệu lớp học từ LMS ──────────────────────────────────────────────
+  type LmsClassSlot = {
+    id: string
+    classId: string
+    className: string
+    status: string      // RUNNING | PREPARING | ...
+    date: string        // YYYY-MM-DD
+    startTime: string   // ISO string từ LMS
+    endTime: string
+    sessionHour: number | null  // Số buổi học (1, 2, 3, ...)
+    students: Array<{ id: string; fullName: string }>
+    centreName: string
+  }
+  const [lmsSlots, setLmsSlots] = useState<LmsClassSlot[]>([])
+  const [lmsLoading, setLmsLoading] = useState(false)
+  // Bước 1: chọn lớp; Bước 2: chọn ngày trong lớp đó
+  const [lmsClassDropdownOpen, setLmsClassDropdownOpen] = useState(false)
+  const [selectedLmsClassName, setSelectedLmsClassName] = useState<string | null>(null)
+  const [classTimeFromLms, setClassTimeFromLms] = useState(false)
+  const [leaveSessionFromLms, setLeaveSessionFromLms] = useState(false) // Track xem buổi học có từ LMS không
+  const lmsClassDropdownRef = useRef<HTMLDivElement | null>(null)
+
+  /** Parse startTime/endTime từ LMS về HH:MM theo giờ VN (+07:00).
+   * LMS trả ISO UTC (vd "2025-06-19T11:00:00.000Z" = 18:00 VN).
+   */
+  function slotHhMm(raw: string): string {
+    if (!raw) return '00:00'
+    try {
+      const d = new Date(raw)
+      if (!isNaN(d.getTime())) {
+        // Lấy giờ phút theo múi giờ VN
+        const vnStr = d.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', hour12: false })
+        // vnStr dạng "18:00"
+        const parts = vnStr.split(':')
+        const h = parts[0]?.padStart(2, '0') ?? '00'
+        const m = parts[1]?.padStart(2, '0') ?? '00'
+        return `${h}:${m}`
+      }
+    } catch { /* ignore */ }
+    // fallback: lấy 5 ký tự đầu "HH:MM"
+    return normalizeHhMm((raw || '').slice(0, 5))
+  }
+
+  /** Kiểm tra slot có cách hiện tại >= 72h không.
+   * Tính từ DATETIME thực của buổi học (ngày + giờ bắt đầu, múi giờ VN +07:00).
+   * Ví dụ: hiện tại 16/06 12:00 → buổi 19/06 18:00 → diff = 78h → eligible.
+   */
+  function slotIsEligible(slot: LmsClassSlot): boolean {
+    try {
+      // Parse date từ slot (hỗ trợ cả ISO và YYYY-MM-DD)
+      let dateStr = ''
+      if (slot.date) {
+        const raw = String(slot.date)
+        if (raw.includes('T')) {
+          const d = new Date(raw)
+          if (!isNaN(d.getTime())) {
+            dateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' })
+          }
+        } else {
+          dateStr = raw.slice(0, 10)
+        }
+      }
+
+      if (!dateStr || dateStr.length !== 10) return false
+
+      const startHm = slotHhMm(slot.startTime)   // "HH:MM"
+      const slotDateTime = new Date(`${dateStr}T${startHm}:00+07:00`)
+
+      if (isNaN(slotDateTime.getTime())) return false
+
+      const diffHours = (slotDateTime.getTime() - Date.now()) / (1000 * 60 * 60)
+      return diffHours >= MIN_ADVANCE_HOURS
+    } catch {
+      return false
+    }
+  }
+
+  // Danh sách lớp duy nhất (dedup theo className), chỉ lấy lớp có slot tương lai
+  const lmsRunningClasses = useMemo(() => {
+    if (lmsSlots.length === 0) return []
+
+    // Tính ngày hiện tại tại VN (midnight)
+    const now = new Date()
+    const vnStr = now.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' })
+    const todayVN = new Date(vnStr)
+    todayVN.setHours(0, 0, 0, 0)
+
+    const map = new Map<string, { classId: string; className: string; centreName: string; studentCount: number }>()
+    let processedCount = 0
+    let runningCount = 0
+    let futureCount = 0
+
+    for (const s of lmsSlots) {
+      processedCount++
+
+      // Chỉ lấy lớp RUNNING
+      if (s.status !== 'RUNNING') {
+        if (processedCount <= 3) console.log(`[XinNghi] skip slot ${processedCount}: status=${s.status} (not RUNNING)`)
+        continue
+      }
+      runningCount++
+
+      const name = s.className?.trim()
+      if (!name) {
+        if (processedCount <= 3) console.log(`[XinNghi] skip slot ${processedCount}: no className`)
+        continue
+      }
+
+      // Parse date — hỗ trợ cả ISO timestamp và YYYY-MM-DD
+      let dateStr = ''
+      if (s.date) {
+        const raw = String(s.date)
+        if (raw.includes('T')) {
+          // ISO timestamp, parse và format về YYYY-MM-DD theo múi giờ VN
+          const d = new Date(raw)
+          if (!isNaN(d.getTime())) {
+            dateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' })
+          }
+        } else {
+          dateStr = raw.slice(0, 10)
+        }
+      }
+
+      if (!dateStr || dateStr.length !== 10) {
+        if (processedCount <= 3) console.log(`[XinNghi] skip slot ${processedCount}: invalid date from ${s.date}`)
+        continue
+      }
+
+      // Parse as local date in VN timezone
+      const slotDate = new Date(dateStr + 'T00:00:00+07:00')
+      if (isNaN(slotDate.getTime())) {
+        if (processedCount <= 3) console.log('[XinNghi] invalid date:', dateStr)
+        continue
+      }
+
+      // So sánh chỉ theo ngày (bỏ qua giờ)
+      const slotDateOnly = new Date(slotDate)
+      slotDateOnly.setHours(0, 0, 0, 0)
+
+      if (slotDateOnly < todayVN) {
+        if (processedCount <= 3) console.log('[XinNghi] skipping past slot:', dateStr, 'slotDate:', slotDateOnly.toISOString(), 'vs todayVN:', todayVN.toISOString())
+        continue
+      }
+
+      futureCount++
+
+      if (!map.has(name)) {
+        map.set(name, {
+          classId: s.classId || name,
+          className: name,
+          centreName: s.centreName || '',
+          studentCount: s.students?.length ?? 0,
+        })
+      }
+    }
+    const result = Array.from(map.values()).sort((a, b) => a.className.localeCompare(b.className))
+    console.log(`[XinNghi] lmsRunningClasses: ${result.length} classes from ${futureCount} future RUNNING slots (${runningCount} RUNNING, ${processedCount} total), todayVN=${todayVN.toISOString().slice(0,10)}`)
+    if (result.length > 0) console.log('[XinNghi] class names:', result.map(r => r.className).slice(0, 5).join(', ') + (result.length > 5 ? '...' : ''))
+    return result
+  }, [lmsSlots])
+
+  // Danh sách slots tương lai của lớp đang được chọn với số buổi được tính
+  const selectedClassFutureSlots = useMemo(() => {
+    if (!selectedLmsClassName) return []
+
+    const now = Date.now()
+
+    // Lấy TẤT CẢ slots của lớp và group theo ngày trước
+    const dateMap = new Map<string, { date: string; slots: typeof lmsSlots }>()
+
+    for (const s of lmsSlots) {
+      if (s.className?.trim() !== selectedLmsClassName.trim()) continue
+
+      // Parse date
+      let dateStr = ''
+      if (s.date) {
+        const raw = String(s.date)
+        if (raw.includes('T')) {
+          const d = new Date(raw)
+          if (!isNaN(d.getTime())) {
+            dateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' })
+          }
+        } else {
+          dateStr = raw.slice(0, 10)
+        }
+      }
+
+      if (!dateStr || dateStr.length !== 10) continue
+
+      if (!dateMap.has(dateStr)) {
+        dateMap.set(dateStr, { date: dateStr, slots: [] })
+      }
+      dateMap.get(dateStr)!.slots.push(s)
+    }
+
+    // Sort các ngày unique
+    const sortedDates = Array.from(dateMap.keys()).sort()
+
+    console.log(`[XinNghi] Class ${selectedLmsClassName} has ${sortedDates.length} unique dates`)
+
+    // Tính số buổi cho mỗi ngày
+    const result: Array<LmsClassSlot & { sessionNumber: number }> = []
+
+    for (let i = 0; i < sortedDates.length; i++) {
+      const dateStr = sortedDates[i]
+      const sessionNumber = i + 1 // Buổi thứ mấy = index + 1
+      const dateData = dateMap.get(dateStr)!
+
+      // Lấy slot đầu tiên của ngày đó (hoặc slot có sessionHour lớn nhất)
+      const slots = dateData.slots.sort((a, b) => (b.sessionHour ?? 0) - (a.sessionHour ?? 0))
+      const representativeSlot = slots[0]
+
+      // Kiểm tra xem ngày này có trong tương lai không
+      const startHm = slotHhMm(representativeSlot.startTime)
+      const slotDateTime = new Date(`${dateStr}T${startHm}:00+07:00`)
+
+      if (slotDateTime.getTime() > now) {
+        result.push({
+          ...representativeSlot,
+          date: dateStr,
+          sessionNumber,
+        })
+      }
+    }
+
+    return result
+  }, [lmsSlots, selectedLmsClassName])
+
+  // State để track việc fetch lớp học đã hoàn thành
+  const [lmsLoadedOnce, setLmsLoadedOnce] = useState(false)
+  const toastShownRef = useRef(false)
+
+  // Fetch lớp ngay khi component mount (khi vào tab "Xin nghỉ")
+  useEffect(() => {
+    if (!user?.email || lmsLoadedOnce) return // Chỉ load 1 lần
+
+    let cancelled = false
+    setLmsLoading(true)
+
+    // Hiển thị toast thông báo (chỉ 1 lần)
+    if (!toastShownRef.current) {
+      toast.info('Đang tải danh sách lớp từ LMS...', { duration: 2000 })
+      toastShownRef.current = true
+    }
+
+    async function fetchWeek(from: string, to: string): Promise<LmsClassSlot[]> {
+      try {
+        console.log(`[XinNghi] fetching week: ${from} → ${to}`)
+        const r = await fetch(
+          `/api/user/lich-lop-hoc?from=${from}&to=${to}`,
+          { credentials: 'include', cache: 'no-store' },
+        )
+        console.log(`[XinNghi] response status: ${r.status}`)
+        if (!r.ok) {
+          console.log(`[XinNghi] fetch failed: ${r.status} ${r.statusText}`)
+          return []
+        }
+        const d = await r.json()
+        console.log(`[XinNghi] LMS response:`, { success: d?.success, slotsCount: d?.slots?.length ?? 0, noLmsToken: d?.noLmsToken, message: d?.message })
+        if (d?.noLmsToken) return []
+        const slots = d?.success && Array.isArray(d.slots) ? (d.slots as LmsClassSlot[]) : []
+        console.log(`[XinNghi] week ${from} → ${to} OK: ${slots.length} slots`)
+        return slots
+      } catch (err) {
+        console.error(`[XinNghi] fetch error:`, err)
+        return []
+      }
+    }
+
+    async function tryRefreshLmsToken(): Promise<boolean> {
+      try {
+        const r = await fetch('/api/lms-token/refresh', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { ...authHeaders(token) },
+        })
+        return r.ok
+      } catch { return false }
+    }
+
+    ;(async () => {
+      try {
+        const now = new Date()
+        const currentSunday = new Date(now)
+        currentSunday.setDate(now.getDate() - now.getDay())
+        currentSunday.setHours(0, 0, 0, 0)
+
+        const weekRanges = Array.from({ length: 5 }, (_, week) => {
+          const start = new Date(currentSunday)
+          start.setDate(currentSunday.getDate() + week * 7)
+          const end = new Date(start)
+          end.setDate(start.getDate() + 6)
+          return { from: start.toISOString().split('T')[0], to: end.toISOString().split('T')[0] }
+        })
+
+        console.log(`[XinNghi] fetching 5 weeks starting from ${weekRanges[0].from}`)
+
+        // Fetch tuần đầu — nếu 0 slots thì thử refresh token
+        let firstSlots = await fetchWeek(weekRanges[0].from, weekRanges[0].to)
+
+        if (firstSlots.length === 0 && !cancelled) {
+          console.log('[XinNghi] trying LMS token refresh...')
+          const ok = await tryRefreshLmsToken()
+          console.log(`[XinNghi] token refresh ${ok ? 'succeeded' : 'failed'}`)
+          if (ok) {
+            firstSlots = await fetchWeek(weekRanges[0].from, weekRanges[0].to)
+          }
+        }
+
+        if (cancelled) return
+        const allSlots: LmsClassSlot[] = [...firstSlots]
+
+        for (let week = 1; week < 5; week++) {
+          if (cancelled) break
+          const { from, to } = weekRanges[week]
+          const slots = await fetchWeek(from, to)
+          allSlots.push(...slots)
+        }
+
+        console.log(`[XinNghi] total slots: ${allSlots.length}`)
+        if (!cancelled) {
+          setLmsSlots(allSlots)
+          setLmsLoadedOnce(true)
+
+          // Hiển thị toast thông báo kết quả
+          const classCount = new Set(allSlots.filter(s => s.status === 'RUNNING').map(s => s.className)).size
+          if (classCount > 0) {
+            toast.success(`Đã tải ${classCount} lớp học từ LMS`)
+          } else {
+            toast.warning('Không tìm thấy lớp nào từ LMS')
+          }
+        }
+      } catch (error) {
+        console.error('[XinNghi] fetch error:', error)
+        if (!cancelled) {
+          toast.error('Lỗi khi tải danh sách lớp từ LMS')
+        }
+      } finally {
+        if (!cancelled) setLmsLoading(false)
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [user?.email, token, lmsLoadedOnce])
+
+  // Đóng dropdown khi click ngoài
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (lmsClassDropdownRef.current && !lmsClassDropdownRef.current.contains(e.target as Node)) {
+        setLmsClassDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  function handleSelectLmsClass(className: string) {
+    setSelectedLmsClassName(className)
+    setLmsClassDropdownOpen(false)
+
+    // Auto-fill mã lớp + số học viên
+    const cls = lmsRunningClasses.find((c) => c.className === className)
+
+    // Tìm slot tương lai đầu tiên của lớp này để lấy giờ
+    const futureSlots = lmsSlots.filter(s => s.className?.trim() === className.trim())
+    const firstSlot = futureSlots[0]
+
+    if (firstSlot) {
+      const startHm = slotHhMm(firstSlot.startTime)
+      const endHm = slotHhMm(firstSlot.endTime)
+      setClassTimeStart(startHm)
+      setClassTimeEnd(endHm)
+      setClassTimeFromLms(true)
+    } else {
+      setClassTimeStart(null)
+      setClassTimeEnd(null)
+      setClassTimeFromLms(false)
+    }
+
+    // Auto-fill cơ sở dựa trên centreName
+    let matchedCampus = ''
+    if (cls?.centreName) {
+      // Tìm cơ sở matching với centreName (vd: "322TT" -> "HCM - 322 Tây Thạnh")
+      const centerShortName = cls.centreName.trim()
+      const campusOption = campusSelectionOptions.find(opt => {
+        const optShort = opt.shortCode?.trim() || ''
+        // So sánh chính xác hoặc contains
+        return optShort === centerShortName || opt.label.includes(centerShortName)
+      })
+
+      if (campusOption) {
+        matchedCampus = campusOption.value
+        console.log('[XinNghi] Auto-fill campus:', matchedCampus, 'from centreName:', centerShortName)
+      }
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      class_code: className,
+      student_count: String(cls?.studentCount ?? ''),
+      campus: matchedCampus || prev.campus, // Giữ campus cũ nếu không match được
+      // Reset ngày khi đổi lớp
+      leave_date: '',
+    }))
+  }
+
+  function handleSelectLmsSlotDate(slot: LmsClassSlot) {
+    const startHm = slotHhMm(slot.startTime)
+    const endHm = slotHhMm(slot.endTime)
+    setClassTimeStart(startHm)
+    setClassTimeEnd(endHm)
+    setClassTimeFromLms(true)
+    setFormData((prev) => ({
+      ...prev,
+      leave_date: slot.date,
+    }))
+  }
+
+  function clearLmsSelection() {
+    setSelectedLmsClassName(null)
+    setFormData((prev) => ({
+      ...prev,
+      class_code: '',
+      student_count: '',
+      leave_date: '',
+      leave_session: '',
+    }))
+    setClassTimeStart(null)
+    setClassTimeEnd(null)
+    setClassTimeFromLms(false)
+    setLeaveSessionFromLms(false)
+  }
 
   const campusOptions = useMemo(() => {
     const set = new Set<string>()
@@ -593,11 +1030,18 @@ export default function XinNghiContent({ initialLeaveDate, externalOpen, onCreat
       ) {
         setShowCampusPicker(false)
       }
+      if (
+        dateDropdownRef.current &&
+        !dateDropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowDateDropdown(false)
+      }
     }
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setShowCampusPicker(false)
+        setShowDateDropdown(false)
       }
     }
 
@@ -814,16 +1258,16 @@ export default function XinNghiContent({ initialLeaveDate, externalOpen, onCreat
 
 Em là ${formData.teacher_name || '[Họ tên giáo viên đầy đủ]'} hiện đang là giáo viên tại cơ sở ${formData.campus || '[Tên Cơ Sở]'}, hôm nay em viết email này xin được nghỉ vào ngày ${leaveDateDisplay}.
 
-Vì lý do ${formData.reason || '[nêu lý do]'}. 
+Vì lý do ${formData.reason || '[nêu lý do]'}.
 
 Thông tin lớp học cụ thể như sau:
 
-Mã lớp: ${formData.class_code || '[Mã lớp học]'}. 
-Số học viên: ${formData.student_count || '[Số lượng học viên của lớp]'}. 
-Thời gian học: ${formData.class_time || '[Giờ Thứ, Ngày]'}. 
-Buổi học: ${formData.leave_session || '[Buổi học xin nghỉ]'}. 
-Giáo viên thay thế: ${formData.has_substitute ? formData.substitute_teacher || '[Nhập tên giáo viên thay thế]' : ''}. 
-Tình hình lớp học: ${formData.class_status || '[Nêu tình hình của lớp, có học viên nào cần lưu ý hay đặc biệt không]'}. 
+Mã lớp: ${formData.class_code || '[Mã lớp học]'}.
+Số học viên: ${formData.student_count || '[Số lượng học viên của lớp]'}.
+Thời gian học: ${formData.class_time || '[Giờ Thứ, Ngày]'}.
+Buổi học: ${formData.leave_session || '[Buổi học xin nghỉ]'}.
+Giáo viên thay thế: ${formData.has_substitute ? formData.substitute_teacher || '[Nhập tên giáo viên thay thế]' : ''}.
+Tình hình lớp học: ${formData.class_status || '[Nêu tình hình của lớp, có học viên nào cần lưu ý hay đặc biệt không]'}.
 
 ${
   hasSubstitute
@@ -909,16 +1353,16 @@ ${formData.teacher_name || '[Họ Và Tên]'}`
 
 Em là ${editForm.teacher_name || '[Họ tên giáo viên đầy đủ]'} hiện đang là giáo viên tại cơ sở ${editForm.campus || '[Tên Cơ Sở]'}, hôm nay em viết email này xin được nghỉ vào ngày ${editLeaveDateDisplay}.
 
-Vì lý do ${editForm.reason || '[nêu lý do]'}. 
+Vì lý do ${editForm.reason || '[nêu lý do]'}.
 
 Thông tin lớp học cụ thể như sau:
 
-Mã lớp: ${editForm.class_code || '[Mã lớp học]'}. 
-Số học viên: ${editForm.student_count || '[Số lượng học viên của lớp]'}. 
-Thời gian học: ${editForm.class_time || '[Giờ Thứ, Ngày]'}. 
-Buổi học: ${editForm.leave_session || '[Buổi học xin nghỉ]'}. 
-Giáo viên thay thế: ${editForm.has_substitute ? editForm.substitute_teacher || '[Nhập tên giáo viên thay thế]' : ''}. 
-Tình hình lớp học: ${editForm.class_status || '[Nêu tình hình của lớp, có học viên nào cần lưu ý hay đặc biệt không]'}. 
+Mã lớp: ${editForm.class_code || '[Mã lớp học]'}.
+Số học viên: ${editForm.student_count || '[Số lượng học viên của lớp]'}.
+Thời gian học: ${editForm.class_time || '[Giờ Thứ, Ngày]'}.
+Buổi học: ${editForm.leave_session || '[Buổi học xin nghỉ]'}.
+Giáo viên thay thế: ${editForm.has_substitute ? editForm.substitute_teacher || '[Nhập tên giáo viên thay thế]' : ''}.
+Tình hình lớp học: ${editForm.class_status || '[Nêu tình hình của lớp, có học viên nào cần lưu ý hay đặc biệt không]'}.
 
 ${
   editHasSubstitute
@@ -984,6 +1428,9 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
     }))
     setClassTimeStart(null)
     setClassTimeEnd(null)
+    setClassTimeFromLms(false)
+    setLeaveSessionFromLms(false)
+    setSelectedLmsClassName(null)
     setShowCampusPicker(false)
     setCampusPickerSearchText('')
   }
@@ -1311,9 +1758,16 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
       const data = await response.json()
 
       if (data.success) {
-        toast.success(
-          'Tạo mail xin nghỉ thành công. Yêu cầu đã vào quy trình duyệt.',
-        )
+        if (data.email_delivery?.sent) {
+          toast.success(
+            'Tạo mail xin nghỉ thành công. Yêu cầu đã vào quy trình duyệt.',
+          )
+        } else {
+          toast.error(
+            `Yêu cầu đã được tạo nhưng email chưa gửi được. ${data.email_delivery?.error || 'Vui lòng báo quản trị kiểm tra Email Monitor.'}`,
+            { duration: 8000 },
+          )
+        }
         setShowModal(false)
         resetFormForNew()
         fetchLeaveRequests()
@@ -1365,9 +1819,9 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
                 size="lg"
                 variant="outline"
                 onClick={() => fetchLeaveRequests(true)}
-                className="h-10 border-[#f3b4bd] text-[#a1001f] shadow-sm hover:bg-[#a1001f]/5"
+                className="h-9 sm:h-10 border-[#f3b4bd] text-[#a1001f] shadow-sm hover:bg-[#a1001f]/5 px-3 sm:px-4 text-sm sm:text-base"
               >
-                <RefreshCcw className="mr-1.5 h-4 w-4" />
+                <RefreshCcw className="mr-1 sm:mr-1.5 h-4 w-4" />
                 Làm mới
               </Button>
               <Button
@@ -1377,10 +1831,23 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
                   setShowCampusPicker(false)
                   setShowModal(true)
                 }}
-                className="whitespace-nowrap border-2 border-[#a1001f] bg-[#a1001f] text-white shadow-md hover:bg-[#8a001a]"
+                disabled={lmsLoading}
+                className="relative whitespace-nowrap border-2 border-[#a1001f] bg-[#a1001f] text-white shadow-md hover:bg-[#8a001a] h-9 sm:h-10 px-3 sm:px-6 text-sm sm:text-base disabled:opacity-60"
               >
-                <Plus className="mr-2 h-5 w-5" />
-                Tạo yêu cầu xin nghỉ
+                <Plus className="mr-1 sm:mr-2 h-4 w-4 sm:h-5 sm:w-5" />
+                <span className="hidden sm:inline">Tạo yêu cầu xin nghỉ</span>
+                <span className="inline sm:hidden">Tạo yêu cầu</span>
+                {lmsLoading && (
+                  <span className="absolute -right-1 -top-1 flex h-5 w-5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>
+                    <span className="relative inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-500">
+                      <svg className="h-3 w-3 animate-spin text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    </span>
+                  </span>
+                )}
               </Button>
             </div>
           }
@@ -1456,8 +1923,8 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
         </div>
 
         {/* Bộ lọc nâng cao */}
-        <div className="mb-4 flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end">
-          <div className="relative w-full md:w-auto">
+        <div className="mb-4 grid grid-cols-2 gap-3 md:flex md:flex-row md:flex-wrap md:items-end">
+          <div className="relative col-span-2 w-full md:w-auto">
             <label className="block text-xs font-semibold text-gray-600 mb-1">
               Cơ sở
             </label>
@@ -1546,7 +2013,7 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
               </div>
             )}
           </div>
-          <div className="w-fit md:w-auto">
+          <div className="w-full md:w-auto">
             <label className="block text-xs font-semibold text-gray-600 mb-1">
               Từ ngày
             </label>
@@ -1558,7 +2025,7 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
               max={toDate || undefined}
             />
           </div>
-          <div className="w-fit md:w-auto">
+          <div className="w-full md:w-auto">
             <label className="block text-xs font-semibold text-gray-600 mb-1">
               Đến ngày
             </label>
@@ -1583,6 +2050,7 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
                 setToDate('')
                 setStatFilter(null)
               }}
+              className="col-span-2 w-full justify-center md:w-auto"
             >
               Xoá lọc
             </Button>
@@ -1732,13 +2200,102 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
                 <label className="mb-1.5 block text-sm font-medium text-gray-700">
                   Ngày xin nghỉ *
                 </label>
-                <input
-                  required
-                  type="date"
-                  value={formData.leave_date}
-                  onChange={(e) => handleChange('leave_date', e.target.value)}
-                  className={`${INPUT_BASE_CLASS} appearance-none`}
-                />
+                {selectedLmsClassName && selectedClassFutureSlots.length > 0 ? (
+                  /* Dropdown ngày từ LMS khi đã chọn lớp */
+                  <div ref={dateDropdownRef} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowDateDropdown(!showDateDropdown)}
+                      className={`${SELECT_BASE_CLASS} flex w-full items-center justify-between bg-white text-left`}
+                    >
+                      <span className="truncate">
+                        {formData.leave_date ? (
+                          (() => {
+                            const slot = selectedClassFutureSlots.find(s => s.date === formData.leave_date)
+                            if (slot) {
+                              const dateDisplay = new Date(`${slot.date}T00:00:00`).toLocaleDateString('vi-VN', {
+                                weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric',
+                              })
+                              const startHm = slotHhMm(slot.startTime)
+                              const endHm = slotHhMm(slot.endTime)
+                              return `${dateDisplay} — ${timeToVnSegment(startHm)}–${timeToVnSegment(endHm)}`
+                            }
+                            return formData.leave_date
+                          })()
+                        ) : "-- Chọn ngày --"}
+                      </span>
+                      <ChevronDown className="h-4 w-4 ml-2 shrink-0 text-gray-500" />
+                    </button>
+                    {showDateDropdown && (
+                      <div className="absolute left-0 right-0 z-20 mt-1 flex max-h-60 w-full flex-col overflow-y-auto rounded-lg border border-gray-300 bg-white shadow-lg py-1 custom-scrollbar">
+                        {selectedClassFutureSlots.map((slot) => {
+                          const eligible = slotIsEligible(slot)
+                          const dateDisplay = new Date(`${slot.date}T00:00:00`).toLocaleDateString('vi-VN', {
+                            weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric',
+                          })
+                          const startHm = slotHhMm(slot.startTime)
+                          const endHm = slotHhMm(slot.endTime)
+                          return (
+                            <button
+                              key={slot.date}
+                              type="button"
+                              disabled={!eligible}
+                              onClick={() => {
+                                const dateVal = slot.date
+                                setClassTimeStart(slotHhMm(slot.startTime))
+                                setClassTimeEnd(slotHhMm(slot.endTime))
+                                setClassTimeFromLms(true)
+
+                                if (slot.sessionNumber && slot.sessionNumber > 0) {
+                                  setLeaveSessionFromLms(true)
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    leave_date: dateVal,
+                                    leave_session: `Buổi ${slot.sessionNumber}`,
+                                  }))
+                                } else {
+                                  setLeaveSessionFromLms(false)
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    leave_date: dateVal,
+                                  }))
+                                }
+                                setShowDateDropdown(false)
+                              }}
+                              className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:bg-gray-50/50 disabled:cursor-not-allowed ${
+                                formData.leave_date === slot.date ? 'bg-[#a1001f]/5 font-medium text-[#a1001f]' : 'text-gray-700'
+                              }`}
+                            >
+                              {eligible ? (
+                                <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                              ) : (
+                                <CircleX className="h-4 w-4 text-red-500 shrink-0" />
+                              )}
+                              <span className="flex-1 truncate">
+                                {dateDisplay} — {timeToVnSegment(startHm)}–{timeToVnSegment(endHm)}
+                              </span>
+                              {!eligible && (
+                                <span className="text-xs text-red-500 shrink-0 ml-1">(quá hạn 72h)</span>
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : selectedLmsClassName && selectedClassFutureSlots.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-gray-300 p-3 text-sm text-gray-500">
+                    Không có buổi học nào trong tương lai cho lớp này.
+                  </div>
+                ) : (
+                  <input
+                    required
+                    type="date"
+                    value={formData.leave_date}
+                    onChange={(e) => handleChange('leave_date', e.target.value)}
+                    className={`${INPUT_BASE_CLASS} appearance-none`}
+                  />
+                )}
               </div>
               <div className="md:col-span-2">
                 <label className="mb-1.5 block text-sm font-medium text-gray-700">
@@ -1794,10 +2351,6 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
                 </span>
                 <ChevronDown className="mt-1 h-4 w-4 shrink-0 self-start text-gray-400" aria-hidden />
               </button>
-              <p className="mt-1.5 text-xs text-gray-500">
-                Tất cả cơ sở đang hoạt động; các cơ sở được phân quản lý (manager)
-                hiển thị trước. Gõ để tìm nhanh.
-              </p>
 
               {showCampusPicker && (
                 <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl">
@@ -1879,15 +2432,102 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
               <label className="mb-1.5 block text-sm font-medium text-gray-700">
                 Mã lớp *
               </label>
-              <input
-                required
-                type="text"
-                value={formData.class_code}
-                onChange={(e) => handleChange('class_code', e.target.value)}
-                className={INPUT_BASE_CLASS}
-                placeholder="Nhập đúng mã lớp (giới hạn theo quy định)"
-              />
+              {/* Bước 1: Chọn lớp từ LMS */}
+              <div className="relative" ref={lmsClassDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setLmsClassDropdownOpen((v) => !v)}
+                  className={`${INPUT_BASE_CLASS} flex items-center justify-between text-left`}
+                  disabled={lmsLoading}
+                >
+                  {lmsLoading ? (
+                    <span className="flex items-center gap-2 text-gray-400">
+                      <svg className="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      <span>Đang tải...</span>
+                    </span>
+                  ) : (
+                    <span className={selectedLmsClassName ? 'text-gray-900' : 'text-gray-400'}>
+                      {selectedLmsClassName || 'Chọn lớp từ lịch dạy hoặc nhập thủ công'}
+                    </span>
+                  )}
+                  <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" />
+                </button>
+
+                {lmsClassDropdownOpen && (
+                  <div className="absolute left-0 top-full z-50 mt-1 w-full rounded-xl border border-gray-200 bg-white shadow-lg">
+                    {/* Ô nhập thủ công */}
+                    <div className="border-b border-gray-100 p-2">
+                      <input
+                        type="text"
+                        value={formData.class_code}
+                        onChange={(e) => {
+                          handleChange('class_code', e.target.value)
+                          setSelectedLmsClassName(null)
+                          setClassTimeFromLms(false)
+                        }}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-[#a1001f] focus:ring-1 focus:ring-[#a1001f]/20"
+                        placeholder="Hoặc nhập thủ công mã lớp..."
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {lmsLoading ? (
+                        <div className="flex items-center justify-center gap-2 p-4 text-sm text-gray-500">
+                          <svg className="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <span>Đang tải...</span>
+                        </div>
+                      ) : lmsRunningClasses.length === 0 ? (
+                        <div className="p-4 text-center text-sm text-gray-500">
+                          Không tìm thấy lớp nào có buổi học sắp tới.<br />
+                          <span className="text-xs text-gray-400">Hãy nhập thủ công ở trên.</span>
+                        </div>
+                      ) : (
+                        lmsRunningClasses.map((cls) => (
+                          <button
+                            key={cls.classId}
+                            type="button"
+                            onClick={() => handleSelectLmsClass(cls.className)}
+                            className={`w-full px-3 py-2.5 text-left transition-colors hover:bg-blue-50 ${selectedLmsClassName === cls.className ? 'bg-blue-50 font-semibold' : ''}`}
+                          >
+                            <div className="text-sm font-medium text-gray-900">{cls.className}</div>
+                            <div className="mt-0.5 flex items-center gap-3 text-xs text-gray-500">
+                              {cls.centreName && (
+                                <span className="flex items-center gap-1">
+                                  <MapPin className="h-3.5 w-3.5" />
+                                  {cls.centreName}
+                                </span>
+                              )}
+                              <span className="flex items-center gap-1">
+                                <Users className="h-3.5 w-3.5" />
+                                {cls.studentCount} HV
+                              </span>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Nút xoá lựa chọn */}
+              {selectedLmsClassName && (
+                <button
+                  type="button"
+                  onClick={clearLmsSelection}
+                  className="mt-1 text-xs text-[#a1001f] hover:underline"
+                >
+                  Xoá lựa chọn
+                </button>
+              )}
             </div>
+
             <div>
               <label className="mb-1.5 block text-sm font-medium text-gray-700" htmlFor="student-count">
                 Số học viên *
@@ -1909,44 +2549,52 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
               <label className="mb-1.5 block text-sm font-medium text-gray-700">
                 Thời gian học *
               </label>
-              <p className="mb-3 text-xs text-gray-500">
-                Chọn giờ bắt đầu và giờ kết thúc (định dạng 24 giờ, 00:00–23:59).
-                Giờ kết thúc phải sau giờ bắt đầu.
-              </p>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="min-w-0">
-                  <label
-                    htmlFor="class-time-start"
-                    className="mb-1.5 block text-xs font-medium text-gray-600"
-                  >
-                    Giờ bắt đầu
-                  </label>
-                  <Time24Select
-                    id="class-time-start"
-                    value={classTimeStart}
-                    onChange={setClassTimeStart}
-                    groupAriaLabel="Giờ bắt đầu"
-                    hourLabel="Giờ bắt đầu"
-                    minuteLabel="Phút bắt đầu"
-                  />
+              {classTimeFromLms ? (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-700">
+                  <span className="font-medium">
+                    {classTimeStart && classTimeEnd
+                      ? formatClassTimeRange(classTimeStart, classTimeEnd)
+                      : '—'}
+                  </span>
                 </div>
-                <div className="min-w-0">
-                  <label
-                    htmlFor="class-time-end"
-                    className="mb-1.5 block text-xs font-medium text-gray-600"
-                  >
-                    Giờ kết thúc
-                  </label>
-                  <Time24Select
-                    id="class-time-end"
-                    value={classTimeEnd}
-                    onChange={setClassTimeEnd}
-                    groupAriaLabel="Giờ kết thúc"
-                    hourLabel="Giờ kết thúc"
-                    minuteLabel="Phút kết thúc"
-                  />
-                </div>
-              </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="min-w-0">
+                      <label
+                        htmlFor="class-time-start"
+                        className="mb-1.5 block text-xs font-medium text-gray-600"
+                      >
+                        Giờ bắt đầu
+                      </label>
+                      <Time24Select
+                        id="class-time-start"
+                        value={classTimeStart}
+                        onChange={setClassTimeStart}
+                        groupAriaLabel="Giờ bắt đầu"
+                        hourLabel="Giờ bắt đầu"
+                        minuteLabel="Phút bắt đầu"
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <label
+                        htmlFor="class-time-end"
+                        className="mb-1.5 block text-xs font-medium text-gray-600"
+                      >
+                        Giờ kết thúc
+                      </label>
+                      <Time24Select
+                        id="class-time-end"
+                        value={classTimeEnd}
+                        onChange={setClassTimeEnd}
+                        groupAriaLabel="Giờ kết thúc"
+                        hourLabel="Giờ kết thúc"
+                        minuteLabel="Phút kết thúc"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
             <div>
               <label className="mb-1.5 block text-sm font-medium text-gray-700">
@@ -1957,6 +2605,7 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
                 required
                 value={formData.leave_session}
                 onChange={(v) => handleChange('leave_session', v)}
+                disabled={leaveSessionFromLms}
               />
             </div>
             <div className="md:col-span-2">
@@ -2283,10 +2932,6 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
                       <label className="mb-1.5 block text-sm font-medium text-gray-700">
                         Thời gian học *
                       </label>
-                      <p className="mb-3 text-xs text-gray-500">
-                        Chọn giờ bắt đầu và giờ kết thúc (định dạng 24 giờ, 00:00–23:59).
-                        Giờ kết thúc phải sau giờ bắt đầu.
-                      </p>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div>
                           <label

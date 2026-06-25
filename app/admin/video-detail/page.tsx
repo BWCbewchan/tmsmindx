@@ -1225,7 +1225,7 @@ function VideoDetailContent() {
 
       {/* Modal thêm câu hỏi */}
       {showAdd && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-modal-backdrop-custom p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-200">
             <div className="sticky top-0 bg-gradient-to-r from-[#a1001f] to-[#c41230] text-white p-6 rounded-t-2xl">
               <h2 className="text-2xl font-bold">Thêm câu hỏi tương tác</h2>
@@ -1418,7 +1418,7 @@ function VideoDetailContent() {
 
       {/* Modal hiển thị câu hỏi khi video đến thời điểm */}
       {showQuestionIdx !== null && questions[showQuestionIdx] && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-modal-backdrop-custom p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg animate-in zoom-in-95 duration-200">
             <div className="bg-gradient-to-r from-[#a1001f] to-[#c41230] text-white p-6 rounded-t-2xl">
               <h2 className="text-2xl font-bold flex items-center gap-2">

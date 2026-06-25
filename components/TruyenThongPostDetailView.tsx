@@ -1,6 +1,5 @@
 'use client'
 
-import Comments from '@/components/Comments'
 import CroppedImage from '@/components/CroppedImage'
 import PostCard from '@/components/post-card'
 import PostContentRenderer from '@/components/PostContentRenderer'
@@ -9,10 +8,23 @@ import { Button } from '@/components/ui/button'
 import { PageLayout, PageLayoutContent } from '@/components/ui/page-layout'
 import { Angry, ArrowLeft, Calendar, Check, Eye, FileText, Frown, Heart, Laugh, Share2, ThumbsUp } from 'lucide-react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { useParams, usePathname } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import useSWR from 'swr'
 import { toast } from '@/lib/app-toast'
 import { useAuth } from '@/lib/auth-context'
+
+const Comments = dynamic(() => import('@/components/Comments'), {
+    ssr: false,
+    loading: () => <div className="h-40 animate-pulse rounded-xl border border-gray-200 bg-gray-50" />,
+})
+
+async function fetchPost(url: string): Promise<Post> {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error('Failed to fetch post')
+    return response.json()
+}
 
 export type TruyenThongPostDetailMode = 'user' | 'admin'
 
@@ -30,6 +42,7 @@ interface Post {
     view_count: number
     like_count: number
     isLiked?: boolean
+    reaction?: string | null
     reaction_counts?: Record<string, number>
     relatedPosts?: Post[]
 }
@@ -42,18 +55,34 @@ export function TruyenThongPostDetailView({ mode }: TruyenThongPostDetailViewPro
     const params = useParams()
     const pathname = usePathname()
     const { user } = useAuth()
-    const [post, setPost] = useState<Post | null>(null)
-    const [loading, setLoading] = useState(true)
+    const slug = typeof params?.slug === 'string' ? params.slug : ''
+    const {
+        data: post,
+        error: postError,
+        isLoading,
+        mutate: mutatePost,
+    } = useSWR<Post>(
+        slug ? `/api/truyenthong/posts/${encodeURIComponent(slug)}` : null,
+        fetchPost,
+        {
+            revalidateOnFocus: false,
+            revalidateOnReconnect: false,
+            dedupingInterval: 300_000,
+        },
+    )
     const [liked, setLiked] = useState(false)
     const [isLiking, setIsLiking] = useState(false)
     const [showReactions, setShowReactions] = useState(false)
     const [currentReaction, setCurrentReaction] = useState<string | null>(null)
-    const [showComments, setShowComments] = useState(false)
+    const [visibleCommentsSlug, setVisibleCommentsSlug] = useState<string | null>(null)
     const [reactionUsers, setReactionUsers] = useState<Array<{user_id: string, user_name: string | null, reaction: string}>>([])
+    const [reactionUsersLoaded, setReactionUsersLoaded] = useState(false)
+    const [loadingReactionUsers, setLoadingReactionUsers] = useState(false)
     const [showReactionPopup, setShowReactionPopup] = useState(false)
     const [activeReactionFilter, setActiveReactionFilter] = useState<string | null>(null)
     const reactionPopupRef = useRef<HTMLDivElement | null>(null)
     const reactionsRef = useRef<HTMLDivElement | null>(null)
+    const commentsAnchorRef = useRef<HTMLDivElement | null>(null)
 
     const isAdmin = mode === 'admin' || !!user?.isAdmin
     const backHref = mode === 'admin' ? '/admin/truyenthong' : '/user/truyenthong'
@@ -89,64 +118,110 @@ export function TruyenThongPostDetailView({ mode }: TruyenThongPostDetailViewPro
     }
 
     useEffect(() => {
-        const fetchPost = async () => {
-            if (!params?.slug) return
-            try {
-                const res = await fetch(`/api/truyenthong/posts/${params.slug}`)
-                if (!res.ok) throw new Error('Failed to fetch post')
-                const data = await res.json()
-                setPost(data)
-                setLiked(!!data.isLiked)
-                if (data.reaction) {
-                    setCurrentReaction(data.reaction)
-                }
+        if (!post) return
+        setLiked(!!post.isLiked)
+        setCurrentReaction(post.reaction || null)
+    }, [post?.id, post?.isLiked, post?.reaction])
 
-                // Load reaction users ngay lập tức (không đợi polling 15s)
-                try {
-                    const rRes = await fetch(`/api/truyenthong/posts/${params.slug}/reactions`)
-                    if (rRes.ok) {
-                        const rData = await rRes.json()
-                        if (rData.users) {
-                            setReactionUsers(rData.users)
-                        }
-                        setPost(prev => prev ? { ...prev, reaction_counts: rData.reaction_counts } : null)
-                    }
-                } catch { /* silent */ }
-
-                if (mode === 'user') {
-                    fetch(`/api/truyenthong/posts/${params.slug}/view`, { method: 'POST' })
-                }
-            } catch (error) {
-                console.error('Error fetching post:', error)
-            } finally {
-                setLoading(false)
-            }
-        }
-        fetchPost()
-    }, [params?.slug, user?.localId, mode])
-
-    // Realtime polling: cập nhật like_count + reaction_counts mỗi 15s
+    // Chỉ ghi nhận lượt xem khi người dùng thực sự ở lại bài viết. Dedupe theo
+    // tab để remount/hydration không làm tăng view và tạo request lặp.
     useEffect(() => {
-        if (!params?.slug) return
-        const slug = params.slug as string
+        if (!slug || mode !== 'user') return
 
-        const poll = async () => {
-            try {
-                const res = await fetch(`/api/truyenthong/posts/${slug}/reactions`)
-                if (!res.ok) return
-                const data = await res.json()
-                setPost(prev => prev ? {
-                    ...prev,
-                    like_count: data.like_count,
-                    reaction_counts: data.reaction_counts,
-                } : null)
-                if (data.users) setReactionUsers(data.users)
-            } catch { /* silent fail */ }
+        const viewKey = `truyenthong:viewed:${slug}`
+        const timer = window.setTimeout(() => {
+            if (window.sessionStorage.getItem(viewKey) === '1') return
+            window.sessionStorage.setItem(viewKey, '1')
+
+            fetch(`/api/truyenthong/posts/${encodeURIComponent(slug)}/view`, {
+                method: 'POST',
+                keepalive: true,
+            })
+                .then((response) => {
+                    if (!response.ok) window.sessionStorage.removeItem(viewKey)
+                })
+                .catch(() => {
+                    window.sessionStorage.removeItem(viewKey)
+                })
+        }, 3000)
+
+        return () => window.clearTimeout(timer)
+    }, [slug, mode])
+
+    // Bình luận nằm dưới nội dung dài nên chỉ tải bundle và dữ liệu khi người
+    // dùng cuộn đến gần khu vực này.
+    useEffect(() => {
+        const anchor = commentsAnchorRef.current
+        if (!anchor || !slug) return
+
+        if (!('IntersectionObserver' in window)) {
+            setVisibleCommentsSlug(slug)
+            return
         }
 
-        const timer = setInterval(poll, 5000)
-        return () => clearInterval(timer)
-    }, [params?.slug])
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (!entries.some((entry) => entry.isIntersecting)) return
+                setVisibleCommentsSlug(slug)
+                observer.disconnect()
+            },
+            { rootMargin: '400px 0px' },
+        )
+
+        observer.observe(anchor)
+        return () => observer.disconnect()
+    }, [slug, post?.id])
+
+    useEffect(() => {
+        setReactionUsers([])
+        setReactionUsersLoaded(false)
+    }, [slug])
+
+    const loadReactionUsers = useCallback(async () => {
+        if (!slug || reactionUsersLoaded || loadingReactionUsers) return
+
+        setLoadingReactionUsers(true)
+        try {
+            const response = await fetch(
+                `/api/truyenthong/posts/${encodeURIComponent(slug)}/reactions`,
+            )
+            if (!response.ok) return
+
+            const data = await response.json()
+            setReactionUsers(Array.isArray(data.users) ? data.users : [])
+            setReactionUsersLoaded(true)
+            void mutatePost(
+                (current) => current
+                    ? {
+                        ...current,
+                        like_count: data.like_count ?? current.like_count,
+                        reaction_counts: data.reaction_counts ?? current.reaction_counts,
+                    }
+                    : current,
+                { revalidate: false },
+            )
+        } catch {
+            // Chi tiết reaction là dữ liệu phụ; lỗi không được chặn nội dung bài.
+        } finally {
+            setLoadingReactionUsers(false)
+        }
+    }, [loadingReactionUsers, mutatePost, reactionUsersLoaded, slug])
+
+    const toggleReactionPopup = () => {
+        const nextOpen = !showReactionPopup
+        setShowReactionPopup(nextOpen)
+        if (nextOpen) void loadReactionUsers()
+    }
+
+    const updatePost = useCallback(
+        (updater: (current: Post) => Post) => {
+            void mutatePost(
+                (current) => current ? updater(current) : current,
+                { revalidate: false },
+            )
+        },
+        [mutatePost],
+    )
 
     const handleLike = async () => {
         if (isLiking) return
@@ -165,7 +240,7 @@ export function TruyenThongPostDetailView({ mode }: TruyenThongPostDetailViewPro
         const newLikeCount = newLikedState ? previousLikeCount + 1 : previousLikeCount - 1
 
         setLiked(newLikedState)
-        setPost(prev => prev ? { ...prev, like_count: newLikeCount } : null)
+        updatePost((current) => ({ ...current, like_count: newLikeCount }))
 
         try {
             const res = await fetch(`/api/truyenthong/posts/${post.slug}/like`, {
@@ -179,15 +254,15 @@ export function TruyenThongPostDetailView({ mode }: TruyenThongPostDetailViewPro
             if (res.ok) {
                 const data = await res.json()
                 setLiked(data.isLiked)
-                setPost(prev => prev ? { ...prev, like_count: data.like_count } : null)
+                updatePost((current) => ({ ...current, like_count: data.like_count }))
             } else {
                 setLiked(previousLiked)
-                setPost(prev => prev ? { ...prev, like_count: previousLikeCount } : null)
+                updatePost((current) => ({ ...current, like_count: previousLikeCount }))
                 throw new Error('Failed to like post')
             }
         } catch (error) {
             setLiked(previousLiked)
-            setPost(prev => prev ? { ...prev, like_count: previousLikeCount } : null)
+            updatePost((current) => ({ ...current, like_count: previousLikeCount }))
             console.error('Error liking post:', error)
         } finally {
             setIsLiking(false)
@@ -238,12 +313,12 @@ export function TruyenThongPostDetailView({ mode }: TruyenThongPostDetailViewPro
         if (currentReaction === reactionType) {
             setCurrentReaction(null)
             setLiked(false)
-            setPost(prev => prev ? { ...prev, like_count: previousLikeCount - 1 } : null)
+            updatePost((current) => ({ ...current, like_count: previousLikeCount - 1 }))
         } else {
             setCurrentReaction(reactionType)
             setLiked(true)
             if (!previousLiked) {
-                setPost(prev => prev ? { ...prev, like_count: previousLikeCount + 1 } : null)
+                updatePost((current) => ({ ...current, like_count: previousLikeCount + 1 }))
             }
         }
 
@@ -261,11 +336,12 @@ export function TruyenThongPostDetailView({ mode }: TruyenThongPostDetailViewPro
             if (res.ok) {
                 const data = await res.json()
                 setLiked(data.isLiked)
-                setPost(prev => prev ? {
-                    ...prev,
+                updatePost((current) => ({
+                    ...current,
                     like_count: data.like_count,
-                    reaction_counts: data.reaction_counts ?? prev.reaction_counts,
-                } : null)
+                    reaction_counts: data.reaction_counts ?? current.reaction_counts,
+                }))
+                setReactionUsersLoaded(false)
                 if (data.isLiked && data.reaction) {
                     setCurrentReaction(data.reaction)
                 } else {
@@ -277,15 +353,15 @@ export function TruyenThongPostDetailView({ mode }: TruyenThongPostDetailViewPro
         } catch (error) {
             setCurrentReaction(previousReaction)
             setLiked(previousLiked)
-            setPost(prev => prev ? { ...prev, like_count: previousLikeCount } : null)
+            updatePost((current) => ({ ...current, like_count: previousLikeCount }))
             console.error('Error reacting:', error)
         } finally {
             setIsLiking(false)
         }
     }
 
-    if (loading) return <PostDetailSkeleton />
-    if (!post) return (
+    if (isLoading) return <PostDetailSkeleton />
+    if (postError || !post) return (
         <PageLayout>
             <PageLayoutContent>
                 <div className="flex items-center justify-center animate-in fade-in zoom-in duration-500 py-20">
@@ -465,7 +541,7 @@ export function TruyenThongPostDetailView({ mode }: TruyenThongPostDetailViewPro
                                         {post.like_count > 0 && (
                                             <div ref={reactionPopupRef} className="relative flex items-center gap-1.5">
                                                 {/* Top 3 icons — mỗi icon có tooltip riêng hiện tên người thả */}
-                                                <div className="flex -space-x-2" onClick={() => setShowReactionPopup(prev => !prev)}>
+                                                <div className="flex -space-x-2" onClick={toggleReactionPopup}>
                                                     {(() => {
                                                         const counts = post.reaction_counts || {}
                                                         const sorted = reactions
@@ -480,7 +556,7 @@ export function TruyenThongPostDetailView({ mode }: TruyenThongPostDetailViewPro
                                                                 <div key={r.type} className="relative group/icon cursor-pointer w-7 h-7 rounded-full bg-white border-2 border-white flex items-center justify-center shadow-md ring-1 ring-gray-100 hover:scale-125 hover:z-10 transition-transform duration-200" style={{ zIndex: 3 - i }}>
                                                                     <Icon className={`w-4 h-4 ${r.color}`} />
                                                                     {/* Tooltip: tên người thả cảm xúc này */}
-                                                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 pointer-events-none z-[9999]
+                                                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 pointer-events-none z-tooltip
                                                                         opacity-0 group-hover/icon:opacity-100
                                                                         translate-y-1 group-hover/icon:translate-y-0
                                                                         transition-all duration-150 ease-out">
@@ -507,7 +583,10 @@ export function TruyenThongPostDetailView({ mode }: TruyenThongPostDetailViewPro
                                                 {/* Số tổng */}
                                                 <span
                                                     className="text-sm text-gray-600 font-semibold hover:text-gray-900 transition-colors cursor-pointer"
-                                                    onClick={() => { setShowReactionPopup(prev => !prev); setActiveReactionFilter(null) }}
+                                                    onClick={() => {
+                                                        toggleReactionPopup()
+                                                        setActiveReactionFilter(null)
+                                                    }}
                                                 >
                                                     {post.like_count.toLocaleString('vi-VN')}
                                                 </span>
@@ -618,14 +697,18 @@ export function TruyenThongPostDetailView({ mode }: TruyenThongPostDetailViewPro
                     </aside>
                 </div>
 
-                <div className="mt-5">
-                    <Comments
-                        postSlug={post.slug}
-                        currentUserId={user?.email?.trim().toLowerCase()}
-                        currentUserName={user?.displayName || user?.email}
-                        currentUserEmail={user?.email}
-                        isAdmin={isAdmin}
-                    />
+                <div ref={commentsAnchorRef} className="mt-5 min-h-40">
+                    {visibleCommentsSlug === post.slug ? (
+                        <Comments
+                            postSlug={post.slug}
+                            currentUserId={user?.email?.trim().toLowerCase()}
+                            currentUserName={user?.displayName || user?.email}
+                            currentUserEmail={user?.email}
+                            isAdmin={isAdmin}
+                        />
+                    ) : (
+                        <div className="h-40 rounded-xl border border-gray-200 bg-gray-50" aria-hidden />
+                    )}
                 </div>
 
                 <section className="mt-5">

@@ -1,6 +1,7 @@
 'use client'
 
 import { PageSkeleton } from '@/components/skeletons/PageSkeleton'
+import { buildBrowserLoginRedirectPath } from '@/lib/auth-redirect'
 import { useAuth } from '@/lib/auth-context'
 import { logger } from '@/lib/logger'
 import { useRouter } from 'next/navigation'
@@ -19,7 +20,7 @@ export default function DashboardRedirect() {
     // Chưa đăng nhập → redirect đến login
     if (!user) {
       logger.info('Dashboard: No auth found, redirecting to login')
-      router.replace('/login')
+      router.replace(buildBrowserLoginRedirectPath(window.location))
       return
     }
 

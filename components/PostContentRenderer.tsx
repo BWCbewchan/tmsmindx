@@ -35,6 +35,11 @@ function processHTML(html: string): Segment[] {
   const doc = new DOMParser().parseFromString(`<div id="r">${normalizedHtml}</div>`, 'text/html')
   const root = doc.getElementById('r')!
 
+  root.querySelectorAll('img').forEach((img) => {
+    img.setAttribute('loading', 'lazy')
+    img.setAttribute('decoding', 'async')
+  })
+
   // Wrap tất cả <table> trong div.table-scroll-wrapper để scroll ngang trên mobile
   root.querySelectorAll('table').forEach(table => {
     if (table.parentElement?.classList.contains('table-scroll-wrapper')) return
@@ -153,6 +158,8 @@ function SmartImageGroup({ images, globalOffset, onOpenLightbox }: SmartImageGro
             alt={img.alt}
             className="smart-img-thumb"
             draggable={false}
+            loading="lazy"
+            decoding="async"
             style={{
               display: 'block',
               width: '100%',
@@ -197,6 +204,8 @@ function SmartImageGroup({ images, globalOffset, onOpenLightbox }: SmartImageGro
               alt={img.alt}
               className="smart-img-thumb"
               draggable={false}
+              loading="lazy"
+              decoding="async"
               style={{
                 width: '100%',
                 height: getImgHeight(idx),

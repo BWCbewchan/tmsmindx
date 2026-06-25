@@ -138,6 +138,36 @@ Table chuyen_sau_giaitrinh {
   tao_luc timestamp
 }
 
+Table exam_feedback_reviews {
+  id bigint [primary key, increment]
+  result_id integer [not null, unique]
+  set_id integer
+  set_code varchar
+  set_name varchar
+  subject_code varchar
+  subject_name varchar
+  reviewer_email varchar [not null]
+  reviewer_code varchar
+  reviewer_name varchar
+  rating smallint [note: '1-5, optional']
+  system_comment text
+  subject_comment text
+  status varchar [default: 'new', note: 'new, in_progress, done']
+  handled_by_email varchar
+  handled_at timestamp
+  created_at timestamp
+  updated_at timestamp
+}
+
+Table exam_feedback_review_questions {
+  id bigint [primary key, increment]
+  review_id bigint [not null]
+  question_id integer
+  question_order integer
+  question_text_snapshot text [not null]
+  created_at timestamp
+}
+
 // ================================================================
 // RELATIONSHIPS
 // ================================================================
@@ -153,4 +183,8 @@ Ref: chuyen_sau_bainop.id_de_thi > chuyen_sau_bode.id
 Ref: chuyen_sau_bainop_traloi.id_bai_nop > chuyen_sau_bainop.id
 Ref: chuyen_sau_bainop_traloi.id_cau > chuyen_sau_cauhoi.id
 Ref: chuyen_sau_giaitrinh.id_ket_qua > chuyen_sau_results.id
+Ref: exam_feedback_reviews.result_id > chuyen_sau_results.id
+Ref: exam_feedback_reviews.set_id > chuyen_sau_bode.id
+Ref: exam_feedback_review_questions.review_id > exam_feedback_reviews.id
+Ref: exam_feedback_review_questions.question_id > chuyen_sau_cauhoi.id
 

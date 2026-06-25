@@ -113,8 +113,23 @@ async function handleTrainingSubmissionsGet(request: NextRequest) {
     let paramIndex = 1;
 
     if (teacherCode) {
-      query += ` AND LOWER(TRIM(tas.teacher_code)) = LOWER(TRIM($${paramIndex}))`;
-      values.push(teacherCode);
+      // Resolve canonical code và email prefix từ teachers table
+      const resolveRes = await pool.query(
+        `SELECT LOWER(TRIM(code)) AS canonical_code, LOWER(TRIM(user_name)) AS user_name
+         FROM teachers
+         WHERE LOWER(TRIM(code)) = $1
+            OR LOWER(TRIM(user_name)) = $1
+            OR LOWER(SPLIT_PART(work_email, '@', 1)) = $1
+         LIMIT 1`,
+        [teacherCode],
+      );
+      const resolvedRow = resolveRes.rows[0];
+      const canonicalCode = resolvedRow?.canonical_code || teacherCode;
+      const emailPrefixCode = resolvedRow?.user_name || teacherCode;
+      const allTeacherCodes = [...new Set([canonicalCode, emailPrefixCode, teacherCode])].filter(Boolean);
+
+      query += ` AND LOWER(TRIM(tas.teacher_code)) = ANY($${paramIndex}::text[])`;
+      values.push(allTeacherCodes);
       paramIndex++;
     }
 
@@ -177,6 +192,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Resolve canonical code từ teachers table
+    const resolveRes = await pool.query(
+      `SELECT LOWER(TRIM(code)) AS canonical_code, LOWER(TRIM(user_name)) AS user_name
+       FROM teachers
+       WHERE LOWER(TRIM(code)) = $1
+          OR LOWER(TRIM(user_name)) = $1
+          OR LOWER(SPLIT_PART(work_email, '@', 1)) = $1
+       LIMIT 1`,
+      [teacher_code],
+    );
+    const resolvedRow = resolveRes.rows[0];
+    const canonicalCode = resolvedRow?.canonical_code || teacher_code;
+    const emailPrefixCode = resolvedRow?.user_name || teacher_code;
+    const allTeacherCodes = [...new Set([canonicalCode, emailPrefixCode, teacher_code])].filter(Boolean);
+
     if (!auth.privileged) {
       const denied = await rejectIfDatasourceLookupForbidden(
         auth.sessionEmail,
@@ -207,7 +237,7 @@ export async function POST(request: NextRequest) {
           SELECT DISTINCT tva.video_id
           FROM training_assignment_submissions tas
           INNER JOIN training_video_assignments tva ON tva.id = tas.assignment_id
-          WHERE LOWER(TRIM(tas.teacher_code)) = $1
+          WHERE LOWER(TRIM(tas.teacher_code)) = ANY($1::text[])
             AND tva.video_id IS NOT NULL
             AND (
               tas.status = 'graded'
@@ -232,7 +262,7 @@ export async function POST(request: NextRequest) {
              ORDER BY video_group_id NULLS LAST, chunk_index NULLS LAST, id`,
             [[anchorVid]],
           ),
-          pool.query(quizEvidenceByVideoQuery, [teacher_code]),
+          pool.query(quizEvidenceByVideoQuery, [allTeacherCodes]),
         ]);
 
         const quizEvidenceVideoIds = new Set<number>(
@@ -272,8 +302,8 @@ export async function POST(request: NextRequest) {
                       COALESCE(server_time_seconds, 0) AS server_time_seconds,
                       last_heartbeat_at
                FROM training_teacher_video_scores
-               WHERE LOWER(TRIM(teacher_code)) = $1 AND video_id = ANY($2::int[])`,
-              [teacher_code, allScoreVideoIds],
+               WHERE LOWER(TRIM(teacher_code)) = ANY($1::text[]) AND video_id = ANY($2::int[])`,
+              [allTeacherCodes, allScoreVideoIds],
             );
             scoresRes.rows.forEach(
               (srow: {
@@ -324,12 +354,12 @@ export async function POST(request: NextRequest) {
         try {
             const teacherRes = await pool.query(
                 `SELECT full_name, main_centre, course_line, work_email FROM teachers WHERE code = $1`,
-                [teacher_code]
+                [canonicalCode]
             );
             
             if (teacherRes.rows.length > 0) {
                 const updatedTeacher = teacherRes.rows[0];
-                console.log(`[Sync] Updating teacher stats for ${teacher_code} from DB:`, updatedTeacher);
+                console.log(`[Sync] Updating teacher stats for ${canonicalCode} from DB:`, updatedTeacher);
                 
                 // Override with DB values if available
                 teacher_info.full_name = updatedTeacher.full_name || teacher_info.full_name;
@@ -364,13 +394,13 @@ export async function POST(request: NextRequest) {
             work_email = EXCLUDED.work_email,
             updated_at = NOW()
         `, [
-           teacher_code,
-           teacher_info.full_name || teacher_code,
+           canonicalCode,
+           teacher_info.full_name || canonicalCode,
            teacher_info.center,
            teacher_info.teaching_block,
            teacher_info.work_email || ''
         ]);
-        console.log(`Synced stats for teacher ${teacher_code}`);
+        console.log(`Synced stats for teacher ${canonicalCode}`);
       } catch (err) {
         console.error('Error syncing teacher stats:', err);
         // Continue even if sync fails, as the main goal is starting the assignment
@@ -380,11 +410,11 @@ export async function POST(request: NextRequest) {
     // Check if there's already an in-progress submission
     const existingQuery = `
       SELECT * FROM training_assignment_submissions 
-      WHERE LOWER(TRIM(teacher_code)) = $1 AND assignment_id = $2 AND status = 'in_progress'
+      WHERE LOWER(TRIM(teacher_code)) = ANY($1::text[]) AND assignment_id = $2 AND status = 'in_progress'
       ORDER BY created_at DESC
       LIMIT 1
     `;
-    const existingResult = await pool.query(existingQuery, [teacher_code, assignment_id]);
+    const existingResult = await pool.query(existingQuery, [allTeacherCodes, assignment_id]);
     
     if (existingResult.rows.length > 0) {
       // 1. Fetch Draft Answers
@@ -436,8 +466,8 @@ export async function POST(request: NextRequest) {
     const attemptResult = await pool.query(
       `SELECT COALESCE(MAX(attempt_number), 0) + 1 as next_attempt
        FROM training_assignment_submissions
-       WHERE LOWER(TRIM(teacher_code)) = $1 AND assignment_id = $2`,
-      [teacher_code, assignment_id]
+       WHERE LOWER(TRIM(teacher_code)) = ANY($1::text[]) AND assignment_id = $2`,
+      [allTeacherCodes, assignment_id]
     );
     const nextAttempt = attemptResult.rows[0].next_attempt;
     // max_attempts đã bị xóa — không giới hạn số lần làm
@@ -454,7 +484,7 @@ export async function POST(request: NextRequest) {
       RETURNING *
     `;
 
-    const values = [teacher_code, assignment_id, nextAttempt, totalPoints];
+    const values = [canonicalCode, assignment_id, nextAttempt, totalPoints];
     const result = await pool.query(query, values);
 
     return NextResponse.json({

@@ -45,7 +45,7 @@ export function LoadingOverlay({
     <Box
       className={cn(
         'flex items-center justify-center bg-white/80 backdrop-blur-sm',
-        container ? 'absolute inset-0 z-10' : 'fixed inset-0 z-[1600]',
+        container ? 'absolute inset-0 z-10' : 'fixed inset-0 z-loading-overlay-custom',
         className,
       )}
       role="status"

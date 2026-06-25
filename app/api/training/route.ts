@@ -147,21 +147,10 @@ export const GET = withApiProtection(async (request: NextRequest) => {
     });
 
     if (!teacherRow) {
-      console.log('[Training API] Teacher not found with code:', teacherCode);
-      // Show sample codes for debugging
-      const sampleCodes = dataLines.slice(0, 5).map(line => {
-        const cols = parseCSVLine(line);
-        return cols[2];
-      });
-      console.log('[Training API] Sample codes from data:', sampleCodes);
       return NextResponse.json({ error: 'Teacher not found' }, { status: 404 });
     }
 
     const columns = parseCSVLine(teacherRow);
-    console.log('[Training API] Teacher found:', columns[1]);
-    console.log('[Training API] Total columns:', columns.length);
-    console.log('[Training API] All columns:', columns);
-    console.log('[Training API] Lesson scores (columns 11-20):', columns.slice(11, 21));
 
     // Parse training data
     // Convert comma decimal to dot decimal for proper parsing
@@ -182,11 +171,8 @@ export const GET = withApiProtection(async (request: NextRequest) => {
       // Remove "Lesson X: " prefix
       const cleanName = lessonName.replace(/^Lesson \d+:\s*/, '').trim();
       
-      console.log('[Training API] Finding link for:', cleanName);
-      
       // Try exact match first
       if (courseLinks[cleanName]) {
-        console.log('[Training API] Found exact match:', courseLinks[cleanName]);
         return courseLinks[cleanName];
       }
       
@@ -195,12 +181,10 @@ export const GET = withApiProtection(async (request: NextRequest) => {
       for (const [topic, link] of Object.entries(courseLinks)) {
         const topicLower = topic.toLowerCase();
         if (topicLower.includes(cleanNameLower) || cleanNameLower.includes(topicLower)) {
-          console.log('[Training API] Found partial match:', topic, '->', link);
           return link;
         }
       }
       
-      console.log('[Training API] No link found for:', cleanName);
       return undefined;
     };
 

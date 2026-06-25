@@ -4,6 +4,7 @@ import { Eye, FileText, MessageSquare, TrendingUp } from 'lucide-react'
 import useSWR from 'swr'
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json())
+const STATS_REFRESH_MS = 120_000
 
 type StatsPayload = {
     totalPosts?: number
@@ -16,7 +17,10 @@ type StatsPayload = {
 
 export default function TruyenThongStats() {
     const { data: stats } = useSWR<StatsPayload>('/api/truyenthong/stats', fetcher, {
-        refreshInterval: 30000,
+        refreshInterval: STATS_REFRESH_MS,
+        refreshWhenHidden: false,
+        refreshWhenOffline: false,
+        dedupingInterval: 30_000,
     })
 
     const statsCards = [

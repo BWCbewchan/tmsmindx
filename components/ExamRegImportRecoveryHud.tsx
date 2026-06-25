@@ -82,7 +82,7 @@ export function ExamRegImportRecoveryHud() {
 
   return (
     <div
-      className="group fixed bottom-4 right-4 z-[9980] w-[min(calc(100vw-1rem),14rem)]"
+      className="group fixed bottom-4 right-4 z-floating-status-custom w-[min(calc(100vw-1rem),14rem)]"
       role="status"
       aria-live="polite"
       aria-label="Import đã dừng — xem nhật ký khi di chuột"
@@ -115,7 +115,7 @@ export function ExamRegImportRecoveryHud() {
       <div
         role="log"
         aria-live="polite"
-        className="pointer-events-none invisible absolute bottom-full right-0 z-[9981] mb-1 max-h-52 w-[min(calc(100vw-1rem),22rem)] overflow-hidden rounded-lg border border-gray-200 bg-white p-2 opacity-0 shadow-xl transition-opacity duration-150 group-hover:pointer-events-auto group-hover:visible group-hover:opacity-100"
+        className="pointer-events-none invisible absolute bottom-full right-0 z-10 mb-1 max-h-52 w-[min(calc(100vw-1rem),22rem)] overflow-hidden rounded-lg border border-gray-200 bg-white p-2 opacity-0 shadow-xl transition-opacity duration-150 group-hover:pointer-events-auto group-hover:visible group-hover:opacity-100"
       >
         <p className="mb-1 border-b border-gray-100 pb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
           Nhật ký import

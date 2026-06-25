@@ -1,54 +1,72 @@
 /**
- * Utility để normalize storage URLs.
+ * Normalize storage URLs through the authenticated storage endpoint.
  *
- * Vấn đề: Một số bài viết cũ lưu Supabase public URL trực tiếp
- * (https://xxx.supabase.co/storage/v1/object/public/bucket/key)
- * nhưng bucket chưa được set public → HTTP 400.
- *
- * Giải pháp: Chuyển tất cả Supabase storage URLs sang proxy URL
- * (/api/storage-image?bucket=...&key=...) để server fetch và serve.
+ * The endpoint normally responds with a short-lived signed redirect so large
+ * image/video bodies do not pass through the application server.
  */
 
-const SUPABASE_STORAGE_PATTERN = /https?:\/\/[^/]+\.supabase\.co\/storage\/v1\/object\/(?:public|sign)\/([^/]+)\/(.+)/;
+const SUPABASE_STORAGE_PATTERN =
+  /https?:\/\/[^/]+\.supabase\.co\/storage\/v1\/object\/(?:public|sign)\/([^/]+)\/(.+)/;
 
-/** Parse s3://bucket/key → proxy URL */
+function decodeStorageKey(key: string): string {
+  const pathOnly = key.split(/[?#]/, 1)[0]
+  try {
+    return decodeURIComponent(pathOnly)
+  } catch {
+    return pathOnly
+  }
+}
+
+function makeStorageProxyUrl(bucket: string, key: string): string {
+  const params = new URLSearchParams({ bucket, key: decodeStorageKey(key) });
+  return `/api/storage-image?${params.toString()}`;
+}
+
+function normalizeLegacyProxyUrl(url: string): string {
+  try {
+    const parsed = new URL(url, 'http://localhost');
+    if (parsed.pathname !== '/api/storage-image') return url;
+
+    parsed.searchParams.delete('proxy');
+    const normalized = `${parsed.pathname}?${parsed.searchParams.toString()}`;
+    return url.startsWith('/') ? normalized : parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+/** Parse s3://bucket/key to the authenticated storage endpoint. */
 function s3UriToProxyUrl(url: string): string | null {
   const match = url.match(/^s3:\/\/([^/]+)\/(.+)$/);
   if (!match) return null;
-  return `/api/storage-image?bucket=${encodeURIComponent(match[1])}&key=${encodeURIComponent(match[2])}`;
+  return makeStorageProxyUrl(match[1], match[2]);
 }
 
 /**
- * Normalize một URL ảnh/video:
- * - Nếu là Supabase storage URL → chuyển sang proxy URL
- * - Nếu là proxy URL hoặc URL khác → giữ nguyên
+ * Normalize an image/video URL:
+ * - Supabase URLs use the authenticated storage endpoint.
+ * - Legacy proxy=1 parameters are removed so the endpoint can redirect.
+ * - Other URLs are left unchanged.
  */
 export function normalizeStorageUrl(url: string | null | undefined): string {
   if (!url) return '/placeholder.svg';
 
-  // Đã là proxy URL → giữ nguyên
-  if (url.startsWith('/api/storage-image')) return url;
+  if (url.startsWith('/api/storage-image')) {
+    return normalizeLegacyProxyUrl(url);
+  }
 
-  // s3://bucket/key → proxy URL
   if (url.startsWith('s3://')) {
     return s3UriToProxyUrl(url) ?? url;
   }
 
-  // Supabase storage URL → chuyển sang proxy
   const match = url.match(SUPABASE_STORAGE_PATTERN);
   if (match) {
-    const bucket = match[1];
-    const key = match[2];
-    return `/api/storage-image?bucket=${encodeURIComponent(bucket)}&key=${encodeURIComponent(key)}`;
+    return makeStorageProxyUrl(match[1], match[2]);
   }
 
-  // URL khác (Cloudinary, local, etc.) → giữ nguyên
   return url;
 }
 
-/**
- * Kiểm tra xem URL có phải là Supabase storage URL không.
- */
 export function isSupabaseStorageUrl(url: string | null | undefined): boolean {
   if (!url) return false;
   return SUPABASE_STORAGE_PATTERN.test(url);

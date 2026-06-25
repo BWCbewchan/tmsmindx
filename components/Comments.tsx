@@ -568,16 +568,6 @@ export default function Comments({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Debug log for admin status
-  useEffect(() => {
-    console.log('🔍 Comments Component Debug:', {
-      currentUserId,
-      currentUserEmail,
-      isAdmin,
-      isAdminType: typeof isAdmin,
-    })
-  }, [currentUserId, currentUserEmail, isAdmin])
-
   const loadComments = useCallback(async () => {
     try {
       const res = await fetch(`/api/truyenthong/posts/${postSlug}/comments`)

@@ -313,7 +313,7 @@ export default function TrainingDetailPage() {
                                       </span>
                                       
                                       {/* Popover */}
-                                        <div className="invisible group-hover/popover:visible absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 p-2 z-[9999] animate-in fade-in slide-in-from-top-2 duration-200">
+                                        <div className="invisible group-hover/popover:visible absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 p-2 z-popup-custom animate-in fade-in slide-in-from-top-2 duration-200">
                                           <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 mb-1 border-b border-slate-50">
                                             Các lượt làm khác
                                           </div>

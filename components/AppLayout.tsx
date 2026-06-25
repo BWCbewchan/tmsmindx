@@ -1,12 +1,17 @@
 'use client'
 
 import { useAuth } from '@/lib/auth-context'
+import {
+  appendSafeAuthRedirect,
+  buildLoginRedirectPath,
+  getBrowserPath,
+} from '@/lib/auth-redirect'
 import { filterManagementPermissions } from '@/lib/admin-permission-routes'
 import { authHeaders } from '@/lib/auth-headers'
 import { isUnauthorizedStatus, parseJsonSafe } from '@/lib/auth-error-handling'
 import { ArrowLeft, Mail, MessageCircle, ShieldAlert } from 'lucide-react'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 interface AppLayoutProps {
   children: React.ReactNode
@@ -16,7 +21,7 @@ interface AppLayoutProps {
 }
 
 const ADMIN_PERM_REFRESH_MS = 45_000
-const TEACHER_VERIFY_MIN_MS = 120_000
+const TEACHER_VERIFY_MIN_MS = 15 * 60_000
 
 export default function AppLayout({
   children,
@@ -33,6 +38,27 @@ export default function AppLayout({
   >('idle')
   const router = useRouter()
   const pathname = usePathname()
+  const getCurrentRequestedPath = useCallback(() => {
+    if (typeof window === 'undefined') return pathname
+    return getBrowserPath(window.location)
+  }, [pathname])
+  const getLoginRedirectPath = useCallback(() => {
+    if (redirectPath !== '/login' || typeof window === 'undefined') {
+      return redirectPath
+    }
+    return buildLoginRedirectPath(
+      getCurrentRequestedPath(),
+      window.location.origin,
+    )
+  }, [getCurrentRequestedPath, redirectPath])
+  const getDatasourceRedirectPath = useCallback(() => {
+    if (typeof window === 'undefined') return '/checkdatasource'
+    return appendSafeAuthRedirect(
+      '/checkdatasource',
+      getCurrentRequestedPath(),
+      window.location.origin,
+    )
+  }, [getCurrentRequestedPath])
 
   const hasRedirected = useRef(false)
   const latestUserRef = useRef(user)
@@ -41,7 +67,6 @@ export default function AppLayout({
   }, [user])
   const lastAdminPermRefreshAt = useRef(0)
   const lastTeacherVerifyAt = useRef(0)
-  const lastTeacherVerifyPathname = useRef<string | null>(null)
   const [noPermission, setNoPermission] = useState(false)
   /** DB tạm không trả lời — cho qua cổng (không kẹt skeleton), không coi là đã xác nhận trong teachers. */
   const [teacherGateAllowUnknown, setTeacherGateAllowUnknown] = useState(false)
@@ -54,23 +79,43 @@ export default function AppLayout({
     if (!pathname.startsWith('/user')) setTeacherGateAllowUnknown(false)
   }, [pathname])
 
-  /** GV vào /user: cần localStorage khớp HOẶC xác nhận có trong bảng teachers (không ép qua /checkdatasource nếu đã có DB). */
+  /** Server session is authoritative; localStorage is kept only for backward compatibility. */
+  const teacherMissingFromDatabase = Boolean(
+    user &&
+      user.role === 'teacher' &&
+      !user.isAdmin &&
+      pathname.startsWith('/user') &&
+      user.teacherSync &&
+      !user.teacherSync.foundInDatabase &&
+      !user.teacherSync.dbUnavailable,
+  )
+
   const needsTeacherDbCheck = useMemo(() => {
-    if (!user || user.role !== 'teacher' || !pathname.startsWith('/user'))
+    if (
+      !user ||
+      user.role !== 'teacher' ||
+      user.isAdmin ||
+      !pathname.startsWith('/user')
+    ) {
       return false
+    }
     if (teacherGateAllowUnknown) return false
-    if (typeof window === 'undefined') return false
-    const checked = localStorage
-      .getItem(PROFILE_CHECK_DONE_EMAIL_KEY)
-      ?.trim()
-      .toLowerCase()
-    const cur = (user.email || '').trim().toLowerCase()
-    return !(checked && checked === cur)
+    return user.teacherSync === undefined
   }, [user, pathname, teacherGateAllowUnknown])
 
   const [teacherGateBlocking, setTeacherGateBlocking] = useState(false)
 
   useEffect(() => {
+    if (teacherMissingFromDatabase) {
+      setTeacherGateBlocking(true)
+      try {
+        localStorage.removeItem(PROFILE_CHECK_DONE_EMAIL_KEY)
+      } catch {
+        // Compatibility cache only.
+      }
+      router.replace(getDatasourceRedirectPath())
+      return
+    }
     if (!needsTeacherDbCheck) {
       setTeacherGateBlocking(false)
       return
@@ -104,7 +149,7 @@ export default function AppLayout({
           setTeacherGateBlocking(false)
           return
         }
-        router.replace('/checkdatasource')
+        router.replace(getDatasourceRedirectPath())
       } catch {
         if (cancelled) return
         setTeacherGateAllowUnknown(true)
@@ -114,7 +159,14 @@ export default function AppLayout({
     return () => {
       cancelled = true
     }
-  }, [needsTeacherDbCheck, user?.email, router, token])
+  }, [
+    teacherMissingFromDatabase,
+    needsTeacherDbCheck,
+    user?.email,
+    router,
+    token,
+    getDatasourceRedirectPath,
+  ])
   const getRoutePermissionAliases = (path: string) => {
     if (path === '/admin/thu-vien-de') {
       return ['/admin/thu-vien-de', '/admin/page4/thu-vien-de']
@@ -169,8 +221,7 @@ export default function AppLayout({
           if (!hasRedirected.current) {
             hasRedirected.current = true
             if (isUnauthorizedStatus(res.status)) {
-              logout()
-              router.replace(redirectPath)
+              logout(getLoginRedirectPath())
             } else {
               router.replace('/user/thong-tin-giao-vien')
             }
@@ -244,6 +295,7 @@ export default function AppLayout({
     router,
     redirectPath,
     updateUser,
+    getLoginRedirectPath,
   ])
 
   // Admin: làm mới quyền khi vào /admin — không gọi /api/check-admin mỗi lần đổi route con (throttle)
@@ -286,7 +338,7 @@ export default function AppLayout({
     // Redirect to login if authentication required but not authenticated
     if (requireAuth && !user && !hasRedirected.current) {
       hasRedirected.current = true
-      router.replace(redirectPath)
+      router.replace(getLoginRedirectPath())
       return
     }
 
@@ -380,13 +432,17 @@ export default function AppLayout({
     redirectPath,
     pathname,
     adminAccessState,
+    getLoginRedirectPath,
   ])
 
-  // GV: mỗi lần đổi route trong /user/* xác minh lại còn trong bảng teachers; throttle chỉ khi cùng pathname (tránh gọi trùng khi re-render).
+  // Xác minh định kỳ thay vì gọi lại ở mọi lần chuyển trang con. API nghiệp vụ
+  // vẫn tự xác thực session, nên route navigation không cần tạo thêm một
+  // request kiểm tra teachers mỗi lần người dùng mở bài viết.
   useEffect(() => {
     const verifyTeacherStillExists = async () => {
       if (!user || user.role !== 'teacher') return
       if (!pathname.startsWith('/user')) return
+      if (needsTeacherDbCheck || teacherGateBlocking) return
 
       try {
         const response = await fetch(
@@ -413,21 +469,23 @@ export default function AppLayout({
       }
     }
 
-    const pathChanged = lastTeacherVerifyPathname.current !== pathname
-    if (pathChanged) {
-      lastTeacherVerifyPathname.current = pathname
-    } else {
-      const now = Date.now()
-      if (
-        lastTeacherVerifyAt.current !== 0 &&
-        now - lastTeacherVerifyAt.current < TEACHER_VERIFY_MIN_MS
-      ) {
-        return
-      }
+    const now = Date.now()
+    if (
+      lastTeacherVerifyAt.current !== 0 &&
+      now - lastTeacherVerifyAt.current < TEACHER_VERIFY_MIN_MS
+    ) {
+      return
     }
-    lastTeacherVerifyAt.current = Date.now()
+    lastTeacherVerifyAt.current = now
     void verifyTeacherStillExists()
-  }, [user, token, pathname, router])
+  }, [
+    user,
+    token,
+    pathname,
+    router,
+    needsTeacherDbCheck,
+    teacherGateBlocking,
+  ])
 
   // Show nothing while checking authentication - let page-level skeleton handle it
   if (isLoading) {
@@ -438,6 +496,7 @@ export default function AppLayout({
     requireAdmin &&
     pathname.startsWith('/admin') &&
     user &&
+    (!user.isAdmin) &&
     (adminAccessState === 'checking' || adminAccessState === 'idle')
 
   if (adminGateBlocking) {
@@ -445,7 +504,7 @@ export default function AppLayout({
   }
 
   // GV: đang kiểm tra DB trước khi render /user (tránh nháy /checkdatasource)
-  if (teacherGateBlocking) {
+  if (teacherMissingFromDatabase || teacherGateBlocking) {
     return null
   }
 
@@ -505,11 +564,12 @@ export default function AppLayout({
   }
 
   if (requireAdmin && user && pathname.startsWith('/admin')) {
-    if (adminAccessState !== 'allowed') {
+    const isCheckingButHasAdmin = user.isAdmin && (adminAccessState === 'checking' || adminAccessState === 'idle')
+    if (adminAccessState !== 'allowed' && !isCheckingButHasAdmin) {
       return null
     }
     /** Đã đồng bộ từ /api/check-admin; không tin bản ghi localStorage cũ. */
-    if (!user.isAdmin) {
+    if (adminAccessState === 'allowed' && !user.isAdmin) {
       return null
     }
   }

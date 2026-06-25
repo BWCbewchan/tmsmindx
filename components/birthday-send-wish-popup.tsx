@@ -222,7 +222,7 @@ export function BirthdaySendWishPopup({
   const counterTone = messageLength > 450 ? 'text-amber-200' : 'text-white/75'
 
   const popupContent = (
-    <div className="fixed inset-0 z-9999">
+    <div className="fixed inset-0 z-critical-overlay-custom">
       <div
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         onClick={handleClosePopup}

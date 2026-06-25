@@ -2,7 +2,7 @@ import { resolveAppUserAccessForEmail } from '@/lib/app-user-access';
 import { logLoginFailed, logLoginSuccess } from '@/lib/audit-logger';
 import { checkAndRecordThreat, isIpBlocked } from '@/lib/brute-force-guard';
 import pool from '@/lib/db';
-import { checkTeacherExistsByEmail } from '@/lib/db-helpers';
+import { checkTeacherExistsByEmailDetailed } from '@/lib/db-helpers';
 import { getJwtSecret } from '@/lib/jwt-secret';
 import { clientIpFromRequest, rateLimitOr429Async } from '@/lib/rate-limit-memory';
 import { setSessionCookieOnResponse } from '@/lib/session-cookie';
@@ -175,10 +175,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const teacherFoundInDb =
+    const teacherSync =
       (access.role === 'teacher' || !access.found) && loginEmail
-        ? await checkTeacherExistsByEmail(loginEmail)
-        : false;
+        ? await checkTeacherExistsByEmailDetailed(loginEmail)
+        : undefined;
 
     const edgeSessionJwt = jwt.sign(
       {
@@ -200,9 +200,12 @@ export async function POST(request: NextRequest) {
       permissions: access.permissions,
       userRoles: access.userRoles,
       isAppUser: access.isAppUser,
-      teacherSync: {
-        foundInDatabase: teacherFoundInDb,
-      },
+      teacherSync: teacherSync
+        ? {
+            foundInDatabase: teacherSync.exists,
+            dbUnavailable: teacherSync.dbUnavailable,
+          }
+        : undefined,
     });
     setSessionCookieOnResponse(res, edgeSessionJwt);
 

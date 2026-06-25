@@ -2009,60 +2009,6 @@ const migrations: Migration[] = [
         ADD COLUMN IF NOT EXISTS image_url VARCHAR(1000);
     `,
   },
-  {
-    name: 'V80_hr_training_schedule_mapping',
-    version: 80,
-    sql: `
-      ALTER TABLE teaching_leaders
-        ADD COLUMN IF NOT EXISTS email VARCHAR(255);
-
-      ALTER TABLE hr_training_sessions
-        ADD COLUMN IF NOT EXISTS start_time TIME,
-        ADD COLUMN IF NOT EXISTS end_time TIME,
-        ADD COLUMN IF NOT EXISTS center_id INTEGER REFERENCES centers(id) ON DELETE SET NULL,
-        ADD COLUMN IF NOT EXISTS location TEXT,
-        ADD COLUMN IF NOT EXISTS mentor_code VARCHAR(50),
-        ADD COLUMN IF NOT EXISTS mentor_name VARCHAR(255),
-        ADD COLUMN IF NOT EXISTS mentor_email VARCHAR(255),
-        ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'draft';
-
-      CREATE INDEX IF NOT EXISTS idx_hr_training_sessions_date
-        ON hr_training_sessions(session_date);
-      CREATE INDEX IF NOT EXISTS idx_hr_training_sessions_status
-        ON hr_training_sessions(status);
-      CREATE INDEX IF NOT EXISTS idx_hr_training_sessions_center
-        ON hr_training_sessions(center_id);
-
-      INSERT INTO app_permissions (user_id, route_path, can_access)
-      SELECT u.id, '/admin/hr-candidates/training-calendar', true
-      FROM app_users u
-      WHERE u.role = 'super_admin'
-      ON CONFLICT (user_id, route_path) DO NOTHING;
-    `,
-  },
-  {
-    name: 'V81_hr_training_dynamic_sessions',
-    version: 81,
-    sql: `
-      ALTER TABLE hr_training_sessions
-        ADD COLUMN IF NOT EXISTS training_mode VARCHAR(20) NOT NULL DEFAULT 'offline';
-
-      ALTER TABLE hr_training_sessions
-        DROP CONSTRAINT IF EXISTS hr_training_sessions_session_number_check;
-      ALTER TABLE hr_training_sessions
-        ADD CONSTRAINT hr_training_sessions_session_number_check
-        CHECK (session_number >= 1);
-
-      ALTER TABLE hr_training_sessions
-        DROP CONSTRAINT IF EXISTS hr_training_sessions_training_mode_check;
-      ALTER TABLE hr_training_sessions
-        ADD CONSTRAINT hr_training_sessions_training_mode_check
-        CHECK (LOWER(training_mode) IN ('offline', 'online'));
-
-      CREATE INDEX IF NOT EXISTS idx_hr_training_sessions_mode
-        ON hr_training_sessions(training_mode);
-    `,
-  },
 
   // ═══════════════════════════════════════════════════════
   // V89: AI Usage Tracking, Rate Limiting & Caching
@@ -2136,7 +2082,7 @@ const migrations: Migration[] = [
 
       -- View: Daily cost summary
       CREATE OR REPLACE VIEW ai_daily_cost_summary AS
-      SELECT
+      SELECT 
         DATE(created_at) as date,
         user_email,
         feature,
@@ -2153,7 +2099,7 @@ const migrations: Migration[] = [
 
       -- View: User rate limit status
       CREATE OR REPLACE VIEW ai_user_rate_limit_status AS
-      SELECT
+      SELECT 
         user_email,
         feature,
         request_count,
@@ -2161,7 +2107,7 @@ const migrations: Migration[] = [
         (limit_per_day - request_count) as remaining,
         ROUND((request_count::DECIMAL / limit_per_day * 100), 2) as usage_percentage,
         reset_at,
-        CASE
+        CASE 
           WHEN request_count >= limit_per_day THEN 'EXCEEDED'
           WHEN request_count >= limit_per_day * 0.8 THEN 'WARNING'
           ELSE 'OK'
@@ -2172,7 +2118,7 @@ const migrations: Migration[] = [
 
       -- View: Cache statistics
       CREATE OR REPLACE VIEW ai_cache_statistics AS
-      SELECT
+      SELECT 
         COUNT(*) as total_entries,
         COUNT(CASE WHEN expires_at > NOW() THEN 1 END) as active_entries,
         COUNT(CASE WHEN expires_at <= NOW() THEN 1 END) as expired_entries,
@@ -2199,6 +2145,420 @@ const migrations: Migration[] = [
       );
       CREATE INDEX IF NOT EXISTS idx_notifications_recipient_email ON notifications(recipient_email);
       CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
+    `,
+  },
+  {
+    name: 'V91_notifications_user_lookup_indexes',
+    version: 91,
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_notifications_recipient_created_at
+      ON notifications(recipient_email, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_notifications_unread_by_recipient
+      ON notifications(recipient_email)
+      WHERE is_read = FALSE;
+    `,
+  },
+  {
+    name: 'V92_truyenthong_read_indexes',
+    version: 92,
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_communications_status_created
+      ON communications(status, created_at DESC, id DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_communications_status_views
+      ON communications(status, view_count DESC, id DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_communications_related_posts
+      ON communications(post_type, status, created_at DESC, id DESC);
+    `,
+  },
+  {
+    name: 'V93_work_schedule_range_index',
+    version: 93,
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_dangky_lich_lam_date_time
+      ON dangky_lich_lam(ngay, gio_bat_dau, gio_ket_thuc);
+    `,
+  },
+  {
+    name: 'V94_backfill_communication_notifications',
+    version: 94,
+    sql: `
+      WITH active_recipients AS (
+        SELECT LOWER(TRIM(email)) AS recipient_email
+        FROM app_users
+        WHERE is_active IS TRUE
+          AND NULLIF(TRIM(email), '') IS NOT NULL
+
+        UNION
+
+        SELECT LOWER(
+          TRIM(
+            COALESCE(
+              NULLIF(TRIM(work_email), ''),
+              NULLIF(TRIM("Work email"), '')
+            )
+          )
+        ) AS recipient_email
+        FROM teachers
+        WHERE LOWER(
+          TRIM(
+            COALESCE(
+              NULLIF(TRIM(status), ''),
+              NULLIF(TRIM("Status"), ''),
+              'active'
+            )
+          )
+        ) NOT IN ('deactive', 'inactive', 'disabled')
+      )
+      INSERT INTO notifications (
+        recipient_email,
+        title,
+        content,
+        type,
+        link,
+        is_read,
+        created_at
+      )
+      SELECT
+        recipients.recipient_email,
+        'Bài viết mới: ' || communications.title,
+        COALESCE(communications.description, communications.title),
+        'communication',
+        '/user/truyenthong/' || communications.slug,
+        FALSE,
+        COALESCE(communications.published_at, communications.created_at, NOW())
+      FROM active_recipients recipients
+      CROSS JOIN communications
+      WHERE recipients.recipient_email IS NOT NULL
+        AND POSITION('@' IN recipients.recipient_email) > 1
+        AND communications.status = 'published'
+        AND COALESCE(communications.published_at, communications.created_at)
+          >= NOW() - INTERVAL '180 days'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM notifications existing
+          WHERE LOWER(TRIM(existing.recipient_email)) = recipients.recipient_email
+            AND existing.type = 'communication'
+            AND existing.link = '/user/truyenthong/' || communications.slug
+        );
+    `,
+  },
+  {
+    name: 'V95_exam_notification_dispatch',
+    version: 95,
+    sql: `
+      ALTER TABLE notifications
+      ADD COLUMN IF NOT EXISTS dedupe_key VARCHAR(255);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_notifications_recipient_dedupe
+      ON notifications (LOWER(TRIM(recipient_email)), dedupe_key)
+      WHERE dedupe_key IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS notification_dispatch_state (
+        job_name VARCHAR(100) PRIMARY KEY,
+        last_processed_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      INSERT INTO notification_dispatch_state (job_name, last_processed_at)
+      VALUES ('exam_schedule_notifications', CURRENT_TIMESTAMP)
+      ON CONFLICT (job_name) DO NOTHING;
+    `,
+  },
+  {
+    name: 'V96_email_monitoring',
+    version: 96,
+    sql: `
+      CREATE TABLE IF NOT EXISTS email_delivery_logs (
+        id BIGSERIAL PRIMARY KEY,
+        status VARCHAR(20) NOT NULL CHECK (status IN ('sent', 'failed', 'skipped')),
+        sender_email VARCHAR(255),
+        to_recipients TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+        cc_recipients TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+        recipient_count INTEGER NOT NULL DEFAULT 0 CHECK (recipient_count >= 0),
+        subject TEXT NOT NULL DEFAULT '',
+        email_type VARCHAR(120) NOT NULL DEFAULT 'unknown',
+        source VARCHAR(255) NOT NULL DEFAULT 'unknown',
+        duration_ms INTEGER NOT NULL DEFAULT 0 CHECK (duration_ms >= 0),
+        provider_message_id VARCHAR(500),
+        smtp_response TEXT,
+        error_code VARCHAR(100),
+        error_category VARCHAR(50),
+        error_message TEXT,
+        response_code INTEGER,
+        retryable BOOLEAN NOT NULL DEFAULT FALSE,
+        metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_email_delivery_logs_created_at
+        ON email_delivery_logs(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_email_delivery_logs_status_created_at
+        ON email_delivery_logs(status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_email_delivery_logs_error_category_created_at
+        ON email_delivery_logs(error_category, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_email_delivery_logs_email_type_created_at
+        ON email_delivery_logs(email_type, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS email_monitor_settings (
+        id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        daily_message_limit INTEGER NOT NULL DEFAULT 2000 CHECK (daily_message_limit > 0),
+        daily_recipient_limit INTEGER NOT NULL DEFAULT 10000 CHECK (daily_recipient_limit > 0),
+        warning_threshold_percent NUMERIC(5, 2) NOT NULL DEFAULT 80
+          CHECK (warning_threshold_percent > 0 AND warning_threshold_percent <= 100),
+        latency_warning_ms INTEGER NOT NULL DEFAULT 5000 CHECK (latency_warning_ms > 0),
+        failure_rate_warning_percent NUMERIC(5, 2) NOT NULL DEFAULT 5
+          CHECK (failure_rate_warning_percent > 0 AND failure_rate_warning_percent <= 100),
+        retention_days INTEGER NOT NULL DEFAULT 90 CHECK (retention_days BETWEEN 7 AND 730),
+        updated_by_email VARCHAR(255),
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      INSERT INTO email_monitor_settings (id)
+      VALUES (1)
+      ON CONFLICT (id) DO NOTHING;
+    `,
+  },
+  {
+    name: 'V97_multi_email_accounts',
+    version: 97,
+    sql: `
+      CREATE TABLE IF NOT EXISTS email_sender_accounts (
+        id BIGSERIAL PRIMARY KEY,
+        account_key VARCHAR(120) NOT NULL UNIQUE,
+        email VARCHAR(255) NOT NULL,
+        display_name VARCHAR(255) NOT NULL DEFAULT 'TPS Teaching',
+        source VARCHAR(20) NOT NULL CHECK (source IN ('env', 'database')),
+        encrypted_app_password TEXT,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        daily_to_limit INTEGER NOT NULL DEFAULT 2000 CHECK (daily_to_limit > 0),
+        daily_cc_limit INTEGER NOT NULL DEFAULT 2000 CHECK (daily_cc_limit > 0),
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        last_selected_at TIMESTAMP WITH TIME ZONE,
+        last_verified_at TIMESTAMP WITH TIME ZONE,
+        last_verify_ok BOOLEAN,
+        last_verify_error TEXT,
+        created_by_email VARCHAR(255),
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_email_sender_accounts_email
+        ON email_sender_accounts (LOWER(email));
+      CREATE INDEX IF NOT EXISTS idx_email_sender_accounts_active_order
+        ON email_sender_accounts (is_active, sort_order, id);
+
+      CREATE TABLE IF NOT EXISTS email_sender_routing_state (
+        id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        last_account_id BIGINT REFERENCES email_sender_accounts(id) ON DELETE SET NULL,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      INSERT INTO email_sender_routing_state (id)
+      VALUES (1)
+      ON CONFLICT (id) DO NOTHING;
+
+      ALTER TABLE email_delivery_logs
+        ADD COLUMN IF NOT EXISTS sender_account_id BIGINT
+          REFERENCES email_sender_accounts(id) ON DELETE SET NULL,
+        ADD COLUMN IF NOT EXISTS to_recipient_count INTEGER NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS cc_recipient_count INTEGER NOT NULL DEFAULT 0;
+
+      UPDATE email_delivery_logs
+      SET
+        to_recipient_count = COALESCE(array_length(to_recipients, 1), 0),
+        cc_recipient_count = COALESCE(array_length(cc_recipients, 1), 0)
+      WHERE to_recipient_count = 0
+        AND cc_recipient_count = 0;
+
+      CREATE INDEX IF NOT EXISTS idx_email_delivery_logs_sender_created_at
+        ON email_delivery_logs(sender_account_id, created_at DESC);
+
+      ALTER TABLE email_monitor_settings
+        ADD COLUMN IF NOT EXISTS default_to_limit INTEGER NOT NULL DEFAULT 2000
+          CHECK (default_to_limit > 0),
+        ADD COLUMN IF NOT EXISTS default_cc_limit INTEGER NOT NULL DEFAULT 2000
+          CHECK (default_cc_limit > 0);
+    `,
+  },
+  {
+    name: 'V98_teacher_monthly_honors',
+    version: 98,
+    sql: `
+      CREATE TABLE IF NOT EXISTS teacher_monthly_honors (
+        id SERIAL PRIMARY KEY,
+        stt INTEGER,
+        full_name VARCHAR(255) NOT NULL,
+        email VARCHAR(255),
+        khoi_day VARCHAR(100),
+        co_so VARCHAR(255),
+        thang VARCHAR(20) NOT NULL,
+        so_case INTEGER DEFAULT 0,
+        so_hoc_sinh INTEGER DEFAULT 0,
+        ti_le NUMERIC(5,2) DEFAULT 0,
+        loai VARCHAR(100),
+        thuong_cr NUMERIC(15,2) DEFAULT 0,
+        avatar_url TEXT,
+        imported_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        imported_by VARCHAR(255),
+        UNIQUE(email, thang)
+      );
+      CREATE INDEX IF NOT EXISTS idx_teacher_monthly_honors_thang
+        ON teacher_monthly_honors(thang, stt ASC);
+      CREATE INDEX IF NOT EXISTS idx_teacher_monthly_honors_email
+        ON teacher_monthly_honors(email);
+    `,
+  },
+  {
+    name: 'V99_add_avatar_url_to_app_users',
+    version: 99,
+    sql: `
+      ALTER TABLE app_users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+    `,
+  },
+  {
+    name: 'V100_exam_feedback_reviews',
+    version: 100,
+    sql: `
+      CREATE TABLE IF NOT EXISTS exam_feedback_reviews (
+        id BIGSERIAL PRIMARY KEY,
+        result_id INTEGER NOT NULL UNIQUE
+          REFERENCES chuyen_sau_results(id) ON DELETE CASCADE,
+        set_id INTEGER
+          REFERENCES chuyen_sau_bode(id) ON DELETE SET NULL,
+        set_code VARCHAR(100),
+        set_name VARCHAR(500),
+        subject_code VARCHAR(100),
+        subject_name VARCHAR(500),
+        reviewer_email VARCHAR(255) NOT NULL,
+        reviewer_code VARCHAR(100),
+        reviewer_name VARCHAR(255),
+        rating SMALLINT CHECK (rating BETWEEN 1 AND 5),
+        system_comment TEXT,
+        subject_comment TEXT,
+        status VARCHAR(20) NOT NULL DEFAULT 'new'
+          CHECK (status IN ('new', 'in_progress', 'done')),
+        handled_by_email VARCHAR(255),
+        handled_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT ck_exam_feedback_has_content CHECK (
+          rating IS NOT NULL
+          OR LENGTH(BTRIM(COALESCE(system_comment, ''))) > 0
+          OR LENGTH(BTRIM(COALESCE(subject_comment, ''))) > 0
+        )
+      );
+
+      CREATE TABLE IF NOT EXISTS exam_feedback_review_questions (
+        id BIGSERIAL PRIMARY KEY,
+        review_id BIGINT NOT NULL
+          REFERENCES exam_feedback_reviews(id) ON DELETE CASCADE,
+        question_id INTEGER
+          REFERENCES chuyen_sau_cauhoi(id) ON DELETE SET NULL,
+        question_order INTEGER,
+        question_text_snapshot TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(review_id, question_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_exam_feedback_reviews_set_id
+        ON exam_feedback_reviews(set_id);
+      CREATE INDEX IF NOT EXISTS idx_exam_feedback_reviews_subject_code
+        ON exam_feedback_reviews(subject_code);
+      CREATE INDEX IF NOT EXISTS idx_exam_feedback_reviews_status_created_at
+        ON exam_feedback_reviews(status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_exam_feedback_reviews_created_at
+        ON exam_feedback_reviews(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_exam_feedback_review_questions_question
+        ON exam_feedback_review_questions(question_id);
+
+      DROP TRIGGER IF EXISTS trg_exam_feedback_reviews_updated_at
+        ON exam_feedback_reviews;
+      CREATE TRIGGER trg_exam_feedback_reviews_updated_at
+      BEFORE UPDATE ON exam_feedback_reviews
+      FOR EACH ROW
+      EXECUTE FUNCTION update_updated_at_column();
+    `,
+  },
+  {
+    name: 'V101_push_subscriptions',
+    version: 101,
+    sql: `
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id BIGSERIAL PRIMARY KEY,
+        recipient_email VARCHAR(255) NOT NULL,
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh TEXT NOT NULL,
+        auth_secret TEXT NOT NULL,
+        user_agent TEXT,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_success_at TIMESTAMP WITH TIME ZONE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_push_subscriptions_recipient_email
+        ON push_subscriptions(LOWER(recipient_email));
+
+      DROP TRIGGER IF EXISTS trg_push_subscriptions_updated_at
+        ON push_subscriptions;
+      CREATE TRIGGER trg_push_subscriptions_updated_at
+      BEFORE UPDATE ON push_subscriptions
+      FOR EACH ROW
+      EXECUTE FUNCTION update_updated_at_column();
+    `,
+  },
+  {
+    name: 'V102_trang_phuc_mascot',
+    version: 102,
+    sql: `
+      CREATE TABLE IF NOT EXISTS trang_phuc_mascot (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        country_code TEXT NOT NULL,
+        flag_code TEXT NOT NULL,
+        slug TEXT NOT NULL UNIQUE,
+        colors JSONB NOT NULL DEFAULT '[]'::jsonb,
+        frames INTEGER NOT NULL DEFAULT 25,
+        status TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('draft', 'ready')),
+        available BOOLEAN NOT NULL DEFAULT true,
+        tag TEXT DEFAULT 'new',
+        color TEXT NOT NULL DEFAULT '#a1001f',
+        bg_color TEXT NOT NULL DEFAULT '#fff5f5',
+        static_mode BOOLEAN NOT NULL DEFAULT true,
+        preview_static TEXT,
+        sprite_base TEXT,
+        preview_frames JSONB,
+        jump_frames JSONB,
+        wave_frames JSONB,
+        sort_order INTEGER NOT NULL DEFAULT 100,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_trang_phuc_mascot_status_order
+        ON trang_phuc_mascot(status, available, sort_order, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_trang_phuc_mascot_country_code
+        ON trang_phuc_mascot(country_code);
+
+      INSERT INTO trang_phuc_mascot
+        (id, name, country_code, flag_code, slug, colors, frames, status, available, tag, color, bg_color, static_mode, preview_static, sprite_base, sort_order)
+      VALUES
+        ('mascot-vn', 'Việt Nam', 'VN', 'vn', 'mascot-vn', '["#da251d", "#ffde00", "#b91c1c"]'::jsonb, 25, 'ready', true, 'new', '#dc2626', '#fff5f5', true, '/mascot/mascot-vn.png', '/mascot/mascot-vn-sheet.png', 10),
+        ('mascot-bdn', 'Bồ Đào Nha', 'PT', 'pt', 'mascot-bdn', '["#006847", "#ffcc00", "#ce1126"]'::jsonb, 25, 'ready', true, 'new', '#16a34a', '#fff5f5', true, '/mascot/mascot-bdn.png', '/mascot/mascot-bdn-sheet.png', 20),
+        ('mascot-bz', 'Brazil', 'BR', 'br', 'mascot-bz', '["#009b3a", "#ffdf00", "#002776"]'::jsonb, 25, 'ready', true, 'new', '#eab308', '#fff5f5', true, '/mascot/mascot-bz.png', '/mascot/mascot-bz-sheet.png', 30),
+        ('mascot-phap', 'Pháp', 'FR', 'fr', 'mascot-phap', '["#0055a4", "#ffffff", "#ef4135"]'::jsonb, 25, 'ready', true, 'new', '#2563eb', '#fff5f5', true, '/mascot/mascot-phap.png', '/mascot/mascot-phap-sheet.png', 40),
+        ('mascot-argen', 'Argentina', 'AR', 'ar', 'mascot-argen', '["#74acdf", "#ffffff", "#f6b40e"]'::jsonb, 25, 'ready', true, 'new', '#38bdf8', '#fff5f5', true, '/mascot/mascot-argen.png', '/mascot/mascot-argen-sheet.png', 50)
+      ON CONFLICT (id) DO NOTHING;
+
+      DROP TRIGGER IF EXISTS trg_trang_phuc_mascot_updated_at
+        ON trang_phuc_mascot;
+      CREATE TRIGGER trg_trang_phuc_mascot_updated_at
+      BEFORE UPDATE ON trang_phuc_mascot
+      FOR EACH ROW
+      EXECUTE FUNCTION update_updated_at_column();
     `,
   },
 ]

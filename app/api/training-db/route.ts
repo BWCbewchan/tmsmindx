@@ -35,6 +35,25 @@ export const GET = withApiProtection(async (request: NextRequest) => {
     );
     if (denied) return denied;
 
+    // Resolve canonical code từ teachers table
+    // Trường hợp teacherCode là email prefix (legacy) → tìm canonical code qua user_name hoặc work_email
+    const resolveRes = await pool.query(
+      `SELECT LOWER(TRIM(code)) AS canonical_code, LOWER(TRIM(user_name)) AS user_name
+       FROM teachers
+       WHERE LOWER(TRIM(code)) = $1
+          OR LOWER(TRIM(user_name)) = $1
+          OR LOWER(SPLIT_PART(work_email, '@', 1)) = $1
+       LIMIT 1`,
+      [teacherCode],
+    );
+    const resolvedRow = resolveRes.rows[0] as { canonical_code: string; user_name: string | null } | null;
+    // canonicalCode: code thực tế trong teachers (ví dụ 'manhnd')
+    // emailPrefixCode: email prefix có thể đã lưu trong scores (ví dụ 'threem2502')
+    const canonicalCode = resolvedRow?.canonical_code || teacherCode;
+    const emailPrefixCode = resolvedRow?.user_name || teacherCode;
+    // Danh sách codes để query scores (bao gồm cả legacy email prefix)
+    const allTeacherCodes = [...new Set([canonicalCode, emailPrefixCode, teacherCode])].filter(Boolean);
+
     // Fetch teacher stats - auto-create if not exists, but always enrich from teachers table when possible.
     const teacherInfoQuery = `
       SELECT
@@ -47,7 +66,7 @@ export const GET = withApiProtection(async (request: NextRequest) => {
       WHERE LOWER(TRIM(code)) = $1
       LIMIT 1
     `;
-    const teacherInfoResult = await pool.query(teacherInfoQuery, [teacherCode]);
+    const teacherInfoResult = await pool.query(teacherInfoQuery, [canonicalCode]);
     const teacherInfo = teacherInfoResult.rows[0] || null;
 
     const teacherQuery = `
@@ -65,8 +84,8 @@ export const GET = withApiProtection(async (request: NextRequest) => {
       RETURNING *
     `;
     const teacherResult = await pool.query(teacherQuery, [
-      teacherCode,
-      teacherInfo?.full_name || teacherCode,
+      canonicalCode,
+      teacherInfo?.full_name || canonicalCode,
       teacherInfo?.username || null,
       teacherInfo?.work_email || '',
       teacherInfo?.center || null,
@@ -99,7 +118,7 @@ export const GET = withApiProtection(async (request: NextRequest) => {
       SELECT DISTINCT tva.video_id
       FROM training_assignment_submissions tas
       INNER JOIN training_video_assignments tva ON tva.id = tas.assignment_id
-      WHERE LOWER(TRIM(tas.teacher_code)) = $1
+      WHERE LOWER(TRIM(tas.teacher_code)) = ANY($1::text[])
         AND tva.video_id IS NOT NULL
         AND (
           tas.status = 'graded'
@@ -120,11 +139,11 @@ export const GET = withApiProtection(async (request: NextRequest) => {
         COALESCE(server_time_seconds, 0) AS server_time_seconds,
         last_heartbeat_at
       FROM training_teacher_video_scores
-      WHERE LOWER(TRIM(teacher_code)) = $1
+      WHERE LOWER(TRIM(teacher_code)) = ANY($1::text[])
     `,
-        [teacherCode],
+        [allTeacherCodes],
       ),
-      pool.query(quizEvidenceByVideoQuery, [teacherCode]),
+      pool.query(quizEvidenceByVideoQuery, [allTeacherCodes]),
       pool.query(`
         SELECT
           tva.video_id,
@@ -132,10 +151,10 @@ export const GET = withApiProtection(async (request: NextRequest) => {
           tas.status
         FROM training_assignment_submissions tas
         JOIN training_video_assignments tva ON tva.id = tas.assignment_id
-        WHERE LOWER(TRIM(tas.teacher_code)) = LOWER(TRIM($1))
+        WHERE LOWER(TRIM(tas.teacher_code)) = ANY($1::text[])
           AND tas.status IN ('submitted', 'graded')
           AND tas.score IS NOT NULL
-      `, [teacherCode]),
+      `, [allTeacherCodes]),
     ]);
 
     const quizEvidenceVideoIds = new Set<number>(

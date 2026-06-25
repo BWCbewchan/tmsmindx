@@ -106,7 +106,11 @@ export const GET = withApiProtection(async (request: NextRequest) => {
       JOIN group_ids gi ON gi.group_key = gr.group_key
       -- All teachers in the system
       JOIN training_teacher_stats tts ON gr.status = 'active'
-      JOIN teachers t ON LOWER(TRIM(tts.teacher_code)) = LOWER(TRIM(t.code))
+      JOIN teachers t ON (
+        LOWER(TRIM(tts.teacher_code)) = LOWER(TRIM(t.code))
+        OR LOWER(TRIM(tts.teacher_code)) = LOWER(TRIM(t.user_name))
+        OR LOWER(TRIM(tts.teacher_code)) = LOWER(SPLIT_PART(t.work_email, '@', 1))
+      )
       -- Viewed: teacher has a score row for ANY video in the group
       LEFT JOIN training_teacher_video_scores tvs
         ON tvs.video_id = ANY(gi.video_ids) AND tts.teacher_code = tvs.teacher_code
@@ -133,7 +137,7 @@ export const GET = withApiProtection(async (request: NextRequest) => {
     // Per-teacher, per-video matrix — collapse grouped videos into one representative column.
     const teacherMatrixResult = await pool.query(`
       SELECT
-        tts.teacher_code,
+        t.code AS teacher_code,
         COALESCE(t.full_name, tts.full_name) AS full_name,
         COALESCE(t.main_centre, tts.center) AS center,
         COALESCE(NULLIF(t.khoi_final, ''), NULLIF(t.course_line, ''), tts.teaching_block) AS teaching_block,
@@ -144,7 +148,11 @@ export const GET = withApiProtection(async (request: NextRequest) => {
         tvs.time_spent_seconds,
         tvs.score
       FROM training_teacher_stats tts
-      JOIN teachers t ON tts.teacher_code = t.code
+      JOIN teachers t ON (
+        LOWER(TRIM(tts.teacher_code)) = LOWER(TRIM(t.code))
+        OR LOWER(TRIM(tts.teacher_code)) = LOWER(TRIM(t.user_name))
+        OR LOWER(TRIM(tts.teacher_code)) = LOWER(SPLIT_PART(t.work_email, '@', 1))
+      )
       CROSS JOIN training_videos tv
       LEFT JOIN training_teacher_video_scores tvs
         ON tv.id = tvs.video_id AND tts.teacher_code = tvs.teacher_code

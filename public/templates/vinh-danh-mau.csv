@@ -1,0 +1,11 @@
+STT,Tên,Email,Khối dạy,Cơ sở,Tháng,Số case,Số học sinh,Tỉ lệ,Loại/Chọn,Thưởng CR
+1,Nguyễn Thị Lan Anh,lan.anh@mindx.edu.vn,Scratch,MindX Cầu Giấy,06/2025,42,38,90.5,Xuất sắc,2000000
+2,Trần Văn Minh,van.minh@mindx.edu.vn,Python,MindX Đống Đa,06/2025,38,33,86.8,Tốt,1500000
+3,Lê Thị Thu Hà,thu.ha@mindx.edu.vn,Web,MindX Hoàn Kiếm,06/2025,35,30,85.7,Tốt,1500000
+4,Phạm Đức Hùng,duc.hung@mindx.edu.vn,App,MindX Thanh Xuân,06/2025,40,33,82.5,Khá,1000000
+5,Hoàng Thị Mai,thi.mai@mindx.edu.vn,Scratch,MindX Cầu Giấy,06/2025,30,24,80.0,Khá,1000000
+6,Vũ Quang Huy,quang.huy@mindx.edu.vn,Python,MindX Hà Đông,06/2025,28,22,78.6,Đạt,500000
+7,Đặng Thị Ngọc,thi.ngoc@mindx.edu.vn,Web,MindX Long Biên,06/2025,25,19,76.0,Đạt,500000
+8,Bùi Văn Thắng,van.thang@mindx.edu.vn,App,MindX Bắc Từ Liêm,06/2025,22,16,72.7,Đạt,500000
+9,Ngô Thị Hương,thi.huong@mindx.edu.vn,Scratch,MindX Nam Từ Liêm,06/2025,20,14,70.0,Đạt,500000
+10,Đinh Minh Tuấn,minh.tuan@mindx.edu.vn,Python,MindX Tây Hồ,06/2025,18,12,66.7,,0

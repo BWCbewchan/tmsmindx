@@ -3,6 +3,7 @@
 
 
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ExamFeedbackForm } from '@/components/assignments/ExamFeedbackForm'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { Modal } from '@/components/ui/modal'
 import { PageContainer } from '@/components/PageContainer'
@@ -27,6 +28,7 @@ import {
     FilterX,
     RefreshCw,
     Send,
+    MessageSquareText,
     Trophy,
     XCircle,
 } from 'lucide-react'
@@ -118,6 +120,9 @@ interface ExamAssignment {
   admin_note?: string
   is_open?: boolean
   can_take?: boolean
+  feedback_id?: number | null
+  feedback_rating?: number | null
+  feedback_status?: 'new' | 'in_progress' | 'done' | null
 }
 
 interface EffectiveExamScore {
@@ -168,6 +173,9 @@ export default function TeacherAssignmentPage() {
   const { teacherProfile, isLoading: isTeacherLoading } = useTeacher()
   const router = useRouter()
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const startId = searchParams.get('start_assignment_id')
+  const videoOk = searchParams.get('video_ok') === '1'
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [examAssignments, setExamAssignments] = useState<ExamAssignment[]>([])
   const [currentAssignment, setCurrentAssignment] = useState<Assignment | null>(
@@ -240,6 +248,8 @@ export default function TeacherAssignmentPage() {
   // Track previous nowTs to detect crossing of open_at boundaries
   const lastNowTsRef = useRef(Date.now())
   const [selectedExamInfo, setSelectedExamInfo] =
+    useState<ExamAssignment | null>(null)
+  const [selectedFeedbackExam, setSelectedFeedbackExam] =
     useState<ExamAssignment | null>(null)
 
   const debounceTimersRef = useRef<Record<number, NodeJS.Timeout>>({})
@@ -396,7 +406,7 @@ export default function TeacherAssignmentPage() {
 
         const response = await fetch('/api/training-submissions', {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
           body: JSON.stringify({
             id: submission.id,
             action: 'grade',
@@ -436,6 +446,7 @@ export default function TeacherAssignmentPage() {
       try {
         if (
           assignment.video_id &&
+          !videoOk &&
           !['completed', 'watched'].includes(assignment.video_completion_status || '')
         ) {
           toast.error(
@@ -457,6 +468,7 @@ export default function TeacherAssignmentPage() {
           toast.error(
             'Thiếu thông tin giáo viên. Vui lòng tải lại dữ liệu rồi thử lại.',
           )
+          router.replace(pathname || '/user/dao-tao-nang-cao')
           return
         }
 
@@ -469,24 +481,27 @@ export default function TeacherAssignmentPage() {
           toast.error(
             'Thiếu thông tin Cơ sở (Branch). Vui lòng cập nhật thông tin.',
           )
+          router.replace(pathname || '/user/dao-tao-nang-cao')
           return
         }
 
         // Fetch questions
         const questionsRes = await fetch(
           `/api/training-assignment-questions?assignment_id=${assignment.id}`,
+          { headers: authHeaders(token) },
         )
         const questionsData = await questionsRes.json()
 
         if (!questionsData.success) {
           toast.error('Không thể tải câu hỏi')
+          router.replace(pathname || '/user/dao-tao-nang-cao')
           return
         }
 
         // Create submission
         const submissionRes = await fetch('/api/training-submissions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
           body: JSON.stringify({
             teacher_code: teacherCode,
             assignment_id: assignment.id,
@@ -503,6 +518,7 @@ export default function TeacherAssignmentPage() {
         const submissionData = await submissionRes.json()
         if (!submissionData.success) {
           toast.error('Không thể bắt đầu bài tập: ' + submissionData.error)
+          router.replace(pathname || '/user/dao-tao-nang-cao')
           return
         }
 
@@ -584,6 +600,7 @@ export default function TeacherAssignmentPage() {
       } catch (err) {
         console.error('Error starting assignment:', err)
         toast.error('Lỗi khi bắt đầu bài tập')
+        router.replace(pathname || '/user/dao-tao-nang-cao')
       }
     },
     [
@@ -592,6 +609,9 @@ export default function TeacherAssignmentPage() {
       teacherCode,
       teacherProfile,
       user,
+      videoOk,
+      router,
+      pathname,
     ],
   )
 
@@ -601,7 +621,7 @@ export default function TeacherAssignmentPage() {
         setTrainingLoading(true)
 
         // 1. Fetch assignments list with teacher_code to get video completion status
-        const response = await fetch(`/api/training-assignments?status=published&teacher_code=${teacherCode}`)
+        const response = await fetch(`/api/training-assignments?status=published&teacher_code=${teacherCode}`, { headers: authHeaders(token) })
         const data = await response.json()
 
         if (data.success) {
@@ -613,6 +633,7 @@ export default function TeacherAssignmentPage() {
               // Fetch only graded/submitted submissions, ordered by created_at DESC
               const subRes = await fetch(
                 `/api/training-submissions?teacher_code=${teacherCode}&status=graded`,
+                { headers: authHeaders(token) },
               )
               const subData: { success?: boolean; data?: TrainingSubmissionSummary[] } =
                 await subRes.json()
@@ -667,22 +688,8 @@ export default function TeacherAssignmentPage() {
       try {
         if (!isBackgroundUpdate) setExamLoading(true)
 
-        let canonicalTeacherCode = ''
-        if (user?.email) {
-          try {
-            const res = await fetch(
-              `/api/teachers/info?email=${encodeURIComponent(user.email)}`,
-              { headers: authHeaders(token) },
-            )
-            const data = await res.json()
-            canonicalTeacherCode = (data?.teacher?.code || '').toString().trim()
-            if (canonicalTeacherCode && canonicalTeacherCode !== teacherCode) {
-              setTeacherCode(canonicalTeacherCode)
-            }
-          } catch {
-            // Keep fallback behavior below when teacher lookup is unavailable.
-          }
-        }
+        // TeacherProvider already resolved the canonical code before this loader runs.
+        const canonicalTeacherCode = teacherCode.trim()
 
         const candidates = new Set<string>()
         const normalizedTeacherCode = teacherCode?.trim()
@@ -716,6 +723,7 @@ export default function TeacherAssignmentPage() {
         // operate on complete data instead of only current month.
         const recentRes = await fetch(`/api/exam-assignments?${baseParams}`, {
           cache: 'no-store',
+          headers: authHeaders(token),
         })
         const recentData = await recentRes.json()
         if (recentData.success) {
@@ -729,11 +737,8 @@ export default function TeacherAssignmentPage() {
         if (!isBackgroundUpdate) setExamLoading(false)
       }
     },
-    [teacherCode, token, user],
+    [teacherCode, user],
   )
-
-  const searchParams = useSearchParams()
-  const startId = searchParams.get('start_assignment_id')
 
   // Auto-start assignment logic
   useEffect(() => {
@@ -745,7 +750,8 @@ export default function TeacherAssignmentPage() {
         if (target) {
           const isVideoFinished =
             target.video_completion_status === 'completed' ||
-            target.video_completion_status === 'watched';
+            target.video_completion_status === 'watched' ||
+            videoOk;
 
           if (
             target.video_id &&
@@ -762,7 +768,7 @@ export default function TeacherAssignmentPage() {
         }
       }
     }
-  }, [startId, activeMainTab, assignments, startAssignment, view, pathname, router])
+  }, [startId, videoOk, activeMainTab, assignments, startAssignment, view, pathname, router])
 
   // Helper function to safely parse percentage
   const formatPercentage = (
@@ -862,7 +868,7 @@ export default function TeacherAssignmentPage() {
 
       await fetch('/api/training-submissions', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
         body: JSON.stringify({
           id: submissionId,
           action: 'save_draft',
@@ -1021,6 +1027,11 @@ export default function TeacherAssignmentPage() {
   }
 
   function shouldShowExplanationCTA(item: ExamAssignment): boolean {
+    // Chỉ cho phép giải trình bài CHÍNH THỨC, không cho phép giải trình bài BỔ SUNG
+    if (item.registration_type === 'additional') {
+      return false
+    }
+
     if (!isExamInCurrentVietnamMonth(item.open_at)) {
       return false
     }
@@ -2874,6 +2885,38 @@ export default function TeacherAssignmentPage() {
                                         new Date(item.open_at).getTime()
                                           ? 'Chưa tới giờ mở'
                                           : 'Chi tiết bài thi'}
+                                        </button>
+                                    )}
+
+                                    {effectiveScore !== null &&
+                                      (Number(item.selected_set_id) > 0 ||
+                                        Boolean(item.feedback_id)) && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setSelectedFeedbackExam(item)
+                                        }
+                                        className={`mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-semibold transition ${
+                                          item.feedback_status === 'done'
+                                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                            : item.feedback_status ===
+                                                'in_progress'
+                                              ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                                              : 'border-[#e7c6cb] bg-[#fff7f8] text-[#a1001f] hover:bg-[#fdecef]'
+                                        }`}
+                                      >
+                                        <MessageSquareText className="h-4 w-4" />
+                                        {!item.feedback_id
+                                          ? 'Đánh giá bộ đề'
+                                          : item.feedback_status === 'new'
+                                            ? 'Chỉnh sửa đánh giá'
+                                            : item.feedback_status ===
+                                                'in_progress'
+                                              ? 'Đánh giá: Đang xử lý'
+                                              : 'Đánh giá: Đã xử lý'}
+                                        {item.feedback_rating
+                                          ? ` · ${item.feedback_rating}/5`
+                                          : ''}
                                       </button>
                                     )}
                                   </div>
@@ -3016,6 +3059,59 @@ export default function TeacherAssignmentPage() {
             ))}
           </div>
         )}
+
+        <Modal
+          open={selectedFeedbackExam !== null}
+          onClose={() => setSelectedFeedbackExam(null)}
+          title="Đánh giá bộ đề"
+          subtitle={
+            selectedFeedbackExam
+              ? `${selectedFeedbackExam.subject_code} · ${selectedFeedbackExam.set_code || selectedFeedbackExam.set_name || 'Bộ đề đã làm'}`
+              : ''
+          }
+          maxWidth="3xl"
+          headerColor="bg-[#a1001f]"
+          footer={
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setSelectedFeedbackExam(null)}
+              >
+                Đóng
+              </Button>
+            </div>
+          }
+        >
+          {selectedFeedbackExam ? (
+            <ExamFeedbackForm
+              resultId={selectedFeedbackExam.id}
+              onSaved={(savedReview) => {
+                setExamAssignments((current) =>
+                  current.map((item) =>
+                    item.id === selectedFeedbackExam.id
+                      ? {
+                          ...item,
+                          feedback_id: savedReview.id,
+                          feedback_rating: savedReview.rating,
+                          feedback_status: savedReview.status,
+                        }
+                      : item,
+                  ),
+                )
+                setSelectedFeedbackExam((current) =>
+                  current
+                    ? {
+                        ...current,
+                        feedback_id: savedReview.id,
+                        feedback_rating: savedReview.rating,
+                        feedback_status: savedReview.status,
+                      }
+                    : current,
+                )
+              }}
+            />
+          ) : null}
+        </Modal>
 
         {/* Pass Rate Drill-down Modal */}
         {(() => {

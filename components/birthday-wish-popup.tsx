@@ -527,7 +527,7 @@ export function BirthdayWishPopup({
   }
 
   const popupContent = (
-    <div className="fixed inset-0 z-9999 overflow-y-auto">
+    <div className="fixed inset-0 z-critical-overlay-custom overflow-y-auto">
       <div className="relative min-h-dvh w-screen overflow-hidden bg-linear-to-br from-[#5b0b12] via-[#8a1220] to-[#4b070d]">
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
           {balloons.map((balloon) => (

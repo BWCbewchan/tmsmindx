@@ -464,11 +464,12 @@ export default function ExamRegistrationListPage() {
     void fetchRows(1);
   }, [fetchRows]);
 
-  /** Poll DB nhẹ (sync_check): chỉ dừng khi unmount (đóng tab / rời route), không phụ thuộc tab ẩn hay đang import */
+  /** Poll DB nhẹ khi tab đang hiển thị; kiểm tra ngay khi người dùng quay lại tab. */
   useEffect(() => {
-    const POLL_MS = 20_000;
+    const POLL_MS = 60_000;
     const check = async () => {
       if (typeof window === "undefined") return;
+      if (document.visibilityState !== "visible") return;
       try {
         const params = new URLSearchParams();
         appendListFilters(params, {
@@ -495,7 +496,7 @@ export default function ExamRegistrationListPage() {
       }
     };
     const id = window.setInterval(() => void check(), POLL_MS);
-    /* Về lại tab: check ngay để thấy data mới (poll nền vẫn chạy khi tab ẩn) */
+    /* Về lại tab: check ngay để thấy dữ liệu mới. */
     const onVis = () => {
       if (document.visibilityState === "visible") void check();
     };
@@ -1142,7 +1143,7 @@ export default function ExamRegistrationListPage() {
     <>
       {importing ? (
         <div
-          className="group fixed bottom-4 right-4 z-[9980] w-[min(calc(100vw-1rem),14rem)]"
+          className="group fixed bottom-4 right-4 z-floating-status-custom w-[min(calc(100vw-1rem),14rem)]"
           role="progressbar"
           aria-valuenow={importProgress}
           aria-valuemin={0}
@@ -1174,7 +1175,7 @@ export default function ExamRegistrationListPage() {
           <div
             role="log"
             aria-live="polite"
-            className="pointer-events-none invisible absolute bottom-full right-0 z-[9981] mb-1 max-h-52 w-[min(calc(100vw-1rem),22rem)] overflow-hidden rounded-lg border border-gray-200 bg-white p-2 opacity-0 shadow-xl transition-opacity duration-150 group-hover:pointer-events-auto group-hover:visible group-hover:opacity-100"
+            className="pointer-events-none invisible absolute bottom-full right-0 z-10 mb-1 max-h-52 w-[min(calc(100vw-1rem),22rem)] overflow-hidden rounded-lg border border-gray-200 bg-white p-2 opacity-0 shadow-xl transition-opacity duration-150 group-hover:pointer-events-auto group-hover:visible group-hover:opacity-100"
           >
             <p className="mb-1 border-b border-gray-100 pb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
               Nhật ký import

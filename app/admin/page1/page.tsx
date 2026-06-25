@@ -9,6 +9,7 @@ import {
     TableRow,
 } from '@/components/ui/table'
 import { toast } from '@/lib/app-toast'
+import { buildBrowserLoginRedirectPath } from '@/lib/auth-redirect'
 import {
     Briefcase,
     Calendar,
@@ -438,7 +439,7 @@ const createSecureFetcher = <TResponse,>(): ((url: string) => Promise<TResponse>
       localStorage.removeItem('token')
       localStorage.removeItem('user')
       localStorage.removeItem('refreshToken')
-      window.location.href = '/login'
+      window.location.href = buildBrowserLoginRedirectPath(window.location)
       throw new Error('Unauthorized')
     }
 
@@ -448,7 +449,7 @@ const createSecureFetcher = <TResponse,>(): ((url: string) => Promise<TResponse>
         localStorage.removeItem('token')
         localStorage.removeItem('user')
         localStorage.removeItem('refreshToken')
-        window.location.href = '/login'
+        window.location.href = buildBrowserLoginRedirectPath(window.location)
         throw new Error('Unauthorized')
       }
 
@@ -789,7 +790,7 @@ export default function Page1() {
           localStorage.removeItem('token')
           localStorage.removeItem('user')
           localStorage.removeItem('refreshToken')
-          window.location.href = '/login'
+          window.location.href = buildBrowserLoginRedirectPath(window.location)
           return
         }
 
@@ -1165,15 +1166,6 @@ export default function Page1() {
       totalSlots,
       DAYS,
       TIME_SLOTS,
-    }
-
-    // Debug logging
-    if (periodData.length === 0) {
-      console.warn('⚠️ No availability data:', {
-        period: availabilityPeriod,
-        totalRecords: availabilityRecords.length,
-        dateRange: { from: availabilityFromDate, to: availabilityToDate },
-      })
     }
 
     return stats
@@ -2400,7 +2392,7 @@ export default function Page1() {
         {/* Modal - Chi tiết bài test */}
         {modalOpen && modalMonth && modalType && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
+            className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center p-4 sm:p-6"
             onClick={() => setModalOpen(false)}
           >
             <div
@@ -2408,25 +2400,17 @@ export default function Page1() {
               onClick={(e) => e.stopPropagation()}
             >
               <div
-                className={`${modalType === 'expertise' ? 'bg-gradient-to-r from-blue-600 to-blue-800' : 'bg-gradient-to-r from-purple-600 to-purple-800'} text-white px-3 sm:px-6 py-3 sm:py-5 flex items-center justify-between gap-2`}
+                className="bg-[#a1001f] text-white px-3 sm:px-6 py-3 sm:py-5 flex items-center justify-between gap-2"
               >
                 <div className="flex-1 min-w-0">
                   <h3 className="text-base sm:text-xl font-bold break-words text-pretty leading-snug">
                     Test T{modalMonth}
                   </h3>
                   <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 mt-1 sm:mt-2">
-                    <span
-                      className={`px-2 sm:px-3 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-semibold w-fit ${
-                        modalType === 'expertise'
-                          ? 'bg-blue-500'
-                          : 'bg-purple-500'
-                      }`}
-                    >
+                    <span className="px-2 sm:px-3 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-semibold w-fit bg-white/20">
                       {modalType === 'expertise' ? 'Chuyên môn' : 'Kỹ năng'}
                     </span>
-                    <p
-                      className={`text-xs sm:text-sm ${modalType === 'expertise' ? 'text-blue-100' : 'text-purple-100'}`}
-                    >
+                    <p className="text-xs sm:text-sm text-white/90">
                       <span className="font-semibold">
                         {modalRecords.length}
                       </span>{' '}
@@ -2471,7 +2455,7 @@ export default function Page1() {
                         STT
                       </TableHead>
                       <TableHead className="text-left font-bold text-gray-700">
-                        {modalType === 'expertise' ? 'Bộ môn' : 'Khối'}
+                        {modalType === 'expertise' ? 'Bộ môn' : 'Môn kiểm tra'}
                       </TableHead>
                       {modalType === 'expertise' && (
                         <TableHead className="text-left font-bold text-gray-700">
@@ -2508,7 +2492,9 @@ export default function Page1() {
                         <TableCell className="font-semibold text-gray-900">
                           {modalType === 'expertise'
                             ? record.subject
-                            : record.teachingLevel}
+                            : record.subject
+                              ? <span>{record.subject}{record.teachingLevel ? <span className="ml-1 text-xs font-normal text-gray-500">({record.teachingLevel})</span> : null}</span>
+                              : record.teachingLevel}
                         </TableCell>
                         {modalType === 'expertise' && (
                           <TableCell className="text-gray-600">
@@ -2640,7 +2626,7 @@ export default function Page1() {
 
         {/* Registration Check Modal */}
         {registrationCheckModalOpen && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-modal-backdrop-custom p-4">
             <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[85vh] flex flex-col">
               <div className="bg-gray-900 text-white px-4 py-3 rounded-t-lg flex items-center justify-between">
                 <h3 className="font-semibold">Đăng ký kiểm tra</h3>
@@ -2724,7 +2710,7 @@ export default function Page1() {
 
         {/* Not Found Modal */}
         {notFoundModalOpen && (
-          <div className="fixed inset-0 backdrop-blur-xs bg-white/30 flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 backdrop-blur-xs bg-white/30 flex items-center justify-center z-modal-backdrop-custom p-4">
             <div className="bg-white rounded-lg shadow-xl max-w-md w-full animate-fadeIn">
               <div className="p-6">
                 <div className="flex items-center justify-center w-16 h-16 mx-auto bg-red-100 rounded-full mb-4">

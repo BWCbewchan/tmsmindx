@@ -50,12 +50,44 @@ export const GET = withApiProtection(async (request: NextRequest) => {
             "",
         ).trim();
         if (un) alternateCodes = [un];
+        // Thêm email prefix (phần trước @) để match với dia_chi_email trong chuyen_sau_results
+        const workEmail = String(
+          (row as Record<string, unknown>).work_email ??
+            (row as Record<string, unknown>)["Work email"] ??
+            "",
+        ).trim();
+        const emailPrefix = workEmail.split("@")[0]?.trim().toLowerCase();
+        if (emailPrefix && !alternateCodes.includes(emailPrefix)) {
+          alternateCodes.push(emailPrefix);
+        }
+      }
+      // Nếu sessionEmail có sẵn, thêm email prefix của session làm fallback
+      if (sessionEmail) {
+        const sessionPrefix = sessionEmail.split("@")[0]?.trim().toLowerCase();
+        if (sessionPrefix && !alternateCodes.includes(sessionPrefix)) {
+          alternateCodes.push(sessionPrefix);
+        }
+      }
+    } else {
+      // privileged + userNameParam
+      // Vẫn thêm email prefix từ userNameParam nếu có dạng email
+      if (userNameParam.includes("@")) {
+        const prefix = userNameParam.split("@")[0]?.trim().toLowerCase();
+        if (prefix) alternateCodes = [userNameParam, prefix];
+      } else {
+        alternateCodes = [userNameParam];
       }
     }
 
     const { expertise, experience } = await loadTeacherScoresOnly(pool, code, {
       alternateCodes,
     });
+    
+    console.log('📊 API Scores Response for code:', code);
+    console.log('📊 Alternate codes:', alternateCodes);
+    console.log('📊 Expertise data:', expertise);
+    console.log('📊 Experience data:', experience);
+    
     return NextResponse.json({ success: true, expertise, experience });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Không thể tải điểm";

@@ -16,8 +16,8 @@ export default function CandidateDetailDrawer({ candidate, isOpen, onClose }: Ca
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-gray-900/20 backdrop-blur-sm" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col">
+      <div className="fixed inset-0 z-modal-backdrop-custom bg-gray-900/20 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-y-0 right-0 z-modal-custom w-full max-w-md bg-white shadow-2xl flex flex-col">
         <div className="flex items-center justify-between border-b border-gray-100 p-5">
           <h2 className="text-xl font-extrabold text-gray-900">Chi tiết ứng viên</h2>
           <button onClick={onClose} className="rounded-full p-2 text-gray-500 hover:bg-gray-100 transition-colors">

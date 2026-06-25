@@ -74,14 +74,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Phiên đăng nhập không hợp lệ' }, { status: 401 });
   }
 
+  const userEmail = session.email.toLowerCase().trim();
+
   const firebaseToken = request.cookies.get('lms_firebase_token')?.value || '';
-  
+
   if (!firebaseToken) {
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: false,
-      noLmsToken: true, 
+      noLmsToken: true,
       slots: [],
-      message: 'Tài khoản này không có kết nối LMS.' 
+      message: 'Tài khoản này không có kết nối LMS.'
     });
   }
 
@@ -89,7 +91,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const fromParam = searchParams.get('from');
     const toParam = searchParams.get('to');
-    
+
     const LMS_TZ_OFFSET_MS = 7 * 60 * 60 * 1000;
     const haveSlotFrom = new Date(new Date(fromParam!).getTime() - LMS_TZ_OFFSET_MS).toISOString();
     const haveSlotTo = new Date(new Date(toParam!).getTime() - LMS_TZ_OFFSET_MS).toISOString();
@@ -99,13 +101,13 @@ export async function GET(request: NextRequest) {
       query: GET_ALL_CLASSES_QUERY,
       variables: { haveSlotFrom, haveSlotTo },
     }, authHeader);
-    
+
     if (classesResult.errors?.length) {
       console.error('[lich-lop-hoc] GraphQL errors:', classesResult.errors);
-      return NextResponse.json({ 
-        success: false, 
-        slots: [], 
-        message: 'Lỗi khi lấy dữ liệu từ LMS.' 
+      return NextResponse.json({
+        success: false,
+        slots: [],
+        message: 'Lỗi khi lấy dữ liệu từ LMS.'
       });
     }
 
@@ -119,9 +121,9 @@ export async function GET(request: NextRequest) {
         status: cls.status,
         students: (cls.students || [])
           .filter((s:any) => s.activeInClass)
-          .map((s:any) => ({ 
-            id: s.student.id, 
-            fullName: s.student.fullName 
+          .map((s:any) => ({
+            id: s.student.id,
+            fullName: s.student.fullName
           })),
         date: slot.date,
         startTime: slot.startTime,
@@ -136,27 +138,43 @@ export async function GET(request: NextRequest) {
         studentAttendance: slot.studentAttendance || [],
       });
 
-    const slots = classesResult.data.classes.data.flatMap((cls: any) => {
-      const classSlots = (cls.slots || [])
-        .slice()
-        .sort((a: any, b: any) => new Date(a.date || a.startTime).getTime() - new Date(b.date || b.startTime).getTime())
-        .map((slot: any) => mapSlot(cls, slot));
+    const slots = classesResult.data.classes.data
+      .filter((cls: any) => {
+        // Filter chỉ lấy lớp mà user có role LEC
+        const hasLecRole = (cls.slots || []).some((slot: any) => {
+          return (slot.teachers || []).some((t: any) => {
+            const teacherEmail = t.teacher?.email?.toLowerCase().trim();
+            const roleShortName = t.role?.shortName?.toUpperCase();
+            return teacherEmail === userEmail && roleShortName === 'LEC';
+          });
+        });
 
-      return classSlots.map((slot: any) => ({
-        ...slot,
-        classSlots,
-      }));
-    }
-    );
+        if (!hasLecRole) {
+          // skip non-LEC classes
+        }
+
+        return hasLecRole;
+      })
+      .flatMap((cls: any) => {
+        const classSlots = (cls.slots || [])
+          .slice()
+          .sort((a: any, b: any) => new Date(a.date || a.startTime).getTime() - new Date(b.date || b.startTime).getTime())
+          .map((slot: any) => mapSlot(cls, slot));
+
+        return classSlots.map((slot: any) => ({
+          ...slot,
+          classSlots,
+        }));
+      });
 
     return NextResponse.json({ success: true, slots });
 
   } catch (error: any) {
     console.error('[lich-lop-hoc] Error:', error?.message || error);
-    return NextResponse.json({ 
-      success: false, 
+    return NextResponse.json({
+      success: false,
       slots: [],
-      message: 'Không thể kết nối đến LMS API.' 
+      message: 'Không thể kết nối đến LMS API.'
     }, { status: 500 });
   }
 }

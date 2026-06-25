@@ -75,4 +75,3 @@ export async function POST(req: NextRequest): Promise<Response> {
     return NextResponse.json({ error: 'Loi upload thumbnail' }, { status: 500 });
   }
 }
-

@@ -14,6 +14,7 @@ import { PageLayout, PageLayoutContent } from '@/components/ui/page-layout'
 import { PageSkeleton } from '@/components/skeletons/PageSkeleton'
 import { SkeletonTable } from '@/components/skeletons/SkeletonTable'
 import { toast } from '@/lib/app-toast'
+import { buildBrowserLoginRedirectPath } from '@/lib/auth-redirect'
 import { useAuth } from '@/lib/auth-context'
 import { authHeaders } from '@/lib/auth-headers'
 import { lockBodyScroll, unlockBodyScroll } from '@/lib/body-scroll-lock'
@@ -553,10 +554,25 @@ export default function Page1() {
     const token = localStorage.getItem('token')
 
     const doFetch = async (tok: string | null) => {
-      const headers: HeadersInit = {}
+      const headers: HeadersInit = {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
       if (tok) headers['Authorization'] = `Bearer ${tok}`
 
-      const res = await fetch(url, { headers, credentials: 'include' })
+      // Add timestamp to prevent caching
+      const urlWithTimestamp = url.includes('?') 
+        ? `${url}&_t=${Date.now()}`
+        : `${url}?_t=${Date.now()}`
+
+      console.log('🚀 Secure fetching:', urlWithTimestamp)
+
+      const res = await fetch(urlWithTimestamp, { 
+        headers, 
+        credentials: 'include',
+        cache: 'no-store'
+      })
       return res
     }
 
@@ -567,7 +583,7 @@ export default function Page1() {
       localStorage.removeItem('token')
       localStorage.removeItem('user')
       localStorage.removeItem('refreshToken')
-      window.location.href = '/login'
+      window.location.href = buildBrowserLoginRedirectPath(window.location)
       throw new Error('Unauthorized')
     }
 
@@ -584,7 +600,9 @@ export default function Page1() {
       throw error
     }
 
-    return response.json()
+    const data = await response.json()
+    console.log('✅ Secure fetch response:', data)
+    return data
   }, [])
 
   // Tải profile: mặc định theo email đăng nhập; có nhập mã thì ?code= (một endpoint /api/checkdatasource/status)
@@ -657,11 +675,12 @@ export default function Page1() {
     isLoading: isLoadingScores,
     mutate: scoresMutate,
   } = useSWR(scoresUrl, secureFetcher, {
-    revalidateOnFocus: false,
-    revalidateOnReconnect: false,
-    dedupingInterval: 300000,
-    shouldRetryOnError: false,
-    revalidateIfStale: false,
+    revalidateOnFocus: true,
+    revalidateOnReconnect: true,
+    dedupingInterval: 0,
+    shouldRetryOnError: true,
+    revalidateIfStale: true,
+    refreshInterval: 0,
   })
 
   const advancedTrainingUrl =
@@ -705,15 +724,27 @@ export default function Page1() {
 
   const mergedProfileBundle = useMemo(() => {
     if (!profileBundle) return undefined
+    
     const s = scoresBundle as
       | { success?: boolean; expertise?: unknown; experience?: unknown }
       | undefined
-    if (!s?.success) return profileBundle
-    return {
+      
+    console.log('📊 ProfileBundle:', profileBundle)
+    console.log('📊 ScoresBundle:', s)
+    
+    if (!s?.success) {
+      console.log('⚠️ Scores not successful, using profile bundle only')
+      return profileBundle
+    }
+    
+    const merged = {
       ...profileBundle,
       expertise: s.expertise ?? profileBundle.expertise,
       experience: s.experience ?? profileBundle.experience,
     }
+    
+    console.log('📊 Merged bundle:', merged)
+    return merged
   }, [profileBundle, scoresBundle])
 
   const teacherInfoData = useMemo(() => {
@@ -747,6 +778,12 @@ export default function Page1() {
     const trainingData = advancedTrainingData ?? null
     const expertiseData = bundle?.expertise?.monthlyData ?? []
     const experienceData = bundle?.experience?.monthlyData ?? []
+    
+    console.log('🔍 Computing scores data:')
+    console.log('  - Bundle:', bundle)
+    console.log('  - Expertise monthlyData:', expertiseData)
+    console.log('  - Experience monthlyData:', experienceData)
+    
     const scoresReady =
       !isLoadingProfile &&
       bundle !== undefined &&
@@ -755,6 +792,10 @@ export default function Page1() {
     const isLoadingTraining =
       isLoadingProfile ||
       Boolean(advancedTrainingUrl && isLoadingAdvancedTraining)
+      
+    console.log('📈 Scores ready:', scoresReady)
+    console.log('📈 Is loading scores:', isLoadingScores)
+    
     return {
       trainingData,
       expertiseData,
@@ -975,7 +1016,7 @@ export default function Page1() {
           localStorage.removeItem('token')
           localStorage.removeItem('user')
           localStorage.removeItem('refreshToken')
-          window.location.href = '/login'
+          window.location.href = buildBrowserLoginRedirectPath(window.location)
           return
         }
 
@@ -1090,6 +1131,14 @@ export default function Page1() {
       body: JSON.stringify({ action: 'visit' }),
     }).catch(() => {})
   }, [])
+
+  // Force refresh scores when scoresUrl becomes available
+  useEffect(() => {
+    if (scoresUrl && scoresMutate) {
+      console.log('🔄 Force refreshing scores data...')
+      scoresMutate()
+    }
+  }, [scoresUrl, scoresMutate])
 
   // Handle ESC key to close modals
   useEffect(() => {
@@ -1467,15 +1516,6 @@ export default function Page1() {
       totalSlots,
       DAYS,
       TIME_SLOTS,
-    }
-
-    // Debug logging
-    if (periodData.length === 0) {
-      console.warn('⚠️ No availability data:', {
-        period: availabilityPeriod,
-        totalRecords: availabilityRecords.length,
-        dateRange: { from: availabilityFromDate, to: availabilityToDate },
-      })
     }
 
     return stats
@@ -2580,7 +2620,7 @@ export default function Page1() {
         {/* Modal - Chi tiết bài test */}
         {modalOpen && modalMonth && modalType && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
+            className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center p-4 sm:p-6"
             onClick={() => setModalOpen(false)}
           >
             <div
@@ -2631,7 +2671,7 @@ export default function Page1() {
                         STT
                       </TableHead>
                       <TableHead className="text-left font-bold text-gray-700">
-                        {modalType === 'expertise' ? 'Bộ môn' : 'Khối'}
+                        {modalType === 'expertise' ? 'Bộ môn' : 'Môn kiểm tra'}
                       </TableHead>
                       {modalType === 'expertise' && (
                         <TableHead className="text-left font-bold text-gray-700">
@@ -2668,7 +2708,9 @@ export default function Page1() {
                         <TableCell className="font-semibold text-gray-900">
                           {modalType === 'expertise'
                             ? record.subject
-                            : record.teachingLevel}
+                            : record.subject
+                              ? <span>{record.subject}{record.teachingLevel ? <span className="ml-1 text-xs font-normal text-gray-500">({record.teachingLevel})</span> : null}</span>
+                              : record.teachingLevel}
                         </TableCell>
                         {modalType === 'expertise' && (
                           <TableCell className="text-gray-600">
@@ -2800,7 +2842,7 @@ export default function Page1() {
 
         {/* Registration Check Modal */}
         {registrationCheckModalOpen && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-modal-backdrop-custom p-4">
             <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[85vh] flex flex-col">
               <div className="bg-[#a1001f] text-white px-4 py-3 rounded-t-lg flex items-center justify-between">
                 <h3 className="font-semibold">Đăng ký kiểm tra</h3>
@@ -2884,7 +2926,7 @@ export default function Page1() {
 
         {/* Not Found Modal */}
         {notFoundModalOpen && (
-          <div className="fixed inset-0 backdrop-blur-xs bg-white/30 flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 backdrop-blur-xs bg-white/30 flex items-center justify-center z-modal-backdrop-custom p-4">
             <div className="bg-white rounded-lg shadow-xl max-w-md w-full animate-fadeIn">
               <div className="p-6">
                 <div className="flex items-center justify-center w-16 h-16 mx-auto bg-red-100 rounded-full mb-4">
@@ -2998,7 +3040,7 @@ export default function Page1() {
         {/* Feedback Modal */}
         {false && feedbackModalOpen && (
           <div
-            className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+            className="fixed inset-0 bg-black/40 flex items-center justify-center z-modal-backdrop-custom p-4"
             onClick={(e) => {
               // Allow closing modal by clicking outside
               if (e.target === e.currentTarget) {
@@ -3126,7 +3168,7 @@ export default function Page1() {
 
         {/* Feedback Success Modal */}
         {false && feedbackSuccessModalOpen && (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-modal-backdrop-custom p-4">
             <div className="bg-white rounded-lg shadow-xl max-w-md w-full animate-fadeIn">
               <div className="p-6 text-center">
                 <div className="flex items-center justify-center w-20 h-20 mx-auto bg-green-100 rounded-full mb-4">

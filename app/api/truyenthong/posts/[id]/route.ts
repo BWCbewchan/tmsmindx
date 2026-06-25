@@ -9,6 +9,7 @@ import {
 } from '@/lib/supabase-s3';
 import { findCommunicationPostByIdentifier, requireTruyenThongPostAdmin } from '@/lib/truyenthong-posts';
 import { generateSlug } from '@/lib/utils';
+import { createNotificationForEveryone } from '@/lib/notification-service';
 import { CreateBucketCommand, HeadBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -180,7 +181,20 @@ export async function GET(
       });
 
       const relatedResult = await client.query(
-        `SELECT * FROM communications
+        `SELECT
+           id,
+           slug,
+           title,
+           description,
+           featured_image,
+           banner_image,
+           thumbnail_position,
+           post_type,
+           published_at,
+           view_count,
+           like_count,
+           created_at
+         FROM communications
          WHERE post_type = $1 AND status = 'published' AND id != $2
          ORDER BY created_at DESC LIMIT 3`,
         [post.post_type, post.id]
@@ -192,6 +206,11 @@ export async function GET(
         reaction,
         reaction_counts,
         relatedPosts: relatedResult.rows,
+      }, {
+        headers: {
+          'Cache-Control': 'private, no-store',
+          Vary: 'Cookie',
+        },
       });
     } finally {
       client.release();
@@ -303,6 +322,17 @@ export async function PUT(
           thumbnail_position || '50% 50%', currentPost.id,
         ]
       );
+
+      if (status === 'published' && currentPost.status !== 'published') {
+        await createNotificationForEveryone({
+          title: `Bài viết mới: ${safeTitle}`,
+          content: safeDescription,
+          type: 'communication',
+          link: `/user/truyenthong/${newSlug}`,
+        }).catch((err) =>
+          console.error('Failed to create notification for everyone:', err)
+        );
+      }
 
       // Xóa ảnh cũ trên S3 (chỉ xóa S3, bỏ qua Cloudinary cũ)
       // 1. Xóa thumbnail/banner cũ nếu thay đổi

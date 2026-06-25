@@ -9,8 +9,9 @@ import TabLichHoatDong from './components/TabLichHoatDong';
 import TabNhanLop from './components/TabNhanLop';
 import TabXinNghi from './components/TabXinNghi';
 import TabLichLopHoc from './components/TabLichLopHoc';
+import TabOfficeHours from './components/TabOfficeHours';
 
-const TAB_IDS = ['lich', 'lich-lop-hoc', 'xin-nghi', 'nhan-lop'] as const;
+const TAB_IDS = ['lich', 'lich-lop-hoc', 'xin-nghi', 'nhan-lop', 'office-hours'] as const;
 type TabId = (typeof TAB_IDS)[number];
 
 export default function LichCuaToiPage() {
@@ -23,6 +24,7 @@ export default function LichCuaToiPage() {
     { id: 'lich-lop-hoc', label: 'Lịch lớp học' },
     { id: 'xin-nghi', label: 'Xin nghỉ' },
     { id: 'nhan-lop', label: 'Nhận lớp' },
+    { id: 'office-hours', label: 'Office Hours' },
   ];
 
   const handleTabChange = (id: string) => {
@@ -42,6 +44,7 @@ export default function LichCuaToiPage() {
         {activeTab === 'lich-lop-hoc' && <TabLichLopHoc />}
         {activeTab === 'xin-nghi' && <TabXinNghi />}
         {activeTab === 'nhan-lop' && <TabNhanLop />}
+        {activeTab === 'office-hours' && <TabOfficeHours />}
       </div>
     </PageContainer>
   );

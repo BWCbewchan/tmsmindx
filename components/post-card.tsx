@@ -48,6 +48,7 @@ export default function PostCard({
     return (
         <Link
             href={`${detailBasePath}/${post.slug}`}
+            prefetch={false}
             className="group block h-full"
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
@@ -62,6 +63,8 @@ export default function PostCard({
                         src={post.featured_image || '/placeholder.svg'}
                         alt={post.title}
                         cropData={post.thumbnail_position}
+                        loading="lazy"
+                        decoding="async"
                         style={{ position: 'absolute', inset: 0 }}
                     />
 

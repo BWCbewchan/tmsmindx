@@ -295,7 +295,7 @@ export default function SlidersManagementPage() {
 
             {/* Create Slider Modal */}
             {isCreateModalOpen && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-modal-backdrop-custom p-4">
                     <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
                         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-4 flex items-center justify-between sticky top-0">
                             <h3 className="text-lg font-bold text-white flex items-center gap-2">
