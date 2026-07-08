@@ -62,9 +62,7 @@ const nextConfig: NextConfig = {
             ? ([
                 {
                   key: "Strict-Transport-Security",
-                  // preload: cho phép đưa domain vào browser HSTS preload list,
-                  // đảm bảo HTTPS ngay từ lần truy cập đầu tiên (không có plain HTTP)
-                  value: "max-age=31536000; includeSubDomains; preload",
+                  value: "max-age=31536000; includeSubDomains",
                 },
               ] as const)
             : []),

@@ -2,38 +2,42 @@ import { requireBearerSession } from '@/lib/datasource-api-auth'
 import { withApiProtection } from '@/lib/api-protection'
 import pool from '@/lib/db'
 import { getHrCandidateSheetData } from '@/lib/hr-candidate-sheet'
+import { validateHrOnboardingAccess } from '@/lib/hr-onboarding-access'
 import bcrypt from 'bcryptjs'
 import { NextRequest, NextResponse } from 'next/server'
 
-const HR_ONBOARDING_ROUTE = '/admin/hr-onboarding'
 const REGION_MAP: Record<string, string> = { 'HCM': '1', 'HN': '2', 'DN': '3' }
-const BLOCK_MAP: Record<string, string> = { 'Art': '1', 'Tech': '2', 'Biz': '3' }
+const BLOCK_MAP: Record<string, string> = {
+  'Art': '1',
+  'Coding': '2',
+  'Robotics': '2',
+  'Tech': '2',
+  'Biz': '3',
+}
 
-async function validateHrAccess(email: string): Promise<boolean> {
-  const r = await pool.query(
-    `SELECT u.id, u.role FROM app_users u WHERE u.email = $1 AND u.is_active = true LIMIT 1`,
-    [email]
-  )
-  if (r.rows.length === 0) return false
-  const user = r.rows[0]
-  if (user.role === 'super_admin') return true
+function getGenNumber(genName: string) {
+  const parsed = Number((genName.match(/\d+/) || [])[0])
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
 
-  const perm = await pool.query(
-    `SELECT 1 FROM app_permissions WHERE user_id = $1 AND route_path = $2 AND can_access = true
-     UNION
-     SELECT 1 FROM user_roles ur JOIN role_permissions rp ON rp.role_code = ur.role_code
-     WHERE ur.user_id = $1 AND rp.route_path = $2
-     LIMIT 1`,
-    [user.id, HR_ONBOARDING_ROUTE]
-  )
-  return (perm.rowCount ?? 0) > 0
+function getCodePrefix(regionCode: string, genName: string, workBlock: string) {
+  const genNumber = getGenNumber(genName)
+  if (!genNumber) return null
+
+  const region = REGION_MAP[regionCode] || (['1', '2', '3', '4', '5'].includes(regionCode) ? regionCode : '0')
+  const block = BLOCK_MAP[workBlock] || (['1', '2', '3'].includes(workBlock) ? workBlock : '0')
+  return `${region}${genNumber.toString().padStart(3, '0')}${block}`
+}
+
+function isStandardCandidateCode(code: string | null | undefined) {
+  return typeof code === 'string' && /^\d{7}$/.test(code.trim())
 }
 
 export const POST = withApiProtection(async (req: NextRequest) => {
   const auth = await requireBearerSession(req)
   if (!auth.ok) return auth.response
 
-  if (!(await validateHrAccess(auth.sessionEmail))) {
+  if (!(await validateHrOnboardingAccess(auth.sessionEmail))) {
     return NextResponse.json({ error: 'Bạn không có quyền thực hiện hành động này.' }, { status: 403 })
   }
 
@@ -58,9 +62,13 @@ export const POST = withApiProtection(async (req: NextRequest) => {
       `SELECT id, email, gen_id, candidate_code FROM hr_candidates WHERE is_deleted = false`
     )
     const existingMap = new Map<string, { id: number; candidate_code: string | null }>()
+    const existingCodeOwners = new Map<string, number>()
     for (const r of existingRes.rows) {
       const key = `${r.email?.toLowerCase().trim()}_${r.gen_id || ''}`
       existingMap.set(key, { id: r.id, candidate_code: r.candidate_code })
+      if (r.candidate_code) {
+        existingCodeOwners.set(String(r.candidate_code).trim(), r.id)
+      }
     }
 
     // 4. Nạp trước danh mục GEN
@@ -91,10 +99,13 @@ export const POST = withApiProtection(async (req: NextRequest) => {
     let inserted = 0
     let updated = 0
     let skipped = 0
+    let backfilledCodes = 0
 
     const withGenToUpsert: any[] = []
     const noGenToUpsert: any[] = []
     const uniqueEmailsInSheet = new Set<string>()
+    const sheetCodeOwners = new Map<string, string>()
+    let duplicateCodes = 0
 
     for (const c of candidates) {
       const email = c.email?.toLowerCase().trim()
@@ -103,14 +114,8 @@ export const POST = withApiProtection(async (req: NextRequest) => {
         continue
       }
 
-      // Lọc mã ứng viên: nếu có mã thì kiểm tra định dạng, nếu rỗng thì cho qua (không skip)
-      const candidateCodeVal = c.candidateCode?.trim() || null
-      if (candidateCodeVal) {
-        if (!/^\d{5,7}$/.test(candidateCodeVal)) {
-          skipped++
-          continue
-        }
-      }
+      let candidateCodeVal = c.candidateCode?.trim() || null
+      if (candidateCodeVal && !isStandardCandidateCode(candidateCodeVal)) candidateCodeVal = null
 
       // Loại bỏ trùng lặp trong cùng một trang tính
       const sheetKey = `${email}_${c.sheetGen || ''}`
@@ -122,8 +127,10 @@ export const POST = withApiProtection(async (req: NextRequest) => {
 
       // Kiểm tra và gán nhóm GEN
       let genId: number | null = null
+      let normalizedGenName = ''
       if (c.sheetGen) {
         const trimmedGen = c.sheetGen.trim()
+        normalizedGenName = trimmedGen
         if (genMap.has(trimmedGen)) {
           genId = genMap.get(trimmedGen)!
         } else {
@@ -141,10 +148,38 @@ export const POST = withApiProtection(async (req: NextRequest) => {
 
       const regionCode = c.regionCode || '2' // mặc định HN/Miền Bắc
       const workBlock = c.workBlock || 'Tech'
+      const workBlockForCode = c.workBlockCode || workBlock
 
       // Tìm ứng viên hiện tại
       const cacheKey = `${email}_${genId || ''}`
       const existing = existingMap.get(cacheKey)
+
+      if (!candidateCodeVal && !existing?.candidate_code && genId !== null) {
+        const prefix = getCodePrefix(regionCode, normalizedGenName, workBlockForCode)
+        if (prefix) {
+          candidateCodeVal = `${prefix}${await getNextSequence(prefix)}`
+        }
+      } else if (!isStandardCandidateCode(existing?.candidate_code) && genId !== null) {
+        const prefix = getCodePrefix(regionCode, normalizedGenName, workBlockForCode)
+        if (prefix) {
+          candidateCodeVal = `${prefix}${await getNextSequence(prefix)}`
+        }
+      }
+
+      if (candidateCodeVal) {
+        const existingOwnerId = existingCodeOwners.get(candidateCodeVal)
+        const sheetOwnerKey = sheetCodeOwners.get(candidateCodeVal)
+        const codeBelongsToAnotherCandidate = existingOwnerId !== undefined && existingOwnerId !== existing?.id
+        const codeRepeatedInSheet = sheetOwnerKey !== undefined && sheetOwnerKey !== cacheKey
+
+        if (codeBelongsToAnotherCandidate || codeRepeatedInSheet) {
+          candidateCodeVal = null
+          duplicateCodes++
+        } else {
+          sheetCodeOwners.set(candidateCodeVal, cacheKey)
+          if (existing?.id) existingCodeOwners.set(candidateCodeVal, existing.id)
+        }
+      }
 
       if (existing) {
         updated++
@@ -232,7 +267,11 @@ export const POST = withApiProtection(async (req: NextRequest) => {
            desired_campus = EXCLUDED.desired_campus,
            work_block = EXCLUDED.work_block,
            subject_code = EXCLUDED.subject_code,
-           candidate_code = COALESCE(hr_candidates.candidate_code, EXCLUDED.candidate_code),
+           candidate_code = CASE
+             WHEN hr_candidates.candidate_code IS NULL OR hr_candidates.candidate_code !~ '^\\d{7}$'
+             THEN EXCLUDED.candidate_code
+             ELSE hr_candidates.candidate_code
+           END,
            updated_by_email = EXCLUDED.created_by_email,
            updated_at = CURRENT_TIMESTAMP,
            birth_year = EXCLUDED.birth_year,
@@ -256,7 +295,11 @@ export const POST = withApiProtection(async (req: NextRequest) => {
                desired_campus = $4,
                work_block = $5,
                subject_code = $6,
-               candidate_code = COALESCE(candidate_code, $7),
+               candidate_code = CASE
+                 WHEN candidate_code IS NULL OR candidate_code !~ '^\\d{7}$'
+                 THEN $7
+                 ELSE candidate_code
+               END,
                updated_by_email = $8,
                updated_at = CURRENT_TIMESTAMP,
                birth_year = $9,
@@ -317,39 +360,113 @@ export const POST = withApiProtection(async (req: NextRequest) => {
       }
     }
 
-    // 3. Lấy lại ID của các ứng viên để tạo tài khoản đăng nhập (chỉ tạo cho người có mã ứng viên)
-    const allEmails = [...withGenToUpsert, ...noGenToUpsert].map(c => c.email)
-    const matchingCandidatesRes = await pool.query(
-      `SELECT id, email, gen_id, candidate_code FROM hr_candidates WHERE email = ANY($1)`,
-      [allEmails]
+    // 3. Backfill mã cho các ứng viên đã có GEN từ trước nhưng chưa có mã chuẩn.
+    const backfilledUsers: { candidate_id: number; username: string; password_hash: string }[] = []
+    const missingCodeRes = await pool.query(
+      `SELECT c.id, c.region_code, c.work_block, g.gen_name
+       FROM hr_candidates c
+       JOIN hr_gen_catalog g ON g.id = c.gen_id
+       WHERE c.is_deleted = false
+         AND c.gen_id IS NOT NULL
+         AND (c.candidate_code IS NULL OR c.candidate_code !~ '^\\d{7}$')
+       ORDER BY c.created_at ASC, c.id ASC`
     )
-    
-    const usersToInsert: { candidate_id: number; username: string; password_hash: string }[] = []
-    for (const r of matchingCandidatesRes.rows) {
-      if (r.candidate_code) {
-        usersToInsert.push({
-          candidate_id: r.id,
-          username: r.candidate_code,
-          password_hash: defaultPasswordHash
+
+    for (const row of missingCodeRes.rows) {
+      const prefix = getCodePrefix(row.region_code || '2', row.gen_name, row.work_block || 'Tech')
+      if (!prefix) continue
+
+      const candidateCode = `${prefix}${await getNextSequence(prefix)}`
+      const updateRes = await pool.query(
+        `UPDATE hr_candidates
+         SET candidate_code = $2,
+             updated_by_email = $3,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+           AND (candidate_code IS NULL OR candidate_code !~ '^\\d{7}$')
+         RETURNING id, candidate_code`,
+        [row.id, candidateCode, auth.sessionEmail]
+      )
+
+      if (updateRes.rowCount && updateRes.rows[0]?.candidate_code) {
+        backfilledCodes++
+        backfilledUsers.push({
+          candidate_id: updateRes.rows[0].id,
+          username: updateRes.rows[0].candidate_code,
+          password_hash: defaultPasswordHash,
         })
       }
     }
 
-    for (let i = 0; i < usersToInsert.length; i += CHUNK_SIZE) {
-      const chunk = usersToInsert.slice(i, i + CHUNK_SIZE)
+    // 4. Lấy lại ID của các ứng viên để tạo/cập nhật tài khoản đăng nhập.
+    const allEmails = [...withGenToUpsert, ...noGenToUpsert].map(c => c.email)
+    const usersByCandidateId = new Map<number, { candidate_id: number; username: string; password_hash: string }>()
+
+    if (allEmails.length > 0) {
+      const matchingCandidatesRes = await pool.query(
+        `SELECT id, email, gen_id, candidate_code FROM hr_candidates WHERE email = ANY($1)`,
+        [allEmails]
+      )
+
+      for (const r of matchingCandidatesRes.rows) {
+        if (r.candidate_code) {
+          usersByCandidateId.set(r.id, {
+            candidate_id: r.id,
+            username: r.candidate_code,
+            password_hash: defaultPasswordHash,
+          })
+        }
+      }
+    }
+
+    for (const item of backfilledUsers) {
+      usersByCandidateId.set(item.candidate_id, item)
+    }
+
+    const userItems = Array.from(usersByCandidateId.values())
+    const USER_CHUNK_SIZE = 500
+
+    for (let i = 0; i < userItems.length; i += USER_CHUNK_SIZE) {
+      const chunk = userItems.slice(i, i + USER_CHUNK_SIZE)
       const values: any[] = []
-      const valueStrings: string[] = []
+      const updateRows: string[] = []
       let pIdx = 1
 
       for (const item of chunk) {
-        valueStrings.push(`($${pIdx}, $${pIdx+1}, $${pIdx+2})`)
+        updateRows.push(`($${pIdx}::int, $${pIdx + 1}::varchar)`)
+        values.push(item.candidate_id, item.username)
+        pIdx += 2
+      }
+
+      await pool.query(
+        `UPDATE hr_candidate_users u
+         SET username = v.username,
+             is_active = true
+         FROM (VALUES ${updateRows.join(', ')}) AS v(candidate_id, username)
+         WHERE u.candidate_id = v.candidate_id`,
+        values
+      )
+    }
+
+    for (let i = 0; i < userItems.length; i += USER_CHUNK_SIZE) {
+      const chunk = userItems.slice(i, i + USER_CHUNK_SIZE)
+      const values: any[] = []
+      const insertRows: string[] = []
+      let pIdx = 1
+
+      for (const item of chunk) {
+        insertRows.push(`($${pIdx}::int, $${pIdx + 1}::varchar, $${pIdx + 2}::varchar)`)
         values.push(item.candidate_id, item.username, item.password_hash)
         pIdx += 3
       }
 
       await pool.query(
         `INSERT INTO hr_candidate_users (candidate_id, username, password_hash)
-         VALUES ${valueStrings.join(', ')}
+         SELECT v.candidate_id, v.username, v.password_hash
+         FROM (VALUES ${insertRows.join(', ')}) AS v(candidate_id, username, password_hash)
+         WHERE NOT EXISTS (
+           SELECT 1 FROM hr_candidate_users u WHERE u.candidate_id = v.candidate_id
+         )
          ON CONFLICT (username) DO NOTHING`,
         values
       )
@@ -362,6 +479,8 @@ export const POST = withApiProtection(async (req: NextRequest) => {
         inserted,
         updated,
         skipped,
+        duplicateCodes,
+        backfilledCodes,
       }
     })
   } catch (error: any) {
