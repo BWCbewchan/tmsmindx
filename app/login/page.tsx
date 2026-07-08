@@ -28,7 +28,17 @@ function resolvePostLoginPath(options: {
   isAdmin: boolean;
   teacherSync?: TeacherSyncState;
 }): { redirectPath: string; isAdminLanding: boolean } {
-  const redirectPath = resolveAuthenticatedLanding(options);
+  if (options.selectedRole === 'candidate') {
+    return {
+      redirectPath: '/candidate-portal',
+      isAdminLanding: false,
+    };
+  }
+
+  const redirectPath = resolveAuthenticatedLanding({
+    ...options,
+    selectedRole: options.selectedRole,
+  });
 
   return {
     redirectPath,

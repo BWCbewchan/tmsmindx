@@ -300,7 +300,9 @@ async function main() {
                     BEFORE UPDATE ON push_subscriptions
                     FOR EACH ROW
                     EXECUTE FUNCTION update_updated_at_column();
-                ` }
+                ` },
+                { name: 'V100_teaching_document_folders', file: '../migrations/add_teaching_document_folders.sql' },
+                { name: 'V101_teaching_document_material_links', file: '../migrations/add_teaching_document_material_links.sql' }
         ];
 
 

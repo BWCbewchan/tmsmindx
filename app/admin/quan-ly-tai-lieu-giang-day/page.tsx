@@ -5,6 +5,7 @@ import {
   COURSE_OPTIONS,
   LEVELS,
   SUBJECT_FOLDERS,
+  TEACHING_DOCUMENT_FOLDERS,
   TeachingDocumentLibrary,
   type DocumentStatus,
   type TeachingDocument,
@@ -23,6 +24,7 @@ import {
   BookOpen,
   FileArchive,
   FileText,
+  Link2,
   Loader2,
   ShieldCheck,
   UploadCloud,
@@ -32,6 +34,17 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 
 const SUBJECTS = [...SUBJECT_FOLDERS]
 type SubjectName = (typeof SUBJECTS)[number]
+type TeachingDocumentFolderName = (typeof TEACHING_DOCUMENT_FOLDERS)[number]
+type UploadSourceType = 'file' | 'material_link'
+type UploadFormState = {
+  title: string
+  description: string
+  subject_name: SubjectName
+  course_name: string
+  document_level: string
+  folder_name: TeachingDocumentFolderName
+  lesson_number: string
+}
 const LESSONS = Array.from({ length: 14 }, (_, index) => `Buổi ${index + 1}`)
 const MAX_DOCUMENT_MB = 100
 
@@ -80,16 +93,19 @@ export default function QuanLyTaiLieuGiangDayPage() {
   const [message, setMessage] = useState('')
   const [dragActive, setDragActive] = useState(false)
   const [file, setFile] = useState<File | null>(null)
+  const [uploadSourceType, setUploadSourceType] = useState<UploadSourceType>('file')
+  const [materialUrl, setMaterialUrl] = useState('')
   const [isUploadOpen, setIsUploadOpen] = useState(false)
   const [activeStatus, setActiveStatus] = useState<DocumentStatus>('published')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<UploadFormState>({
     title: '',
     description: '',
     subject_name: SUBJECTS[0],
     course_name: COURSE_OPTIONS[SUBJECTS[0]][0],
     document_level: 'Basic',
+    folder_name: TEACHING_DOCUMENT_FOLDERS[0],
     lesson_number: LESSONS[0],
   })
 
@@ -136,6 +152,8 @@ export default function QuanLyTaiLieuGiangDayPage() {
 
   const resetUploadForm = () => {
     setFile(null)
+    setUploadSourceType('file')
+    setMaterialUrl('')
     setDragActive(false)
     setForm({
       title: '',
@@ -143,6 +161,7 @@ export default function QuanLyTaiLieuGiangDayPage() {
       subject_name: SUBJECTS[0],
       course_name: COURSE_OPTIONS[SUBJECTS[0]][0],
       document_level: 'Basic',
+      folder_name: TEACHING_DOCUMENT_FOLDERS[0],
       lesson_number: LESSONS[0],
     })
     if (fileInputRef.current) fileInputRef.current.value = ''
@@ -157,12 +176,16 @@ export default function QuanLyTaiLieuGiangDayPage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!file) {
+    if (uploadSourceType === 'file' && !file) {
       setMessage('Vui lòng chọn file giáo trình')
       return
     }
-    if (file.size > MAX_DOCUMENT_MB * 1024 * 1024) {
+    if (uploadSourceType === 'file' && file && file.size > MAX_DOCUMENT_MB * 1024 * 1024) {
       setMessage(`File vượt quá dung lượng tối đa ${MAX_DOCUMENT_MB}MB`)
+      return
+    }
+    if (uploadSourceType === 'material_link' && !materialUrl.trim()) {
+      setMessage('Vui lòng nhập link tải Material')
       return
     }
 
@@ -170,9 +193,14 @@ export default function QuanLyTaiLieuGiangDayPage() {
     setMessage('')
     try {
       const payload = new FormData()
-      payload.append('file', file)
+      if (file && uploadSourceType === 'file') payload.append('file', file)
+      payload.append('source_type', uploadSourceType)
+      payload.append('material_url', materialUrl.trim())
       payload.append('document_status', 'published')
-      Object.entries(form).forEach(([key, value]) => payload.append(key, value))
+      Object.entries({
+        ...form,
+        folder_name: uploadSourceType === 'material_link' ? 'Material' : form.folder_name,
+      }).forEach(([key, value]) => payload.append(key, value))
 
       const response = await fetch('/api/admin/teaching-documents', {
         method: 'POST',
@@ -181,7 +209,7 @@ export default function QuanLyTaiLieuGiangDayPage() {
       const data = await readJsonResponse(response)
       if (!response.ok || !data.success) throw new Error(data.error || 'Ban hành thất bại')
 
-      setMessage('Đã ban hành giáo trình')
+      setMessage(uploadSourceType === 'material_link' ? 'Đã thêm link Material' : 'Đã ban hành giáo trình')
       resetUploadForm()
       setIsUploadOpen(false)
       setActiveStatus('published')
@@ -190,6 +218,39 @@ export default function QuanLyTaiLieuGiangDayPage() {
       setMessage(error?.message || 'Không thể ban hành giáo trình')
     } finally {
       setUploading(false)
+    }
+  }
+
+  const handleMoveDocument = async (
+    document: TeachingDocument,
+    folderName: TeachingDocumentFolderName,
+  ) => {
+    const previousFolder = document.folder_name || 'Material'
+    if (previousFolder === folderName) return
+
+    setDocuments((current) =>
+      current.map((item) => (item.id === document.id ? { ...item, folder_name: folderName } : item)),
+    )
+    setMessage('')
+
+    try {
+      const response = await fetch('/api/admin/teaching-documents', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          document_id: document.id,
+          folder_name: folderName,
+        }),
+      })
+      const data = await readJsonResponse(response)
+      if (!response.ok || !data.success) throw new Error(data.error || 'Không thể di chuyển tài liệu')
+      setMessage(`Đã chuyển “${document.title}” vào ${folderName}`)
+    } catch (error: any) {
+      setDocuments((current) =>
+        current.map((item) => (item.id === document.id ? { ...item, folder_name: previousFolder } : item)),
+      )
+      setMessage(error?.message || 'Không thể di chuyển tài liệu')
+      throw error
     }
   }
 
@@ -204,21 +265,26 @@ export default function QuanLyTaiLieuGiangDayPage() {
         </Button>
       }
     >
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="rounded-lg border border-slate-200 p-4">
-          <FileText className="mb-3 h-5 w-5 text-rose-700" />
-          <p className="text-2xl font-black text-slate-950">{documents.length}</p>
-          <p className="text-sm text-slate-500">Giáo trình</p>
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <Card className="rounded-lg border border-slate-200 p-3 sm:p-4">
+          <FileText className="mb-2 h-4 w-4 text-rose-700 sm:mb-3 sm:h-5 sm:w-5" />
+          <p className="text-lg font-black leading-none text-slate-950 sm:text-2xl">{documents.length}</p>
+          <p className="mt-1 truncate text-[11px] font-medium text-slate-500 sm:text-sm">Giáo trình</p>
         </Card>
-        <Card className="rounded-lg border border-slate-200 p-4">
-          <BookOpen className="mb-3 h-5 w-5 text-rose-700" />
-          <p className="text-2xl font-black text-slate-950">{groupedStats.subjects}</p>
-          <p className="text-sm text-slate-500">Khối</p>
+        <Card className="rounded-lg border border-slate-200 p-3 sm:p-4">
+          <BookOpen className="mb-2 h-4 w-4 text-rose-700 sm:mb-3 sm:h-5 sm:w-5" />
+          <p className="text-lg font-black leading-none text-slate-950 sm:text-2xl">{groupedStats.subjects}</p>
+          <p className="mt-1 truncate text-[11px] font-medium text-slate-500 sm:text-sm">Khối</p>
         </Card>
-        <Card className="rounded-lg border border-slate-200 p-4">
-          <ShieldCheck className="mb-3 h-5 w-5 text-rose-700" />
-          <p className="text-2xl font-black text-slate-950">{formatFileSize(groupedStats.totalSize)}</p>
-          <p className="text-sm text-slate-500">Dung lượng private S3</p>
+        <Card className="rounded-lg border border-slate-200 p-3 sm:p-4">
+          <ShieldCheck className="mb-2 h-4 w-4 text-rose-700 sm:mb-3 sm:h-5 sm:w-5" />
+          <p className="text-lg font-black leading-none text-slate-950 sm:text-2xl">
+            {formatFileSize(groupedStats.totalSize)}
+          </p>
+          <p className="mt-1 truncate text-[11px] font-medium text-slate-500 sm:text-sm">
+            <span className="sm:hidden">Private S3</span>
+            <span className="hidden sm:inline">Dung lượng private S3</span>
+          </p>
         </Card>
       </div>
 
@@ -259,7 +325,13 @@ export default function QuanLyTaiLieuGiangDayPage() {
           <FileArchive className="h-5 w-5 text-rose-700" />
         </div>
 
-        <TeachingDocumentLibrary documents={visibleDocuments} loading={loading} subjects={SUBJECT_FOLDERS} />
+        <TeachingDocumentLibrary
+          documents={visibleDocuments}
+          loading={loading}
+          subjects={SUBJECT_FOLDERS}
+          allowDocumentMove
+          onMoveDocument={handleMoveDocument}
+        />
       </Card>
 
       <Dialog
@@ -272,9 +344,9 @@ export default function QuanLyTaiLieuGiangDayPage() {
         <DialogContent className="max-h-[92vh] max-w-3xl overflow-hidden">
           <DialogHeader className="flex-row items-start justify-between gap-4">
             <div>
-              <DialogTitle className="text-xl font-black">Upload giáo trình</DialogTitle>
+              <DialogTitle className="text-xl font-black">Thêm tài liệu giảng dạy</DialogTitle>
               <p className="mt-1 text-sm text-slate-500">
-                PDF, DOCX, PPTX hoặc hình ảnh, tối đa {MAX_DOCUMENT_MB}MB.
+                Upload file giáo trình hoặc gắn link tải tài nguyên Material.
               </p>
             </div>
             <button
@@ -288,32 +360,82 @@ export default function QuanLyTaiLieuGiangDayPage() {
           </DialogHeader>
           <DialogBody className="max-h-[calc(92vh-96px)] overflow-auto">
             <form onSubmit={handleSubmit} className="space-y-4">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                onDragEnter={(event) => {
-                  event.preventDefault()
-                  setDragActive(true)
-                }}
-                onDragOver={(event) => event.preventDefault()}
-                onDragLeave={() => setDragActive(false)}
-                onDrop={(event) => {
-                  event.preventDefault()
-                  setDragActive(false)
-                  selectFile(event.dataTransfer.files?.[0] || null)
-                }}
-                className={`flex min-h-36 w-full flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 text-center transition ${
-                  dragActive ? 'border-rose-500 bg-rose-50' : 'border-slate-300 bg-slate-50 hover:border-rose-300'
-                }`}
-              >
-                <UploadCloud className="mb-3 h-8 w-8 text-rose-700" />
-                <span className="text-sm font-bold text-slate-900">
-                  {file ? file.name : 'Kéo thả file hoặc bấm để chọn'}
-                </span>
-                <span className="mt-1 text-xs text-slate-500">
-                  {file ? formatFileSize(file.size) : '.pdf, .docx, .pptx, .png, .jpg, .webp'}
-                </span>
-              </button>
+              <div className="grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setUploadSourceType('file')}
+                  className={`flex min-h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-bold transition ${
+                    uploadSourceType === 'file'
+                      ? 'bg-white text-slate-950 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <UploadCloud className="h-4 w-4" />
+                  Upload file
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUploadSourceType('material_link')
+                    setFile(null)
+                    setForm((current) => ({ ...current, folder_name: 'Material' }))
+                  }}
+                  className={`flex min-h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-bold transition ${
+                    uploadSourceType === 'material_link'
+                      ? 'bg-white text-slate-950 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Link2 className="h-4 w-4" />
+                  Link Material
+                </button>
+              </div>
+
+              {uploadSourceType === 'file' ? (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragEnter={(event) => {
+                    event.preventDefault()
+                    setDragActive(true)
+                  }}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDragLeave={() => setDragActive(false)}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    setDragActive(false)
+                    selectFile(event.dataTransfer.files?.[0] || null)
+                  }}
+                  className={`flex min-h-36 w-full flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 text-center transition ${
+                    dragActive
+                      ? 'border-rose-500 bg-rose-50'
+                      : 'border-slate-300 bg-slate-50 hover:border-rose-300'
+                  }`}
+                >
+                  <UploadCloud className="mb-3 h-8 w-8 text-rose-700" />
+                  <span className="text-sm font-bold text-slate-900">
+                    {file ? file.name : 'Kéo thả file hoặc bấm để chọn'}
+                  </span>
+                  <span className="mt-1 text-xs text-slate-500">
+                    {file ? formatFileSize(file.size) : `.pdf, .docx, .pptx, .png, .jpg, .webp · tối đa ${MAX_DOCUMENT_MB}MB`}
+                  </span>
+                </button>
+              ) : (
+                <label className="block rounded-lg border border-sky-200 bg-sky-50 p-4">
+                  <span className="mb-1 block text-sm font-bold text-slate-800">Link tải Material</span>
+                  <input
+                    type="url"
+                    value={materialUrl}
+                    onChange={(event) => setMaterialUrl(event.target.value)}
+                    placeholder="https://... (OneDrive, SharePoint hoặc nguồn tải khác)"
+                    className="h-11 w-full rounded-md border border-sky-200 bg-white px-3 text-sm outline-none focus:border-sky-500"
+                    required
+                  />
+                  <span className="mt-2 block text-xs leading-5 text-slate-500">
+                    Giáo viên bấm thẻ Material để TPS tải ngầm file từ link này. Chỉ chấp nhận link HTTPS có quyền tải.
+                  </span>
+                </label>
+              )}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -382,7 +504,29 @@ export default function QuanLyTaiLieuGiangDayPage() {
                 </label>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <label className="block sm:col-span-2">
+                  <span className="mb-1 block text-sm font-bold text-slate-700">Thư mục con</span>
+                  <select
+                    value={form.folder_name}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        folder_name: event.target.value as TeachingDocumentFolderName,
+                      }))
+                    }
+                    className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-rose-500"
+                    disabled={uploadSourceType === 'material_link'}
+                    required
+                  >
+                    {TEACHING_DOCUMENT_FOLDERS.map((folder) => (
+                      <option key={folder} value={folder}>
+                        {folder}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
                 <label className="block">
                   <span className="mb-1 block text-sm font-bold text-slate-700">Level</span>
                   <select
@@ -420,8 +564,18 @@ export default function QuanLyTaiLieuGiangDayPage() {
               )}
 
               <Button type="submit" variant="mindx" className="w-full" disabled={uploading}>
-                {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
-                {uploading ? 'Đang ban hành...' : 'Ban hành'}
+                {uploading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : uploadSourceType === 'material_link' ? (
+                  <Link2 className="h-4 w-4" />
+                ) : (
+                  <UploadCloud className="h-4 w-4" />
+                )}
+                {uploading
+                  ? 'Đang lưu...'
+                  : uploadSourceType === 'material_link'
+                    ? 'Thêm link Material'
+                    : 'Ban hành'}
               </Button>
             </form>
           </DialogBody>
