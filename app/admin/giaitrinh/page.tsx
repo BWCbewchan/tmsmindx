@@ -65,6 +65,9 @@ export default function AdminGiaiThichPage() {
   const [selectedExplanation, setSelectedExplanation] = useState<Explanation | null>(null);
   const [adminNote, setAdminNote] = useState('');
   const [processing, setProcessing] = useState(false);
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [bulkAdminNote, setBulkAdminNote] = useState('');
 
   // Close modal when clicking outside
   useEffect(() => {
@@ -138,46 +141,134 @@ export default function AdminGiaiThichPage() {
     });
   }, [allExplanations, filterStatus, filterCampuses, filterSubjects, searchQuery]);
 
+  const pendingExplanations = useMemo(
+    () => explanations.filter(explanation => explanation.status === 'pending'),
+    [explanations],
+  );
+
+  const visiblePendingIds = useMemo(
+    () => pendingExplanations.map(explanation => explanation.id),
+    [pendingExplanations],
+  );
+
+  const selectedPendingIds = useMemo(
+    () => selectedIds.filter(id => visiblePendingIds.includes(id)),
+    [selectedIds, visiblePendingIds],
+  );
+
+  const allVisiblePendingSelected =
+    visiblePendingIds.length > 0 && visiblePendingIds.every(id => selectedIds.includes(id));
+  const someVisiblePendingSelected = selectedPendingIds.length > 0 && !allVisiblePendingSelected;
+
+  useEffect(() => {
+    setSelectedIds(current =>
+      current.filter(id =>
+        allExplanations.some(explanation => explanation.id === id && explanation.status === 'pending'),
+      ),
+    );
+  }, [allExplanations]);
+
+  const updateExplanationStatus = async (
+    id: number,
+    status: 'accepted' | 'rejected',
+    note: string,
+  ) => {
+    const response = await fetch('/api/explanations', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id,
+        status,
+        admin_note: note,
+        admin_email: user?.email,
+        admin_name: user?.displayName || user?.email
+      })
+    });
+
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error(data.error || 'Không cập nhật được giải trình');
+    }
+
+    return data;
+  };
+
   const handleUpdateStatus = async (id: number, status: 'accepted' | 'rejected') => {
     if (!confirm(`Bạn có chắc muốn ${status === 'accepted' ? 'chấp nhận' : 'từ chối'} giải trình này?`)) {
       return;
     }
 
     setProcessing(true);
-    
+
     try {
-      const response = await fetch('/api/explanations', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id,
-          status,
-          admin_note: adminNote,
-          admin_email: user?.email,
-          admin_name: user?.displayName || user?.email
-        })
-      });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        // Check if email was actually sent or not
-        const emailStatus = data.emailNotSent 
-          ? '\n\n⚠️ LUU Ý: Email chưa được gửi do thiếu cấu hình Gmail. Vui lòng kiểm tra file EMAIL_CONFIGURATION_GUIDE.md' 
-          : '';
-        
-        toast.success(`Đã ${status === 'accepted' ? 'chấp nhận' : 'từ chối'} giải trình. Email đã được gửi đến giáo viên.${emailStatus}`);
-        setSelectedExplanation(null);
-        setAdminNote('');
-        fetchExplanations();
-      } else {
-        toast.error('Lỗi: ' + data.error);
-      }
+      const data = await updateExplanationStatus(id, status, adminNote);
+      const emailStatus = data.emailNotSent
+        ? '\n\n⚠️ LUU Ý: Email chưa được gửi do thiếu cấu hình Gmail. Vui lòng kiểm tra file EMAIL_CONFIGURATION_GUIDE.md'
+        : '';
+
+      toast.success(`Đã ${status === 'accepted' ? 'chấp nhận' : 'từ chối'} giải trình. Email đã được gửi đến giáo viên.${emailStatus}`);
+      setSelectedExplanation(null);
+      setAdminNote('');
+      fetchExplanations();
     } catch (error) {
       console.error('Error updating explanation:', error);
-      toast.error('Có lỗi xảy ra khi cập nhật giải trình');
+      toast.error(error instanceof Error ? error.message : 'Có lỗi xảy ra khi cập nhật giải trình');
     } finally {
       setProcessing(false);
+    }
+  };
+
+  const toggleSelectAllVisible = () => {
+    if (allVisiblePendingSelected) {
+      setSelectedIds(current => current.filter(id => !visiblePendingIds.includes(id)));
+      return;
+    }
+
+    setSelectedIds(current => Array.from(new Set([...current, ...visiblePendingIds])));
+  };
+
+  const toggleSelectOne = (id: number) => {
+    setSelectedIds(current =>
+      current.includes(id) ? current.filter(selectedId => selectedId !== id) : [...current, id],
+    );
+  };
+
+  const handleBulkUpdateStatus = async (status: 'accepted' | 'rejected') => {
+    if (selectedPendingIds.length === 0) {
+      toast.error('Vui lòng chọn ít nhất một giải trình đang chờ');
+      return;
+    }
+
+    const actionLabel = status === 'accepted' ? 'chấp nhận' : 'từ chối';
+    if (!confirm(`Bạn có chắc muốn ${actionLabel} ${selectedPendingIds.length} giải trình đã chọn?`)) {
+      return;
+    }
+
+    setBulkProcessing(true);
+
+    try {
+      const results = await Promise.allSettled(
+        selectedPendingIds.map(id => updateExplanationStatus(id, status, bulkAdminNote)),
+      );
+      const successCount = results.filter(result => result.status === 'fulfilled').length;
+      const failureCount = results.length - successCount;
+
+      if (successCount > 0) {
+        toast.success(`Đã ${actionLabel} ${successCount} giải trình`);
+      }
+      if (failureCount > 0) {
+        toast.error(`${failureCount} giải trình chưa cập nhật được`);
+      }
+
+      setSelectedIds([]);
+      setBulkAdminNote('');
+      fetchExplanations();
+    } catch (error) {
+      console.error('Error bulk updating explanations:', error);
+      toast.error('Có lỗi xảy ra khi cập nhật hàng loạt');
+    } finally {
+      setBulkProcessing(false);
     }
   };
 
@@ -316,70 +407,155 @@ export default function AdminGiaiThichPage() {
               : `Không có giải trình ở trạng thái "${filterStatus}"`}
           />
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>#</TableHead>
-                  <TableHead>Giáo viên</TableHead>
-                  <TableHead>Cơ sở</TableHead>
-                  <TableHead>Bộ môn</TableHead>
-                  <TableHead>Ngày KT</TableHead>
-                  <TableHead>Ngày tạo</TableHead>
-                  <TableHead className="text-center">Trạng thái</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {explanations.map((explanation, idx) => (
-                  <TableRow 
-                    key={explanation.id}
-                    className="group cursor-pointer transition-all duration-200 hover:bg-blue-50/80 hover:shadow-md relative z-0 hover:z-10"
-                    onClick={() => setSelectedExplanation(explanation)}
+          <div className="space-y-4">
+            <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-slate-900">
+                  Đã chọn {selectedPendingIds.length} giải trình
+                </div>
+                <div className="text-xs text-slate-500">
+                  Còn {pendingExplanations.length} giải trình đang chờ trong danh sách hiện tại
+                </div>
+              </div>
+
+              <div className="flex flex-1 flex-col gap-3 lg:max-w-3xl lg:flex-row lg:items-end">
+                <div className="min-w-0 flex-1">
+                  <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Ghi chú hàng loạt
+                  </label>
+                  <textarea
+                    value={bulkAdminNote}
+                    onChange={(event) => setBulkAdminNote(event.target.value)}
+                    rows={2}
+                    className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition-all placeholder:text-slate-400 focus:border-[#a1001f] focus:ring-[3px] focus:ring-[#a1001f]/10"
+                    placeholder="Nhập ghi chú chung nếu cần..."
+                    disabled={bulkProcessing}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
+                  <Button
+                    variant="success"
+                    size="sm"
+                    onClick={() => handleBulkUpdateStatus('accepted')}
+                    disabled={bulkProcessing || selectedPendingIds.length === 0}
+                    className="h-9"
                   >
-                    <TableCell>{idx + 1}</TableCell>
-                    <TableCell>
-                      <div className="font-medium">{explanation.teacher_name}</div>
-                      <div className="text-xs text-gray-500">{explanation.lms_code}</div>
-                      <div className="text-xs text-gray-500 truncate max-w-[150px]">{explanation.email}</div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="max-w-[180px] truncate" title={explanation.campus}>
-                        {explanation.campus}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="max-w-[150px] truncate" title={explanation.subject}>
-                        {explanation.subject}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {new Date(explanation.test_date).toLocaleDateString('vi-VN', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric'
-                      })}
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        {new Date(explanation.created_at).toLocaleDateString('vi-VN', {
-                          day: '2-digit',
-                          month: '2-digit'
-                        })}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {new Date(explanation.created_at).toLocaleTimeString('vi-VN', {
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {getStatusBadge(explanation.status)}
-                    </TableCell>
+                    <CheckCircle className="h-4 w-4" />
+                    Chấp nhận
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleBulkUpdateStatus('rejected')}
+                    disabled={bulkProcessing || selectedPendingIds.length === 0}
+                    className="h-9"
+                  >
+                    <XCircle className="h-4 w-4" />
+                    Từ chối
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-12 text-center">
+                      <input
+                        type="checkbox"
+                        checked={allVisiblePendingSelected}
+                        ref={(input) => {
+                          if (input) input.indeterminate = someVisiblePendingSelected;
+                        }}
+                        onChange={toggleSelectAllVisible}
+                        disabled={visiblePendingIds.length === 0 || bulkProcessing}
+                        aria-label="Chọn tất cả giải trình đang chờ"
+                        className="h-4 w-4 rounded border-slate-300 text-[#a1001f] focus:ring-[#a1001f]"
+                      />
+                    </TableHead>
+                    <TableHead>#</TableHead>
+                    <TableHead>Giáo viên</TableHead>
+                    <TableHead>Bộ môn</TableHead>
+                    <TableHead className="min-w-[260px]">Nội dung giải trình</TableHead>
+                    <TableHead>Ngày KT</TableHead>
+                    <TableHead>Ngày tạo</TableHead>
+                    <TableHead className="text-center">Trạng thái</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {explanations.map((explanation, idx) => {
+                    const isPending = explanation.status === 'pending';
+                    const isSelected = selectedIds.includes(explanation.id);
+
+                    return (
+                      <TableRow
+                        key={explanation.id}
+                        data-state={isSelected ? 'selected' : undefined}
+                        className="group cursor-pointer transition-all duration-200 hover:bg-blue-50/80 hover:shadow-md relative z-0 hover:z-10"
+                        onClick={() => setSelectedExplanation(explanation)}
+                      >
+                        <TableCell className="text-center" onClick={(event) => event.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelectOne(explanation.id)}
+                            disabled={!isPending || bulkProcessing}
+                            aria-label={`Chọn giải trình của ${explanation.teacher_name}`}
+                            title={isPending ? undefined : 'Chỉ chọn được giải trình đang chờ'}
+                            className="h-4 w-4 rounded border-slate-300 text-[#a1001f] focus:ring-[#a1001f] disabled:cursor-not-allowed disabled:opacity-40"
+                          />
+                        </TableCell>
+                        <TableCell>{idx + 1}</TableCell>
+                        <TableCell>
+                          <div className="font-medium">{explanation.teacher_name}</div>
+                          <div className="text-xs text-gray-500">{explanation.lms_code}</div>
+                          <div className="text-xs text-gray-500 truncate max-w-[150px]">{explanation.email}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="max-w-[150px] truncate" title={explanation.subject}>
+                            {explanation.subject}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div
+                            className="line-clamp-3 max-w-[360px] text-sm leading-5 text-slate-700"
+                            title={explanation.reason}
+                          >
+                            {explanation.reason || 'Không có nội dung'}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {new Date(explanation.test_date).toLocaleDateString('vi-VN', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric'
+                          })}
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            {new Date(explanation.created_at).toLocaleDateString('vi-VN', {
+                              day: '2-digit',
+                              month: '2-digit'
+                            })}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {new Date(explanation.created_at).toLocaleTimeString('vi-VN', {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {getStatusBadge(explanation.status)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
           </div>
         )}
       </Card>

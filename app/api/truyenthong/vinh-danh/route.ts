@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
         CREATE INDEX IF NOT EXISTS idx_teacher_monthly_honors_email
           ON teacher_monthly_honors(email);
         ALTER TABLE teacher_monthly_honors ADD COLUMN IF NOT EXISTS slogan VARCHAR(255);
+        ALTER TABLE teacher_monthly_honors ADD COLUMN IF NOT EXISTS honors_avatar_url TEXT;
       `)
 
       // Lấy danh sách các tháng đã có dữ liệu
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest) {
           id, stt, full_name, email, khoi_day, co_so, thang,
           so_case, so_hoc_sinh,
           CAST(ti_le AS FLOAT) AS ti_le,
-          loai, thuong_cr, avatar_url, slogan, imported_at
+          loai, thuong_cr, COALESCE(honors_avatar_url, avatar_url) AS avatar_url, slogan, imported_at
         FROM teacher_monthly_honors
         WHERE thang = $1
         ORDER BY stt ASC NULLS LAST, ti_le DESC

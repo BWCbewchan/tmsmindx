@@ -58,7 +58,7 @@ function TeacherAvatar({
     fallbackClassName: string
 }) {
     const [imageFailed, setImageFailed] = useState(false)
-    const avatarUrl = teacher?.avatar_url
+    const avatarUrl = teacher?.avatar_url ? normalizeStorageUrl(teacher.avatar_url) : null
 
     if (avatarUrl && !imageFailed) {
         return (
@@ -67,6 +67,7 @@ function TeacherAvatar({
                 alt=""
                 loading="lazy"
                 decoding="async"
+                fetchPriority="low"
                 onError={() => setImageFailed(true)}
                 className={className}
             />

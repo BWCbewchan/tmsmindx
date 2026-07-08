@@ -25,6 +25,11 @@ export async function GET() {
                     imported_by VARCHAR(255),
                     UNIQUE(email, thang)
                 )
+            `);
+
+            await client.query(`
+                ALTER TABLE teacher_monthly_honors ADD COLUMN IF NOT EXISTS honors_avatar_url TEXT;
+                ALTER TABLE teacher_monthly_honors ADD COLUMN IF NOT EXISTS slogan VARCHAR(255);
             `)
 
             // Lấy tháng mới nhất có dữ liệu vinh danh

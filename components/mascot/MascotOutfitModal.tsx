@@ -204,9 +204,20 @@ export function getOutfitWalkFrames(outfit: MascotOutfit): string[] {
   return outfit.previewFrames ?? WALK_FRAMES_DEFAULT
 }
 
+function shouldReduceModalEffects() {
+  if (typeof window === 'undefined') return false
+  const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
+  const cores = navigator.hardwareConcurrency || 8
+  return (
+    window.matchMedia('(max-width: 767px), (pointer: coarse), (prefers-reduced-motion: reduce)').matches ||
+    connection?.saveData === true ||
+    cores <= 4
+  )
+}
+
 // ─── Animated Preview Canvas ─────────────────────────────────────────────────
 function AnimatedPreview({
-  frames, staticSrc, fps = 14, accentColor, bgColor, isSelected,
+  frames, staticSrc, fps = 14, accentColor, bgColor, isSelected, animated = true,
 }: {
   frames: string[] | null
   staticSrc: string | null
@@ -214,6 +225,7 @@ function AnimatedPreview({
   accentColor: string
   bgColor: string
   isSelected: boolean
+  animated?: boolean
 }) {
   const canvasRef   = useRef<HTMLCanvasElement>(null)
   const imagesRef   = useRef<Map<string, HTMLImageElement>>(new Map())
@@ -234,10 +246,11 @@ function AnimatedPreview({
   }, [frames])
 
   useEffect(() => {
-    if (!frames) return
+    if (!animated || !frames) return
     frames.forEach(src => {
       if (!imagesRef.current.has(src)) {
         const img = new window.Image()
+        img.decoding = 'async'
         img.onload = () => drawFrame()
         img.src = src
         imagesRef.current.set(src, img)
@@ -253,13 +266,15 @@ function AnimatedPreview({
     }
     rafRef.current = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(rafRef.current)
-  }, [frames, fps, drawFrame])
+  }, [animated, frames, fps, drawFrame])
 
-  if (!frames) {
+  const previewSrc = staticSrc ?? frames?.[0] ?? null
+
+  if (!animated || !frames) {
     return (
       <div className="flex h-full w-full items-center justify-center rounded-xl" style={{ background: bgColor }}>
-        {staticSrc ? (
-          <img src={staticSrc} alt="" className="h-[80%] w-[80%] object-contain opacity-40" draggable={false} />
+        {previewSrc ? (
+          <img src={previewSrc} alt="" loading="eager" decoding="async" className="h-[80%] w-[80%] object-contain opacity-80" draggable={false} />
         ) : (
           <div className="flex flex-col items-center gap-1 text-gray-300">
             <Shirt className="h-10 w-10" strokeWidth={1.2} />
@@ -330,10 +345,11 @@ function OutfitFlameBanner({ outfit, isSelected }: { outfit: MascotOutfit; isSel
 }
 
 // ─── Outfit Card ─────────────────────────────────────────────────────────────
-function OutfitCard({ outfit, isPendingSave, onSelect }: {
+function OutfitCard({ outfit, isPendingSave, onSelect, performanceMode }: {
   outfit: MascotOutfit
   isPendingSave: boolean
   onSelect: () => void
+  performanceMode: boolean
 }) {
   const isComingSoon = !outfit.available
   return (
@@ -342,7 +358,8 @@ function OutfitCard({ outfit, isPendingSave, onSelect }: {
       disabled={isComingSoon}
       onClick={onSelect}
       className={[
-        'group relative flex min-h-0 flex-col items-center gap-2 rounded-xl border-2 p-1.5 pb-2 transition-all duration-200 sm:gap-2.5 sm:rounded-2xl sm:p-2 sm:pb-2.5',
+        'group relative flex min-h-0 flex-col items-center gap-2 rounded-xl border-2 p-1.5 pb-2 sm:gap-2.5 sm:rounded-2xl sm:p-2 sm:pb-2.5',
+        performanceMode ? '' : 'transition-all duration-200',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
         isComingSoon
           ? 'cursor-not-allowed border-gray-200 bg-gray-50/80 opacity-60'
@@ -381,10 +398,11 @@ function OutfitCard({ outfit, isPendingSave, onSelect }: {
           accentColor={outfit.color}
           bgColor={outfit.bgColor}
           isSelected={isPendingSave}
+          animated={!performanceMode}
         />
       </div>
 
-      <OutfitFlameBanner outfit={outfit} isSelected={isPendingSave} />
+      {!performanceMode && <OutfitFlameBanner outfit={outfit} isSelected={isPendingSave} />}
 
       {isPendingSave && (
         <span className="absolute right-2.5 top-2.5 flex h-5 w-5 items-center justify-center rounded-full text-white shadow"
@@ -394,7 +412,7 @@ function OutfitCard({ outfit, isPendingSave, onSelect }: {
       )}
 
       {isComingSoon && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl bg-white/50 backdrop-blur-[1px]">
+        <div className={['pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl bg-white/50', performanceMode ? '' : 'backdrop-blur-[1px]'].join(' ')}>
           <span className="text-xl">🔒</span>
         </div>
       )}
@@ -422,7 +440,7 @@ function FlagTicker() {
   )
 }
 
-function WorldCupBanner() {
+function WorldCupBanner({ performanceMode = false }: { performanceMode?: boolean }) {
   return (
     <div className="relative mb-3 overflow-hidden rounded-xl sm:mb-3.5"
       style={{
@@ -513,7 +531,7 @@ function WorldCupBanner() {
       </div>
 
       {/* Flag ticker */}
-      <FlagTicker />
+      {!performanceMode && <FlagTicker />}
     </div>
   )
 }
@@ -538,8 +556,12 @@ export function MascotOutfitModal({
   // savedId tracks what's actually persisted — để phân biệt hasChanges
   const [savedId, setSavedId]     = useState(currentOutfitId)
   const [justSaved, setJustSaved] = useState(false)
+  const [performanceMode, setPerformanceMode] = useState(false)
 
-  useEffect(() => { setMounted(true) }, [])
+  useEffect(() => {
+    setMounted(true)
+    setPerformanceMode(shouldReduceModalEffects())
+  }, [])
 
   useEffect(() => {
     if (isOpen) {
@@ -551,12 +573,16 @@ export function MascotOutfitModal({
 
   useEffect(() => {
     if (isOpen) {
+      if (performanceMode) {
+        setVisible(true)
+        return
+      }
       const t = setTimeout(() => setVisible(true), 10)
       return () => clearTimeout(t)
     } else {
       setVisible(false)
     }
-  }, [isOpen])
+  }, [isOpen, performanceMode])
 
   const handleSave = () => {
     const outfit = outfits.find(o => o.id === pendingId && o.available)
@@ -570,6 +596,10 @@ export function MascotOutfitModal({
 
   const handleClose = () => {
     setVisible(false)
+    if (performanceMode) {
+      onClose()
+      return
+    }
     setTimeout(onClose, 200)
   }
 
@@ -578,7 +608,7 @@ export function MascotOutfitModal({
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose() }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [isOpen])
+  }, [isOpen, performanceMode])
 
   const pendingOutfit = outfits.find(o => o.id === pendingId) ?? outfits[0]
   const hasChanges    = pendingId !== savedId
@@ -587,13 +617,14 @@ export function MascotOutfitModal({
 
   return createPortal(
     <div
-      className="font-sans fixed inset-0 z-[9999] flex items-center justify-center p-4"
+      className={['mascot-outfit-modal font-sans fixed inset-0 z-[9999] flex items-center justify-center p-4', performanceMode ? 'is-performance-mode' : ''].join(' ')}
       role="dialog" aria-modal="true" aria-label="Chọn trang phục mascot"
     >
       {/* Overlay */}
       <div
         className={[
-          'absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity duration-200',
+          'absolute inset-0 bg-black/50',
+          performanceMode ? '' : 'backdrop-blur-sm transition-opacity duration-200',
           visible ? 'opacity-100' : 'opacity-0',
         ].join(' ')}
         onClick={handleClose}
@@ -893,6 +924,20 @@ export function MascotOutfitModal({
             animation: none;
           }
         }
+
+        .mascot-outfit-modal.is-performance-mode,
+        .mascot-outfit-modal.is-performance-mode *,
+        .mascot-outfit-modal.is-performance-mode *::before,
+        .mascot-outfit-modal.is-performance-mode *::after {
+          animation: none !important;
+          transition: none !important;
+          filter: none !important;
+          scroll-behavior: auto !important;
+        }
+
+        .mascot-outfit-modal.is-performance-mode .outfit-flame-banner {
+          display: none !important;
+        }
       `}</style>
 
       {/* Panel — resize về cũ với scroll */}
@@ -901,8 +946,8 @@ export function MascotOutfitModal({
           'relative w-full max-w-[720px] max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)]',
           'pointer-events-auto overflow-hidden',
           'rounded-[1.35rem] sm:rounded-[2rem]',
-          'transition-all duration-200',
-          visible ? 'opacity-100 scale-100' : 'opacity-0 scale-95',
+          performanceMode ? '' : 'transition-all duration-200',
+          performanceMode ? 'opacity-100 scale-100' : visible ? 'opacity-100 scale-100' : 'opacity-0 scale-95',
         ].join(' ')}
         style={{
           background: 'linear-gradient(160deg, #f5fdf9 0%, #ffffff 40%, #fff5f5 100%)',
@@ -994,7 +1039,7 @@ export function MascotOutfitModal({
           </div>
 
           {/* World Cup banner */}
-          <WorldCupBanner />
+          <WorldCupBanner performanceMode={performanceMode} />
 
           {/* Grid 3 cols */}
           <div className="grid grid-cols-3 gap-3 sm:gap-3.5">
@@ -1003,6 +1048,7 @@ export function MascotOutfitModal({
                 key={outfit.id}
                 outfit={outfit}
                 isPendingSave={pendingId === outfit.id}
+                performanceMode={performanceMode}
                 onSelect={() => {
                   if (outfit.available) {
                     setPendingId(outfit.id)

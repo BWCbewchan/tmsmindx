@@ -15,12 +15,15 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useAuth } from '@/lib/auth-context'
-import { CAMPUS_LIST, findMatchingCampus } from '@/lib/campus-data'
-import { isExamInCurrentVietnamMonth } from '@/lib/giaitrinh-eligibility'
+import { findMatchingCampus } from '@/lib/campus-data'
+import {
+  isExamInCurrentVietnamMonth,
+  vietnamYearMonthKey,
+} from '@/lib/giaitrinh-eligibility'
 import { useTeacher } from '@/lib/teacher-context'
 import { Plus } from 'lucide-react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { toast } from '@/lib/app-toast'
 
 interface Explanation {
@@ -39,23 +42,58 @@ interface Explanation {
   updated_at: string
 }
 
-const SUBJECT_LIST = [
-  '[COD] Scratch',
-  '[COD] Web',
-  '[COD] ComputerScience',
-  '[COD] GameMaker',
-  '[COD] AppProducer',
-  '[ART] Test chuyên sâu',
-  '[ROB] VexIQ',
-  '[ROB] VexGo',
-  '[Trial] Quy Trình Trai nghiệm',
-]
-
-
 interface RegisteredExam {
   result_id: number
+  id?: number
   subject_name: string
+  block_code?: string | null
   open_at: string | null
+  score: number | string | null
+  assignment_status?: string | null
+  score_status?: string | null
+  score_handling_note?: string | null
+  explanation_status?: 'pending' | 'accepted' | 'rejected' | null
+}
+
+const toVietnamDateInputValue = (value: string | null | undefined) => {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
+}
+
+const formatExamOptionLabel = (exam: RegisteredExam) => {
+  const date = exam.open_at
+    ? new Date(exam.open_at).toLocaleDateString('vi-VN', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+      })
+    : 'Chưa có ngày thi'
+
+  return `${exam.subject_name || 'Bài kiểm tra'} - ${date}`
+}
+
+const isCompletedZeroScoreExam = (exam: RegisteredExam) => {
+  const scoreNumber = Number(exam.score)
+  const hasZeroScore =
+    exam.score !== null && exam.score !== undefined && scoreNumber === 0
+  const assignmentStatus = String(exam.assignment_status || '').toLowerCase()
+  const scoreStatus = String(exam.score_status || '').toLowerCase()
+  const handlingNote = String(exam.score_handling_note || '').toLowerCase()
+  const completed =
+    assignmentStatus === 'graded' ||
+    assignmentStatus === 'submitted' ||
+    scoreStatus === 'graded' ||
+    handlingNote.includes('hoàn thành') ||
+    handlingNote.includes('hoan thanh') ||
+    handlingNote.includes('da thi') ||
+    handlingNote.includes('đã hoàn thành')
+
+  return hasZeroScore && completed
 }
 
 export default function GiaiTrinhPage() {
@@ -68,15 +106,28 @@ export default function GiaiTrinhPage() {
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [campusSearch, setCampusSearch] = useState('')
-  const [subjectSearch, setSubjectSearch] = useState('')
-  const [showCampusList, setShowCampusList] = useState(false)
-  const [showSubjectList, setShowSubjectList] = useState(false)
   const [selectedExplanation, setSelectedExplanation] =
     useState<Explanation | null>(null)
   const [registeredExams, setRegisteredExams] = useState<RegisteredExam[]>([])
   const [loadingExams, setLoadingExams] = useState(false)
   const [selectedExamId, setSelectedExamId] = useState('')
+  const currentVietnamMonth = useMemo(() => vietnamYearMonthKey(new Date()), [])
+  const eligibleExams = useMemo(
+    () =>
+      registeredExams.filter(
+        (exam) =>
+          isCompletedZeroScoreExam(exam) &&
+          isExamInCurrentVietnamMonth(exam.open_at) &&
+          exam.explanation_status !== 'accepted',
+      ),
+    [registeredExams],
+  )
+  const selectedExam = useMemo(
+    () =>
+      eligibleExams.find((exam) => String(exam.result_id) === selectedExamId) ||
+      null,
+    [eligibleExams, selectedExamId],
+  )
 
   const [formData, setFormData] = useState({
     assignment_id: '',
@@ -114,10 +165,6 @@ export default function GiaiTrinhPage() {
 
         return updated
       })
-
-      if (matchedCampus && !campusSearch) {
-        setCampusSearch(matchedCampus)
-      }
     } else {
       // Fallback if teacher profile not found yet or failed
       setFormData((prev) => ({
@@ -131,16 +178,6 @@ export default function GiaiTrinhPage() {
   const prefillSubject = searchParams.get('subject')
   const prefillCampus = searchParams.get('campus')
   const prefillTestDate = searchParams.get('test_date')
-
-  // Filter campus list based on search
-  const filteredCampusList = CAMPUS_LIST.filter((campus) =>
-    campus.toLowerCase().includes(campusSearch.toLowerCase()),
-  )
-
-  // Filter subject list based on search
-  const filteredSubjectList = SUBJECT_LIST.filter((subject) =>
-    subject.toLowerCase().includes(subjectSearch.toLowerCase()),
-  )
 
   // Close modal when clicking outside
   useEffect(() => {
@@ -160,7 +197,7 @@ export default function GiaiTrinhPage() {
     setLoadingExams(true)
     try {
       const res = await fetch(
-        `/api/exam-assignments?teacher_code=${encodeURIComponent(lmsCode)}`,
+        `/api/exam-assignments?teacher_code=${encodeURIComponent(lmsCode)}&month=${encodeURIComponent(currentVietnamMonth)}`,
       )
       const data = await res.json()
       if (data.success) {
@@ -182,21 +219,18 @@ export default function GiaiTrinhPage() {
         test_date: '',
         assignment_id: '',
       }))
-      setSubjectSearch('')
       return
     }
     const exam = registeredExams.find((e) => String(e.result_id) === examId)
     if (exam) {
-      const dateStr = exam.open_at
-        ? new Date(exam.open_at).toISOString().slice(0, 10)
-        : ''
+      const dateStr = toVietnamDateInputValue(exam.open_at)
       setFormData((prev) => ({
         ...prev,
         subject: exam.subject_name || '',
         test_date: dateStr,
+        campus: exam.block_code || prev.campus,
         assignment_id: examId,
       }))
-      setSubjectSearch(exam.subject_name || '')
     }
   }
 
@@ -246,8 +280,7 @@ export default function GiaiTrinhPage() {
         prev.reason ||
         `Giải trình cho bài thi quá hạn (Assignment #${prefillAssignmentId}).`,
     }))
-    setCampusSearch((prefillCampus || '').trim())
-    setSubjectSearch((prefillSubject || '').trim())
+    setSelectedExamId(prefillAssignmentId)
     setShowModal(true)
   }, [
     user,
@@ -269,11 +302,15 @@ export default function GiaiTrinhPage() {
       setSelectedExamId('')
       setRegisteredExams([])
     }
-  }, [showModal])
+  }, [showModal, formData.lms_code, teacherProfile?.code])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     // Manual validation cho các fields không dùng HTML required (tránh lỗi hidden input)
+    if (!selectedExam) {
+      toast.error('Vui lòng chọn bài kiểm tra đã làm trong tháng hiện tại')
+      return
+    }
     if (!formData.subject.trim()) {
       toast.error('Vui lòng chọn bộ môn')
       return
@@ -308,13 +345,12 @@ export default function GiaiTrinhPage() {
           'Gửi giải trình thành công! Email đã được gửi đến bộ phận học vụ.',
         )
         setShowModal(false)
-        // Keep campus in search
-        // setCampusSearch('');
-        setSubjectSearch('')
+        setSelectedExamId('')
         setFormData((prev) => ({
           ...prev,
           // Keep campus in form data
           // campus: '',
+          assignment_id: '',
           subject: '',
           test_date: '',
           reason: '',
@@ -363,7 +399,7 @@ export default function GiaiTrinhPage() {
     )
   }
 
-  if (loading || loadingExams) {
+  if (loading || isTeacherLoading) {
     return <PageSkeleton variant="grid" itemCount={6} showHeader={true} />
   }
 
@@ -397,79 +433,53 @@ export default function GiaiTrinhPage() {
         >
           <form onSubmit={handleSubmit}>
             <div className="space-y-5">
-              {/* Row 1: Subject */}
+              {/* Row 1: Exam */}
               <div className="relative">
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Bộ môn <span className="text-red-500">*</span>
+                  Bài kiểm tra đã làm trong tháng hiện tại <span className="text-red-500">*</span>
                 </label>
                 <select
-                  value={formData.subject}
-                  onChange={(e) => {
-                    const subject = e.target.value
-                    setFormData({ ...formData, subject })
-                    setSubjectSearch(subject)
-                  }}
-                  className="w-full rounded-lg border border-[#e7c6cb] bg-white px-3 py-3 text-[16px] text-gray-900 focus:ring-2 focus:ring-[#a1001f]/20 focus:border-[#a1001f] transition-all sm:hidden"
+                  value={selectedExamId}
+                  onChange={(e) => handleExamSelect(e.target.value)}
+                  disabled={loadingExams}
+                  className="w-full px-3 py-2.5 border border-[#e7c6cb] rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-[#a1001f]/20 focus:border-[#a1001f] transition-all disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
                 >
-                  <option value="">Chọn bộ môn</option>
-                  {SUBJECT_LIST.map((subject) => (
-                    <option key={subject} value={subject}>
-                      {subject}
+                  <option value="">
+                    {loadingExams
+                      ? 'Đang tải bài kiểm tra...'
+                      : 'Chọn bài kiểm tra cần giải trình'}
+                  </option>
+                  {eligibleExams.map((exam) => (
+                    <option key={exam.result_id} value={String(exam.result_id)}>
+                      {formatExamOptionLabel(exam)}
                     </option>
                   ))}
                 </select>
+                {!loadingExams && eligibleExams.length === 0 && (
+                  <p className="mt-2 text-sm text-amber-700">
+                    Không có bài kiểm tra đã làm có điểm 0 trong tháng hiện tại để giải trình.
+                  </p>
+                )}
+              </div>
 
-                <div className="relative hidden sm:block">
-                  <input
-                    type="text"
-                    value={subjectSearch || formData.subject}
-                    onChange={(e) => {
-                      setSubjectSearch(e.target.value)
-                      setFormData({ ...formData, subject: e.target.value })
-                      setShowSubjectList(true)
-                    }}
-                    onFocus={() => setShowSubjectList(true)}
-                    onBlur={() =>
-                      setTimeout(() => setShowSubjectList(false), 200)
-                    }
-                    className="w-full px-3 py-2.5 border border-[#e7c6cb] rounded-lg focus:ring-2 focus:ring-[#a1001f]/20 focus:border-[#a1001f] transition-all"
-                    placeholder="Nhập hoặc chọn bộ môn"
-                    autoComplete="off"
-                  />
-                  {showSubjectList && filteredSubjectList.length > 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-[#e7c6cb] rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                      {filteredSubjectList.map((subject, index) => (
-                        <div
-                          key={index}
-                          onClick={() => {
-                            setFormData({ ...formData, subject })
-                            setSubjectSearch(subject)
-                            setShowSubjectList(false)
-                          }}
-                          className="px-3 py-2 hover:bg-[#fff1f3] cursor-pointer text-sm transition-colors"
-                        >
-                          {subject}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+              {selectedExam && (
+                <div className="grid grid-cols-1 gap-3 rounded-lg border border-[#f1d1d8] bg-[#fff7f8] p-3 text-sm sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-medium text-gray-500">Bộ môn</p>
+                    <p className="mt-1 font-semibold text-gray-900">
+                      {formData.subject || 'Chưa xác định'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500">Ngày kiểm tra</p>
+                    <p className="mt-1 font-semibold text-gray-900">
+                      {formData.test_date
+                        ? new Date(formData.test_date).toLocaleDateString('vi-VN')
+                        : 'Chưa xác định'}
+                    </p>
+                  </div>
                 </div>
-              </div>
-
-              {/* Row 2: Test Date */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Ngày kiểm tra <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="date"
-                  value={formData.test_date}
-                  onChange={(e) =>
-                    setFormData({ ...formData, test_date: e.target.value })
-                  }
-                  className="w-full px-3 py-2.5 border border-[#e7c6cb] rounded-lg focus:ring-2 focus:ring-[#a1001f]/20 focus:border-[#a1001f] transition-all"
-                />
-              </div>
+              )}
 
               {/* Lý do */}
               <div>

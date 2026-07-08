@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { X, ChevronLeft, ChevronRight, Crown, Eye, Save, Shirt, Star, Sparkles, Trophy } from 'lucide-react'
 import useSWR from 'swr'
 import { cn } from '@/lib/utils'
+import { normalizeStorageUrl } from '@/lib/storage-url'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -220,9 +221,10 @@ interface PodiumCardProps {
   idx: number
   animCls: string
   triggerAnimate: boolean
+  performanceMode: boolean
 }
 
-const PodiumCard = memo(function PodiumCard({ teacher, idx, animCls, triggerAnimate }: PodiumCardProps) {
+const PodiumCard = memo(function PodiumCard({ teacher, idx, animCls, triggerAnimate, performanceMode }: PodiumCardProps) {
   const cardEl = useRef<HTMLDivElement>(null)
   const glowEl = useRef<HTMLDivElement>(null)
   const rafTilt = useRef<number | null>(null)
@@ -233,18 +235,27 @@ const PodiumCard = memo(function PodiumCard({ teacher, idx, animCls, triggerAnim
   const allowInteractiveEffects = useRef(true)
 
   const isFirst = idx === 1
+  const avatarSrc = useMemo(
+    () => teacher.avatar_url ? normalizeStorageUrl(teacher.avatar_url) : null,
+    [teacher.avatar_url],
+  )
 
   useEffect(() => {
     setAvatarFailed(false)
-  }, [teacher.avatar_url])
+  }, [avatarSrc])
 
   useEffect(() => {
-    allowInteractiveEffects.current = !shouldReduceVisualEffects()
-  }, [])
+    allowInteractiveEffects.current = !performanceMode && !shouldReduceVisualEffects()
+  }, [performanceMode])
 
   useEffect(() => {
+    const finalScore = `${teacher.total_score.toFixed(2)}%`
     if (!triggerAnimate) {
       if (scoreEl.current) scoreEl.current.textContent = '0.00%'
+      return
+    }
+    if (performanceMode) {
+      if (scoreEl.current) scoreEl.current.textContent = finalScore
       return
     }
     let startTimestamp: number | null = null
@@ -262,7 +273,7 @@ const PodiumCard = memo(function PodiumCard({ teacher, idx, animCls, triggerAnim
     }
     rafId = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(rafId)
-  }, [triggerAnimate, teacher.total_score])
+  }, [triggerAnimate, teacher.total_score, performanceMode])
 
   const configs = useMemo(() => ([
     { // Hạng II
@@ -408,7 +419,7 @@ const PodiumCard = memo(function PodiumCard({ teacher, idx, animCls, triggerAnim
       onMouseMove={onMouseMove}
       onMouseLeave={onMouseLeave}
     >
-      {isFirst && (
+      {isFirst && !performanceMode && (
         <div className="absolute -inset-x-6 -top-6 bottom-8 -z-10 rounded-full opacity-70 blur-2xl"
           style={{ background: cfg.halo }} />
       )}
@@ -432,34 +443,42 @@ const PodiumCard = memo(function PodiumCard({ teacher, idx, animCls, triggerAnim
         style={{
           background: cfg.bg,
           boxShadow: cfg.shadow,
-          willChange: 'transform',
+          willChange: performanceMode ? 'auto' : 'transform',
           borderColor: cfg.borderColor,
           isolation: 'isolate',
           WebkitMaskImage: '-webkit-radial-gradient(white, black)',
           height: '100%',
-          backdropFilter: 'blur(30px) saturate(2) contrast(1.06)',
-          WebkitBackdropFilter: 'blur(30px) saturate(2) contrast(1.06)',
+          backdropFilter: performanceMode ? 'none' : 'blur(30px) saturate(2) contrast(1.06)',
+          WebkitBackdropFilter: performanceMode ? 'none' : 'blur(30px) saturate(2) contrast(1.06)',
         }}
       >
         <div className="absolute inset-0 pointer-events-none z-[1] rounded-[inherit] p-px" style={{ background: cfg.rim }}>
           <div className="h-full w-full rounded-[inherit]" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.2), rgba(255,255,255,0.04))' }} />
         </div>
-        <div className="absolute left-[8%] right-[8%] top-[-8%] h-[20%] pointer-events-none z-[2] rounded-[50%] blur-[10px] opacity-40"
-          style={{ background: `radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.34), ${cfg.liquidTint} 42%, transparent 74%)`, animation: 'liquid-breathe 5.8s ease-in-out infinite' }} />
-        <div className="absolute left-1/2 top-[38%] h-[52%] w-[92%] -translate-x-1/2 pointer-events-none z-[2] rounded-[50%] blur-[18px] mix-blend-screen"
-          style={{ background: 'linear-gradient(90deg, rgba(239,68,68,0.22), rgba(251,146,60,0.34), rgba(255,255,255,0.14), rgba(125,211,252,0.18))', animation: 'apple-card-flow 8s ease-in-out infinite' }} />
-        <div className="absolute -left-[16%] top-[8%] h-[34%] w-[48%] pointer-events-none z-[2] rounded-[48%] blur-[8px] opacity-32 mix-blend-screen"
-          style={{ background: 'linear-gradient(115deg, transparent 0%, rgba(255,255,255,0.36) 34%, rgba(185,232,244,0.08) 50%, transparent 70%)', animation: 'liquid-caustic 7.2s ease-in-out infinite' }} />
+        {!performanceMode && (
+          <>
+            <div className="absolute left-[8%] right-[8%] top-[-8%] h-[20%] pointer-events-none z-[2] rounded-[50%] blur-[10px] opacity-40"
+              style={{ background: `radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.34), ${cfg.liquidTint} 42%, transparent 74%)`, animation: 'liquid-breathe 5.8s ease-in-out infinite' }} />
+            <div className="absolute left-1/2 top-[38%] h-[52%] w-[92%] -translate-x-1/2 pointer-events-none z-[2] rounded-[50%] blur-[18px] mix-blend-screen"
+              style={{ background: 'linear-gradient(90deg, rgba(239,68,68,0.22), rgba(251,146,60,0.34), rgba(255,255,255,0.14), rgba(125,211,252,0.18))', animation: 'apple-card-flow 8s ease-in-out infinite' }} />
+            <div className="absolute -left-[16%] top-[8%] h-[34%] w-[48%] pointer-events-none z-[2] rounded-[48%] blur-[8px] opacity-32 mix-blend-screen"
+              style={{ background: 'linear-gradient(115deg, transparent 0%, rgba(255,255,255,0.36) 34%, rgba(185,232,244,0.08) 50%, transparent 70%)', animation: 'liquid-caustic 7.2s ease-in-out infinite' }} />
+          </>
+        )}
 
         {/* Liquid glass overlay layers */}
-        <div ref={glowEl} className="absolute inset-0 pointer-events-none transition-none z-10" style={{ background: cfg.glow, borderRadius: 'inherit' }} />
-        <div className="absolute inset-0 pointer-events-none z-10 overflow-hidden rounded-[inherit]">
-          <div className="absolute -inset-full top-0 left-0 w-1/2 h-full skew-x-[-25deg] animate-[shimmer-sweep_6s_infinite_linear]" style={{ backgroundImage: cfg.shimmerBg, opacity: 0.14 }} />
-        </div>
-        <div className="absolute inset-x-3 top-2 h-px bg-gradient-to-r from-transparent via-white/90 to-transparent z-20 pointer-events-none" />
-        <div className="absolute inset-x-8 top-4 h-[10%] rounded-full bg-white/30 blur-[10px] z-20 pointer-events-none" />
-        <div className="absolute inset-y-4 left-2 w-px bg-gradient-to-b from-transparent via-white/60 to-transparent z-20 pointer-events-none" />
-        <div className="absolute inset-y-5 right-2 w-px bg-gradient-to-b from-transparent via-white/36 to-transparent z-20 pointer-events-none" />
+        {!performanceMode && (
+          <>
+            <div ref={glowEl} className="absolute inset-0 pointer-events-none transition-none z-10" style={{ background: cfg.glow, borderRadius: 'inherit' }} />
+            <div className="absolute inset-0 pointer-events-none z-10 overflow-hidden rounded-[inherit]">
+              <div className="absolute -inset-full top-0 left-0 w-1/2 h-full skew-x-[-25deg] animate-[shimmer-sweep_6s_infinite_linear]" style={{ backgroundImage: cfg.shimmerBg, opacity: 0.14 }} />
+            </div>
+            <div className="absolute inset-x-3 top-2 h-px bg-gradient-to-r from-transparent via-white/90 to-transparent z-20 pointer-events-none" />
+            <div className="absolute inset-x-8 top-4 h-[10%] rounded-full bg-white/30 blur-[10px] z-20 pointer-events-none" />
+            <div className="absolute inset-y-4 left-2 w-px bg-gradient-to-b from-transparent via-white/60 to-transparent z-20 pointer-events-none" />
+            <div className="absolute inset-y-5 right-2 w-px bg-gradient-to-b from-transparent via-white/36 to-transparent z-20 pointer-events-none" />
+          </>
+        )}
 
         {/* Avatar area — fills top portion */}
         <div className="podium-avatar relative z-30 mx-2 mt-2 mb-0 flex-1 rounded-[20px] sm:rounded-[24px]"
@@ -468,13 +487,17 @@ const PodiumCard = memo(function PodiumCard({ teacher, idx, animCls, triggerAnim
             transform: 'translateZ(46px)',
             animation: 'raised-media-float 5.6s ease-in-out infinite',
           }}>
-          <div className="absolute -inset-2 rounded-[24px] sm:rounded-[28px] bg-[radial-gradient(ellipse_at_50%_20%,rgba(255,255,255,0.55),transparent_42%),linear-gradient(145deg,rgba(255,255,255,0.36),rgba(226,250,255,0.14))] blur-[6px] opacity-70 pointer-events-none" />
-          <div className="absolute -inset-1 rounded-[22px] sm:rounded-[26px] pointer-events-none"
-            style={{
-              background: 'linear-gradient(145deg, rgba(255,255,255,0.92), rgba(226,250,255,0.22) 36%, rgba(14,45,60,0.18) 100%)',
-              boxShadow: '0 26px 38px -24px rgba(14,45,60,0.62), 0 18px 28px -22px rgba(69,10,10,0.58)',
-            }} />
-          <div className="absolute -bottom-3 left-[12%] right-[12%] h-7 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(69,10,10,0.42),transparent_70%)] blur-lg pointer-events-none" />
+          {!performanceMode && (
+            <>
+              <div className="absolute -inset-2 rounded-[24px] sm:rounded-[28px] bg-[radial-gradient(ellipse_at_50%_20%,rgba(255,255,255,0.55),transparent_42%),linear-gradient(145deg,rgba(255,255,255,0.36),rgba(226,250,255,0.14))] blur-[6px] opacity-70 pointer-events-none" />
+              <div className="absolute -inset-1 rounded-[22px] sm:rounded-[26px] pointer-events-none"
+                style={{
+                  background: 'linear-gradient(145deg, rgba(255,255,255,0.92), rgba(226,250,255,0.22) 36%, rgba(14,45,60,0.18) 100%)',
+                  boxShadow: '0 26px 38px -24px rgba(14,45,60,0.62), 0 18px 28px -22px rgba(69,10,10,0.58)',
+                }} />
+              <div className="absolute -bottom-3 left-[12%] right-[12%] h-7 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(69,10,10,0.42),transparent_70%)] blur-lg pointer-events-none" />
+            </>
+          )}
           <div className="relative h-full w-full overflow-hidden rounded-[20px] sm:rounded-[24px]"
             style={{
               boxShadow: '0 18px 30px -20px rgba(14,45,60,0.72), inset 0 1px 0 rgba(255,255,255,0.85), inset 0 -1px 0 rgba(14,45,60,0.18)',
@@ -482,8 +505,8 @@ const PodiumCard = memo(function PodiumCard({ teacher, idx, animCls, triggerAnim
             }}>
           {/* Avatar image */}
           <div className="w-full h-full relative">
-            {teacher.avatar_url && !avatarFailed
-              ? <img src={teacher.avatar_url} alt={teacher.full_name} decoding="async" onError={() => setAvatarFailed(true)} className="block w-full h-full object-cover object-top" style={{ filter: 'contrast(1.06) saturate(1.06)', transform: 'translateZ(0)' }} />
+            {avatarSrc && !avatarFailed
+              ? <img src={avatarSrc} alt={teacher.full_name} loading="eager" fetchPriority={isFirst ? 'high' : 'auto'} decoding="async" onError={() => setAvatarFailed(true)} className="block w-full h-full object-cover object-top" style={{ filter: performanceMode ? 'none' : 'contrast(1.06) saturate(1.06)', transform: 'translateZ(0)' }} />
               : <div className="w-full h-full flex items-center justify-center" style={{ background: cfg.badgeBg }}>
                   <span className={cn('font-black text-gray-400', isFirst ? 'text-3xl sm:text-5xl' : 'text-2xl sm:text-3xl')}>{initials(teacher.full_name)}</span>
                 </div>
@@ -503,13 +526,17 @@ const PodiumCard = memo(function PodiumCard({ teacher, idx, animCls, triggerAnim
               backdropFilter: 'blur(28px) saturate(2.05) contrast(1.08)',
               WebkitBackdropFilter: 'blur(28px) saturate(2.05) contrast(1.08)',
             }}>
-            <span className="absolute inset-0 rounded-full bg-gradient-to-r from-sky-100/34 via-white/18 to-cyan-100/34" />
-            <span className="absolute inset-[1px] rounded-full border border-white/68 shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),inset_0_-1px_2px_rgba(74,144,172,0.22)]" />
-            <span className="absolute inset-x-3 top-1 h-[44%] rounded-full bg-white/74 blur-[3px]" />
-            <span className="absolute left-1/2 top-1/2 h-[150%] w-[76%] rounded-full bg-[linear-gradient(90deg,rgba(239,68,68,0.42),rgba(251,146,60,0.58),rgba(255,255,255,0.18))]" style={{ animation: 'liquid-hot-flow 4.8s ease-in-out infinite' }} />
-            <span className="absolute -left-6 top-1/2 h-[145%] w-[58%] -translate-y-1/2 rounded-full bg-white/42 blur-[7px] mix-blend-screen" style={{ animation: 'liquid-score-flow 4.2s ease-in-out infinite' }} />
-            <span className="absolute -right-4 bottom-[-35%] h-[90%] w-[46%] rounded-full bg-cyan-100/36 blur-[8px]" />
-            <span className="absolute inset-x-2 bottom-1 h-px bg-gradient-to-r from-transparent via-cyan-50/80 to-transparent" />
+            {!performanceMode && (
+              <>
+                <span className="absolute inset-0 rounded-full bg-gradient-to-r from-sky-100/34 via-white/18 to-cyan-100/34" />
+                <span className="absolute inset-[1px] rounded-full border border-white/68 shadow-[inset_0_1px_1px_rgba(255,255,255,0.9),inset_0_-1px_2px_rgba(74,144,172,0.22)]" />
+                <span className="absolute inset-x-3 top-1 h-[44%] rounded-full bg-white/74 blur-[3px]" />
+                <span className="absolute left-1/2 top-1/2 h-[150%] w-[76%] rounded-full bg-[linear-gradient(90deg,rgba(239,68,68,0.42),rgba(251,146,60,0.58),rgba(255,255,255,0.18))]" style={{ animation: 'liquid-hot-flow 4.8s ease-in-out infinite' }} />
+                <span className="absolute -left-6 top-1/2 h-[145%] w-[58%] -translate-y-1/2 rounded-full bg-white/42 blur-[7px] mix-blend-screen" style={{ animation: 'liquid-score-flow 4.2s ease-in-out infinite' }} />
+                <span className="absolute -right-4 bottom-[-35%] h-[90%] w-[46%] rounded-full bg-cyan-100/36 blur-[8px]" />
+                <span className="absolute inset-x-2 bottom-1 h-px bg-gradient-to-r from-transparent via-cyan-50/80 to-transparent" />
+              </>
+            )}
             <Trophy className={cn("relative z-10 w-3.5 h-3.5 sm:w-4 sm:h-4", "text-yellow-500 fill-yellow-500 drop-shadow-[0_1px_4px_rgba(245,158,11,0.45)]")} />
             <span ref={scoreEl} className="relative z-10 leading-none drop-shadow-[0_1px_0_rgba(255,255,255,0.7)]">
               0.00%
@@ -528,9 +555,13 @@ const PodiumCard = memo(function PodiumCard({ teacher, idx, animCls, triggerAnim
             boxShadow: '0 22px 34px -24px rgba(14,45,60,0.52), 0 12px 22px -18px rgba(69,10,10,0.34), inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(14,45,60,0.12)',
             transform: 'translateZ(58px) translateY(-1px)',
           }}>
-          <div className="absolute -bottom-4 left-[10%] right-[10%] h-6 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(69,10,10,0.28),transparent_72%)] blur-md pointer-events-none" style={{ animation: 'raised-info-glow 4.8s ease-in-out infinite' }} />
-          <div className="absolute inset-x-4 top-1 h-[32%] rounded-full bg-white/46 blur-[8px]" />
-          <div className="absolute top-0 left-8 right-8 h-px" style={{ background: cfg.accentLine }} />
+          {!performanceMode && (
+            <>
+              <div className="absolute -bottom-4 left-[10%] right-[10%] h-6 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(69,10,10,0.28),transparent_72%)] blur-md pointer-events-none" style={{ animation: 'raised-info-glow 4.8s ease-in-out infinite' }} />
+              <div className="absolute inset-x-4 top-1 h-[32%] rounded-full bg-white/46 blur-[8px]" />
+              <div className="absolute top-0 left-8 right-8 h-px" style={{ background: cfg.accentLine }} />
+            </>
+          )}
           <h4 className="podium-teacher-name relative w-full font-black leading-tight tracking-tight text-center"
             style={{
               color: cfg.textColor,
@@ -685,6 +716,7 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
       setActivePanel('honors')
       return
     }
+    if (performanceMode) return
     let timer: number | undefined
     const scheduleNextPanel = () => {
       if (timer) window.clearTimeout(timer)
@@ -701,14 +733,14 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
       if (timer) window.clearTimeout(timer)
       document.removeEventListener('visibilitychange', scheduleNextPanel)
     }
-  }, [showCard, contentPhase, activePanel])
+  }, [showCard, contentPhase, activePanel, performanceMode])
 
   const handleExploreMascotOutfits = useCallback(() => {
     onClose()
     window.setTimeout(() => {
       window.dispatchEvent(new Event('start-mascot-outfit-tour'))
-    }, 260)
-  }, [onClose])
+    }, performanceMode ? 0 : 260)
+  }, [onClose, performanceMode])
 
   const switchPanel = useCallback((panel: PopupPanel) => {
     if (activePanel === panel) return
@@ -927,6 +959,18 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
         }
         .honors-popup-card.is-performance-mode [style*="infinite"] {
           animation: none !important;
+        }
+        .honors-popup-card.is-performance-mode,
+        .honors-popup-card.is-performance-mode *,
+        .honors-popup-card.is-performance-mode *::before,
+        .honors-popup-card.is-performance-mode *::after {
+          animation: none !important;
+          transition: none !important;
+          filter: none !important;
+          scroll-behavior: auto !important;
+        }
+        .honors-popup-card.is-performance-mode .honors-confetti {
+          display: none !important;
         }
         .honors-popup-card.is-performance-mode .honors-mobile-heavy-effect {
           display: none;
@@ -1592,7 +1636,7 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
            transform: 'translateZ(0)',
          }}
        >
-        <ConfettiRain active={activeConfetti && activePanel === 'honors'} />
+        <ConfettiRain active={!performanceMode && activeConfetti && activePanel === 'honors'} />
         <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-[1.35rem] sm:rounded-[2rem]">
 
           {/* ── Velvet stage depth ── */}
@@ -1612,21 +1656,21 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
               backgroundImage: 'linear-gradient(90deg, rgba(255,255,255,0.16) 0 1px, transparent 1px), linear-gradient(0deg, rgba(69,10,10,0.2) 0 1px, transparent 1px)',
               backgroundSize: '240px 240px, 240px 240px',
             }} />
-          <div className="absolute -left-[16%] top-[6%] h-[34%] w-[118%] opacity-42 mix-blend-multiply"
+          <div className="honors-mobile-heavy-effect absolute -left-[16%] top-[6%] h-[34%] w-[118%] opacity-42 mix-blend-multiply"
             style={{
               backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'1200\' height=\'320\' viewBox=\'0 0 1200 320\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M-90 58 C 150 10 310 122 522 108 C 720 96 882 42 1290 20 L1290 166 C 1016 248 786 228 548 168 C 334 114 132 134 -90 214 Z\' fill=\'%23550710\' opacity=\'.62\'/%3E%3Cpath d=\'M-90 188 C 152 104 340 170 558 202 C 780 236 1008 194 1290 120 L1290 320 L-90 320 Z\' fill=\'%23880f1b\' opacity=\'.42\'/%3E%3C/svg%3E")',
               backgroundSize: '100% 100%',
               backgroundRepeat: 'no-repeat',
               animation: 'stage-wave-cross-a 20s ease-in-out infinite',
             }} />
-          <div className="absolute -right-[18%] top-[15%] h-[36%] w-[116%] opacity-36 mix-blend-multiply"
+          <div className="honors-mobile-heavy-effect absolute -right-[18%] top-[15%] h-[36%] w-[116%] opacity-36 mix-blend-multiply"
             style={{
               backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'1200\' height=\'360\' viewBox=\'0 0 1200 360\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M-80 64 C 180 182 372 196 602 150 C 788 112 978 70 1280 132 L1280 360 L-80 360 Z\' fill=\'%237a0c17\' opacity=\'.56\'/%3E%3Cpath d=\'M-80 150 C 190 228 402 264 626 206 C 836 152 1014 138 1280 202 L1280 360 L-80 360 Z\' fill=\'%23b91c1c\' opacity=\'.28\'/%3E%3C/svg%3E")',
               backgroundSize: '100% 100%',
               backgroundRepeat: 'no-repeat',
               animation: 'stage-wave-cross-b 24s ease-in-out infinite',
             }} />
-          <div className="absolute -left-[12%] bottom-[4%] h-[32%] w-[114%] opacity-32 mix-blend-multiply"
+          <div className="honors-mobile-heavy-effect absolute -left-[12%] bottom-[4%] h-[32%] w-[114%] opacity-32 mix-blend-multiply"
             style={{
               backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'1200\' height=\'320\' viewBox=\'0 0 1200 320\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M-90 96 C 130 26 310 70 504 142 C 732 226 936 198 1290 84 L1290 320 L-90 320 Z\' fill=\'%235b0810\' opacity=\'.6\'/%3E%3Cpath d=\'M-90 176 C 154 88 354 134 570 214 C 790 296 1012 250 1290 164 L1290 320 L-90 320 Z\' fill=\'%239b1219\' opacity=\'.46\'/%3E%3C/svg%3E")',
               backgroundSize: '100% 100%',
@@ -1650,22 +1694,22 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
             style={{ background: 'linear-gradient(180deg, rgba(255,239,192,0.24), rgba(255,255,255,0.1) 46%, transparent 84%)', animation: 'light-sweep 13s ease-in-out infinite reverse' }} />
 
           {/* ── Ripple rings emanating from center ── */}
-          <div className="absolute pointer-events-none" style={{ top: '45%', left: '50%', width: '320px', height: '320px', border: '1.5px solid rgba(251,191,36,0.22)', borderRadius: '50%', animation: 'ripple-out 5.6s ease-out infinite' }} />
-          <div className="absolute pointer-events-none" style={{ top: '45%', left: '50%', width: '320px', height: '320px', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '50%', animation: 'ripple-out 5.6s ease-out infinite 2.8s' }} />
+          <div className="honors-mobile-heavy-effect absolute pointer-events-none" style={{ top: '45%', left: '50%', width: '320px', height: '320px', border: '1.5px solid rgba(251,191,36,0.22)', borderRadius: '50%', animation: 'ripple-out 5.6s ease-out infinite' }} />
+          <div className="honors-mobile-heavy-effect absolute pointer-events-none" style={{ top: '45%', left: '50%', width: '320px', height: '320px', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '50%', animation: 'ripple-out 5.6s ease-out infinite 2.8s' }} />
 
           {/* ── Fine gold foil field ── */}
-          <div className="absolute inset-0 opacity-[0.22] mix-blend-screen"
+          <div className="honors-mobile-heavy-effect absolute inset-0 opacity-[0.22] mix-blend-screen"
             style={{
               backgroundImage: 'radial-gradient(circle at 12% 18%, rgba(255,236,170,0.9) 0 1px, transparent 2px), radial-gradient(circle at 78% 26%, rgba(255,255,255,0.72) 0 1px, transparent 2px), radial-gradient(circle at 30% 72%, rgba(255,210,90,0.7) 0 1px, transparent 2px), radial-gradient(circle at 92% 68%, rgba(255,255,255,0.62) 0 1px, transparent 2px)',
               backgroundSize: '96px 96px, 118px 118px, 132px 132px, 84px 84px',
             }} />
 
           {/* ── Fine grain texture overlay ── */}
-          <div className="absolute inset-0 opacity-[0.025] mix-blend-overlay" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 256 256\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'n\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23n)\'/%3E%3C/svg%3E")', backgroundSize: '180px 180px' }} />
+          <div className="honors-mobile-heavy-effect absolute inset-0 opacity-[0.025] mix-blend-overlay" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 256 256\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'n\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23n)\'/%3E%3C/svg%3E")', backgroundSize: '180px 180px' }} />
         </div>
         <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-white/60 to-transparent" />
         <div className="absolute inset-0 pointer-events-none rounded-[1.35rem] sm:rounded-[2rem]" style={{ boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.16), inset 0 -80px 120px rgba(69,10,10,0.28)' }} />
-        {showCard && (
+        {showCard && !performanceMode && (
           <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-[1.35rem] sm:rounded-[2rem]">
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 rounded-full border border-white/30" style={{ animation: 'ring-expand 1.3s ease-out 0.05s both' }} />
           </div>
@@ -1743,8 +1787,8 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
                 style={{ background: 'radial-gradient(ellipse at 50% 50%, rgba(69,10,10,0.42), transparent 68%)' }} />
               {podium.map((teacher, idx) => {
                 const isFirst = idx === 1
-                const animCls = contentPhase >= 2 ? (isFirst ? 'anim-slide-center' : idx === 0 ? 'anim-slide-left' : 'anim-slide-right') : 'opacity-0'
-                return <PodiumCard key={teacher.teacher_code} teacher={teacher} idx={idx} animCls={animCls} triggerAnimate={contentPhase >= 2} />
+                const animCls = performanceMode ? '' : contentPhase >= 2 ? (isFirst ? 'anim-slide-center' : idx === 0 ? 'anim-slide-left' : 'anim-slide-right') : 'opacity-0'
+                return <PodiumCard key={teacher.teacher_code} teacher={teacher} idx={idx} animCls={animCls} triggerAnimate={contentPhase >= 2} performanceMode={performanceMode} />
               })}
             </div>
           </div>
@@ -1995,10 +2039,8 @@ export function TeacherHonorsPopup({ isOpen, onOpen, onClose }: TeacherHonorsPop
     if (shouldUseLightweightMotion()) {
       animStateRef.current = 'idle'
       setRenderCard(true)
-      requestAnimationFrame(() => {
-        setShowCard(true)
-        setContentPhase(3)
-      })
+      setShowCard(true)
+      setContentPhase(3)
       return
     }
     const tabRect = getTabRect()
@@ -2017,10 +2059,8 @@ export function TeacherHonorsPopup({ isOpen, onOpen, onClose }: TeacherHonorsPop
       animStateRef.current = 'idle'
       setShowCard(false)
       setContentPhase(0)
-      window.setTimeout(() => {
-        setRenderCard(false)
-        onCloseRef.current()
-      }, 180)
+      setRenderCard(false)
+      onCloseRef.current()
       return
     }
     const tabRect = getTabRect(); const cardRect = getCardRect()
@@ -2054,9 +2094,12 @@ export function TeacherHonorsPopup({ isOpen, onOpen, onClose }: TeacherHonorsPop
   useEffect(() => {
     teachers.slice(0, 3).forEach(teacher => {
       if (!teacher.avatar_url) return
+      const src = normalizeStorageUrl(teacher.avatar_url)
       const image = new Image()
       image.decoding = 'async'
-      image.src = teacher.avatar_url
+      image.loading = 'eager'
+      ;(image as HTMLImageElement & { fetchPriority?: 'high' | 'low' | 'auto' }).fetchPriority = 'high'
+      image.src = src
     })
   }, [teachers])
   const podium = useMemo(() => [
@@ -2069,8 +2112,15 @@ export function TeacherHonorsPopup({ isOpen, onOpen, onClose }: TeacherHonorsPop
 
   return createPortal(
     <>
-      <canvas ref={canvasRef} className="fixed inset-0 z-[60] pointer-events-none" style={{ opacity: 0, transition: 'opacity 0.15s' }} aria-hidden />
-      {renderCard && <div ref={overlayRef} className="honors-popup-overlay fixed inset-0 z-[55] bg-black/40 backdrop-blur-sm" style={{ opacity: 0 }} onClick={triggerClose} />}
+      {!performanceMode && <canvas ref={canvasRef} className="fixed inset-0 z-[60] pointer-events-none" style={{ opacity: 0, transition: 'opacity 0.15s' }} aria-hidden />}
+      {renderCard && (
+        <div
+          ref={overlayRef}
+          className={cn('honors-popup-overlay fixed inset-0 z-[55] bg-black/40', !performanceMode && 'backdrop-blur-sm')}
+          style={{ opacity: performanceMode ? 1 : 0 }}
+          onClick={triggerClose}
+        />
+      )}
       {renderCard && (
         <PopupUI
           cardRef={cardRef}
