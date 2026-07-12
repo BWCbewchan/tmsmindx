@@ -1,6 +1,27 @@
 import pool from '@/lib/db';
 import { requireBearerAdminOrSuperMutation } from '@/lib/auth-server';
 import { NextRequest, NextResponse } from 'next/server';
+import * as XLSX from 'xlsx';
+
+const EXPECTED_HEADERS = [
+  'question_text',
+  'question_type',
+  'correct_answer',
+  'options',
+  'points',
+  'difficulty',
+  'explanation',
+  'image_url',
+];
+
+const LMS_EXCEL_HEADERS = [
+  'Question',
+  'Option A',
+  'Option B',
+  'Option C',
+  'Option D',
+  'Correct Answer',
+];
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,23 +39,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Thiáº¿u assignment_id' }, { status: 400 });
     }
 
-    const text = await file.text();
-    // Bá» BOM náº¿u cÃ³
-    const cleanText = text.replace(/^\uFEFF/, '');
-    const lines = cleanText.split('\n').filter(line => line.trim());
+    const { headers, rows } = await parseImportDocument(file);
 
-    if (lines.length < 2) {
+    if (rows.length === 0) {
       return NextResponse.json({ success: false, error: 'File CSV rá»—ng hoáº·c khÃ´ng há»£p lá»‡' }, { status: 400 });
     }
 
-    const headers = parseCSVLine(lines[0]);
-    const expectedHeaders = ['question_text', 'question_type', 'correct_answer', 'options', 'points', 'difficulty', 'explanation', 'image_url'];
-    const hasAllHeaders = expectedHeaders.every(h => headers.includes(h));
+    const hasAllHeaders = EXPECTED_HEADERS.every(h => headers.includes(h));
     if (!hasAllHeaders) {
       return NextResponse.json({
         success: false,
         error: 'Header khÃ´ng Ä‘Ãºng Ä‘á»‹nh dáº¡ng. Vui lÃ²ng sá»­ dá»¥ng file máº«u.',
-        expected: expectedHeaders,
+        expected: EXPECTED_HEADERS,
         received: headers
       }, { status: 400 });
     }
@@ -48,33 +64,33 @@ export async function POST(request: NextRequest) {
     const errors: string[] = [];
     const imported: any[] = [];
 
-    for (let i = 1; i < lines.length; i++) {
+    for (let i = 0; i < rows.length; i++) {
       try {
-        const values = parseCSVLine(lines[i]);
+        const values = rows[i];
         if (values.length === 0 || values.every(v => !v.trim())) continue;
 
         const row: Record<string, string> = {};
         headers.forEach((header, index) => { row[header] = values[index] || ''; });
 
         if (!row.question_text?.trim()) {
-          errors.push(`DÃ²ng ${i + 1}: Thiáº¿u ná»™i dung cÃ¢u há»i`);
+          errors.push(`DÃ²ng ${i + 2}: Thiáº¿u ná»™i dung cÃ¢u há»i`);
           continue;
         }
 
         if (!row.question_type?.trim()) {
-          errors.push(`DÃ²ng ${i + 1}: Thiáº¿u loáº¡i cÃ¢u há»i`);
+          errors.push(`DÃ²ng ${i + 2}: Thiáº¿u loáº¡i cÃ¢u há»i`);
           continue;
         }
 
         const validTypes = ['multiple_choice', 'multiple_select', 'true_false', 'short_answer', 'essay'];
         if (!validTypes.includes(row.question_type)) {
-          errors.push(`DÃ²ng ${i + 1}: Loáº¡i cÃ¢u há»i khÃ´ng há»£p lá»‡ (${row.question_type})`);
+          errors.push(`DÃ²ng ${i + 2}: Loáº¡i cÃ¢u há»i khÃ´ng há»£p lá»‡ (${row.question_type})`);
           continue;
         }
 
         const validDifficulties = ['easy', 'medium', 'hard'];
         if (row.difficulty && !validDifficulties.includes(row.difficulty)) {
-          errors.push(`DÃ²ng ${i + 1}: Äá»™ khÃ³ khÃ´ng há»£p lá»‡ (${row.difficulty})`);
+          errors.push(`DÃ²ng ${i + 2}: Äá»™ khÃ³ khÃ´ng há»£p lá»‡ (${row.difficulty})`);
           continue;
         }
 
@@ -87,7 +103,7 @@ export async function POST(request: NextRequest) {
         // Äiá»ƒm sá»‘ â€” cho phÃ©p 0
         const points = parseFloat(row.points) || 0;
         if (points < 0) {
-          errors.push(`DÃ²ng ${i + 1}: Äiá»ƒm sá»‘ khÃ´ng há»£p lá»‡`);
+          errors.push(`DÃ²ng ${i + 2}: Äiá»ƒm sá»‘ khÃ´ng há»£p lá»‡`);
           continue;
         }
 
@@ -97,14 +113,14 @@ export async function POST(request: NextRequest) {
         // â”€â”€ Xá»­ lÃ½ multiple_choice / multiple_select â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (row.question_type === 'multiple_choice' || row.question_type === 'multiple_select') {
           if (!optionsArray || optionsArray.length < 2) {
-            errors.push(`DÃ²ng ${i + 1}: CÃ¢u há»i ${row.question_type} cáº§n Ã­t nháº¥t 2 Ä‘Ã¡p Ã¡n`);
+            errors.push(`DÃ²ng ${i + 2}: CÃ¢u há»i ${row.question_type} cáº§n Ã­t nháº¥t 2 Ä‘Ã¡p Ã¡n`);
             continue;
           }
 
           // Náº¿u correct_answer rá»—ng â†’ cÃ¢u thÃ´ng tin (Ä‘iá»ƒm 0), cho phÃ©p
           if (!finalCorrectAnswer) {
             if (points > 0) {
-              errors.push(`DÃ²ng ${i + 1}: Thiáº¿u Ä‘Ã¡p Ã¡n Ä‘Ãºng cho cÃ¢u há»i cÃ³ Ä‘iá»ƒm`);
+              errors.push(`DÃ²ng ${i + 2}: Thiáº¿u Ä‘Ã¡p Ã¡n Ä‘Ãºng cho cÃ¢u há»i cÃ³ Ä‘iá»ƒm`);
               continue;
             }
             // CÃ¢u thÃ´ng tin (Ä‘iá»ƒm 0) â€” lÆ°u bÃ¬nh thÆ°á»ng khÃ´ng cáº§n correct_answer
@@ -113,7 +129,7 @@ export async function POST(request: NextRequest) {
             const resolved = resolveCorrectAnswers(finalCorrectAnswer, optionsArray);
 
             if (resolved.length === 0) {
-              errors.push(`DÃ²ng ${i + 1}: KhÃ´ng tÃ¬m tháº¥y Ä‘Ã¡p Ã¡n Ä‘Ãºng "${finalCorrectAnswer}" trong danh sÃ¡ch Ä‘Ã¡p Ã¡n`);
+              errors.push(`DÃ²ng ${i + 2}: KhÃ´ng tÃ¬m tháº¥y Ä‘Ã¡p Ã¡n Ä‘Ãºng "${finalCorrectAnswer}" trong danh sÃ¡ch Ä‘Ã¡p Ã¡n`);
               continue;
             }
 
@@ -132,17 +148,17 @@ export async function POST(request: NextRequest) {
         // â”€â”€ true_false â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (row.question_type === 'true_false') {
           if (!optionsArray || optionsArray.length < 2) {
-            errors.push(`DÃ²ng ${i + 1}: CÃ¢u há»i true_false cáº§n Ã­t nháº¥t 2 Ä‘Ã¡p Ã¡n`);
+            errors.push(`DÃ²ng ${i + 2}: CÃ¢u há»i true_false cáº§n Ã­t nháº¥t 2 Ä‘Ã¡p Ã¡n`);
             continue;
           }
           if (!finalCorrectAnswer && points > 0) {
-            errors.push(`DÃ²ng ${i + 1}: Thiáº¿u Ä‘Ã¡p Ã¡n Ä‘Ãºng`);
+            errors.push(`DÃ²ng ${i + 2}: Thiáº¿u Ä‘Ã¡p Ã¡n Ä‘Ãºng`);
             continue;
           }
           if (finalCorrectAnswer) {
             const matched = optionsArray.find(o => o.toLowerCase() === finalCorrectAnswer.toLowerCase());
             if (!matched) {
-              errors.push(`DÃ²ng ${i + 1}: ÄÃ¡p Ã¡n Ä‘Ãºng "${finalCorrectAnswer}" khÃ´ng cÃ³ trong danh sÃ¡ch Ä‘Ã¡p Ã¡n`);
+              errors.push(`DÃ²ng ${i + 2}: ÄÃ¡p Ã¡n Ä‘Ãºng "${finalCorrectAnswer}" khÃ´ng cÃ³ trong danh sÃ¡ch Ä‘Ã¡p Ã¡n`);
               continue;
             }
             finalCorrectAnswer = matched;
@@ -170,11 +186,11 @@ export async function POST(request: NextRequest) {
           ]
         );
 
-        imported.push({ id: result.rows[0].id, question_text: row.question_text.trim().slice(0, 60), line: i + 1 });
+        imported.push({ id: result.rows[0].id, question_text: row.question_text.trim().slice(0, 60), line: i + 2 });
 
       } catch (error: any) {
-        console.error(`Error parsing line ${i + 1}:`, error);
-        errors.push(`DÃ²ng ${i + 1}: ${error.message}`);
+        console.error(`Error parsing line ${i + 2}:`, error);
+        errors.push(`DÃ²ng ${i + 2}: ${error.message}`);
       }
     }
 
@@ -272,14 +288,101 @@ function splitByCommaRespectingOptions(text: string, options: string[]): string[
   return result.length > 1 ? result : rawParts;
 }
 
-function parseCSVLine(line: string): string[] {
-  const result: string[] = [];
-  let current = '';
+function parseCsvDocument(text: string): { headers: string[]; rows: string[][] } {
+  const cleanText = text.replace(/^\uFEFF+/, '');
+  const firstLine = cleanText.split(/\r?\n/, 1)[0] || '';
+  const delimiter = detectDelimiter(firstLine);
+  const documentRows = parseCsvRows(cleanText, delimiter)
+    .filter((row) => row.some((value) => value.trim()));
+
+  const [headerRow = [], ...rows] = documentRows;
+  return {
+    headers: headerRow.map((header) => header.replace(/^\uFEFF+/, '').trim()),
+    rows,
+  };
+}
+
+async function parseImportDocument(file: File): Promise<{ headers: string[]; rows: string[][] }> {
+  if (!isExcelFile(file)) {
+    return parseCsvDocument(await file.text());
+  }
+
+  const workbook = XLSX.read(Buffer.from(await file.arrayBuffer()), {
+    type: 'buffer',
+    raw: false,
+  });
+  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+  if (!firstSheet) return { headers: [], rows: [] };
+
+  const sourceRows = XLSX.utils.sheet_to_json<string[]>(firstSheet, {
+    header: 1,
+    defval: '',
+    raw: false,
+  });
+  const [sourceHeaders = [], ...sourceDataRows] = sourceRows
+    .map((row) => row.map((value) => String(value ?? '').trim()))
+    .filter((row) => row.some(Boolean));
+
+  if (matchesLmsExcelTemplate(sourceHeaders)) {
+    return {
+      headers: EXPECTED_HEADERS,
+      rows: sourceDataRows.map((row) => [
+        row[0] || '',
+        'multiple_choice',
+        row[5] || '',
+        row.slice(1, 5).filter(Boolean).join('|'),
+        '1',
+        'medium',
+        '',
+        '',
+      ]),
+    };
+  }
+
+  return { headers: sourceHeaders, rows: sourceDataRows };
+}
+
+function isExcelFile(file: File): boolean {
+  const fileName = file.name.toLowerCase();
+  return fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
+}
+
+function matchesLmsExcelTemplate(headers: string[]): boolean {
+  return LMS_EXCEL_HEADERS.every((header, index) => headers[index]?.toLowerCase() === header.toLowerCase());
+}
+
+function detectDelimiter(line: string): string {
+  const candidates = [',', ';', '\t'];
+  return candidates.reduce((best, candidate) =>
+    countUnquotedDelimiter(line, candidate) > countUnquotedDelimiter(line, best) ? candidate : best,
+  );
+}
+
+function countUnquotedDelimiter(line: string, delimiter: string): number {
+  let count = 0;
   let inQuotes = false;
 
   for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    const nextChar = line[i + 1];
+    if (line[i] === '"') {
+      if (inQuotes && line[i + 1] === '"') i++;
+      else inQuotes = !inQuotes;
+    } else if (!inQuotes && line[i] === delimiter) {
+      count++;
+    }
+  }
+
+  return count;
+}
+
+function parseCsvRows(text: string, delimiter: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const nextChar = text[i + 1];
 
     if (char === '"') {
       if (inQuotes && nextChar === '"') {
@@ -288,14 +391,21 @@ function parseCSVLine(line: string): string[] {
       } else {
         inQuotes = !inQuotes;
       }
-    } else if (char === ',' && !inQuotes) {
-      result.push(current.trim());
+    } else if (char === delimiter && !inQuotes) {
+      row.push(current.trim());
+      current = '';
+    } else if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && nextChar === '\n') i++;
+      row.push(current.trim());
+      rows.push(row);
+      row = [];
       current = '';
     } else {
       current += char;
     }
   }
 
-  result.push(current.trim());
-  return result;
+  row.push(current.trim());
+  rows.push(row);
+  return rows;
 }

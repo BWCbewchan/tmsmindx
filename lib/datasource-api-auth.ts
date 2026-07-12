@@ -216,6 +216,86 @@ export async function rejectIfDatasourceLookupForbidden(
   const c = code.trim()
   if (!e && !c) return null
 
+  // ── Candidate Session / Code Security Gate ──
+  const candidateSessionMatch = sessionEmail.trim().toLowerCase().match(/^candidate-(\d+)@candidate\.local$/)
+
+  if (candidateSessionMatch) {
+    const sessionCandidateId = parseInt(candidateSessionMatch[1], 10)
+
+    // 1. If lookup by email
+    if (e) {
+      if (e !== sessionEmail.trim().toLowerCase()) {
+        return NextResponse.json(
+          { success: false, error: 'Không có quyền truy vấn dữ liệu cho email này' },
+          { status: 403 }
+        )
+      }
+      return null
+    }
+
+    // 2. If lookup by code
+    if (c) {
+      const cNorm = c.toLowerCase()
+      if (cNorm === `candidate-${sessionCandidateId}`) {
+        return null
+      }
+      // Query database to check if c matches the actual candidate_code
+      try {
+        const candidateRes = await pool.query(
+          'SELECT LOWER(TRIM(candidate_code)) AS candidate_code FROM hr_candidates WHERE id = $1 AND is_deleted = false LIMIT 1',
+          [sessionCandidateId]
+        )
+        const dbCode = candidateRes.rows[0]?.candidate_code
+        if (dbCode && cNorm === dbCode) {
+          return null
+        }
+      } catch (err) {
+        console.error('[Auth] Error fetching candidate code:', err)
+      }
+
+      // If code doesn't match this candidate's credentials
+      return NextResponse.json(
+        { success: false, error: 'Không có quyền truy vấn dữ liệu cho ứng viên khác' },
+        { status: 403 }
+      )
+    }
+    return null
+  } else {
+    // This is a teacher/admin session or other session
+    // If the lookup target (code or email) is candidate data, standard teachers are not allowed
+    if (c) {
+      const cNorm = c.toLowerCase()
+      if (cNorm.startsWith('candidate-')) {
+        return NextResponse.json(
+          { success: false, error: 'Không có quyền truy vấn dữ liệu của ứng viên' },
+          { status: 403 }
+        )
+      }
+      // Check if c is a candidate code in the database
+      try {
+        const candidateCheckRes = await pool.query(
+          'SELECT 1 FROM hr_candidates WHERE LOWER(TRIM(candidate_code)) = $1 AND is_deleted = false LIMIT 1',
+          [cNorm]
+        )
+        if (candidateCheckRes.rows.length > 0) {
+          return NextResponse.json(
+            { success: false, error: 'Không có quyền truy vấn dữ liệu của ứng viên' },
+            { status: 403 }
+          )
+        }
+      } catch (err) {
+        console.error('[Auth] Error checking candidate code existence:', err)
+      }
+    }
+
+    if (e && e.endsWith('@candidate.local')) {
+      return NextResponse.json(
+        { success: false, error: 'Không có quyền truy vấn dữ liệu của ứng viên' },
+        { status: 403 }
+      )
+    }
+  }
+
   const lookupByEmail = Boolean(e)
   const row = lookupByEmail
     ? await findTeacherRowByEmailOrCode(pool, { email: e })

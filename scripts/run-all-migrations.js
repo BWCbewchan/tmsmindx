@@ -302,7 +302,9 @@ async function main() {
                     EXECUTE FUNCTION update_updated_at_column();
                 ` },
                 { name: 'V100_teaching_document_folders', file: '../migrations/add_teaching_document_folders.sql' },
-                { name: 'V101_teaching_document_material_links', file: '../migrations/add_teaching_document_material_links.sql' }
+                { name: 'V101_teaching_document_material_links', file: '../migrations/add_teaching_document_material_links.sql' },
+                { name: 'V102_hr_training_absence_notes', file: '../migrations/add_hr_training_absence_notes.sql' },
+                { name: 'V103_training_assignment_context', file: '../migrations/add_training_assignment_context.sql' }
         ];
 
 

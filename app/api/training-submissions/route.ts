@@ -32,8 +32,13 @@ async function handleTrainingSubmissionsGet(request: NextRequest) {
     if (!auth.ok) return auth.response;
 
     const { searchParams } = new URL(request.url);
-    // Normalize teacher_code: lowercase + trim để tránh case mismatch
-    const teacherCode = (searchParams.get('teacher_code') || '').toLowerCase().trim() || null;
+    // Normalize teacher_code/candidate_code: lowercase + trim to avoid case mismatch
+    const teacherCode = (
+      searchParams.get('candidate_code') ||
+      searchParams.get('learner_code') ||
+      searchParams.get('teacher_code') ||
+      ''
+    ).toLowerCase().trim() || null;
     const assignmentId = searchParams.get('assignment_id');
     const status = searchParams.get('status');
     const latest = searchParams.get('latest'); // Get only the latest submission
@@ -41,7 +46,7 @@ async function handleTrainingSubmissionsGet(request: NextRequest) {
     if (!auth.privileged) {
       if (!teacherCode?.trim()) {
         return NextResponse.json(
-          { error: 'teacher_code là bắt buộc' },
+          { error: 'Mã truy vấn (teacher_code hoặc candidate_code) là bắt buộc' },
           { status: 400 },
         );
       }
@@ -116,7 +121,7 @@ async function handleTrainingSubmissionsGet(request: NextRequest) {
 
 export const GET = withApiProtection(handleTrainingSubmissionsGet);
 
-// POST: Create new submission (teacher starts assignment)
+// POST: Create new submission (teacher/candidate starts assignment)
 export async function POST(request: NextRequest) {
   try {
     const originDenied = requireSameOriginMutation(request);
@@ -130,13 +135,18 @@ export async function POST(request: NextRequest) {
       assignment_id,
       attempt_number = 1
     } = body;
-    // Normalize teacher_code: lowercase + trim để tránh case mismatch
-    const teacher_code: string = (body.teacher_code || '').toString().toLowerCase().trim();
-    const { teacher_info } = body;
+    // Normalize teacher_code/candidate_code: lowercase + trim to avoid case mismatch
+    const teacher_code: string = (
+      body.candidate_code ||
+      body.learner_code ||
+      body.teacher_code ||
+      ''
+    ).toString().toLowerCase().trim();
+    const teacher_info = body.learner_info || body.candidate_info || body.teacher_info;
 
     if (!teacher_code || !assignment_id) {
       return NextResponse.json(
-        { error: 'teacher_code and assignment_id are required' },
+        { error: 'Mã số truy cập (teacher_code hoặc candidate_code) và assignment_id là bắt buộc' },
         { status: 400 }
       );
     }

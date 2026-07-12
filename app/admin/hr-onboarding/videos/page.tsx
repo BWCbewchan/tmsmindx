@@ -12,6 +12,8 @@ import { useUploadVideo } from '@/components/UploadVideoContext';
 import { toast } from '@/lib/app-toast';
 import { authHeaders } from '@/lib/auth-headers';
 import { useAuth } from '@/lib/auth-context';
+import { setVideo } from '@/lib/redux/features/trainingSlice';
+import { useAppDispatch } from '@/lib/redux/hooks';
 import {
   Calendar,
   CheckCircle2,
@@ -30,6 +32,7 @@ import {
   Video,
   X,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 interface OnboardingVideo {
@@ -50,6 +53,7 @@ interface OnboardingVideo {
 }
 
 type VideoTab = 'active' | 'draft' | 'inactive';
+type TrainingStageFilter = 'all' | 'centralized_training' | 'pedagogy_training';
 
 type EditForm = {
   title: string;
@@ -78,6 +82,7 @@ type AssignmentLink = {
   time_limit_minutes?: number | null;
   video_id?: number | string | null;
   question_count?: number;
+  training_stage?: Exclude<TrainingStageFilter, 'all'> | null;
 };
 
 const emptyForm: EditForm = {
@@ -95,6 +100,8 @@ function formatDate(date?: string | null) {
 }
 
 export default function OnboardingVideosPage() {
+  const router = useRouter();
+  const dispatch = useAppDispatch();
   const { token } = useAuth();
   const { uploadState, startUpload } = useUploadVideo();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -102,6 +109,7 @@ export default function OnboardingVideosPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [tab, setTab] = useState<VideoTab>('active');
+  const [stageFilter, setStageFilter] = useState<TrainingStageFilter>('all');
   const [editingVideo, setEditingVideo] = useState<OnboardingVideo | null>(null);
   const [form, setForm] = useState<EditForm>(emptyForm);
   const [setupTab, setSetupTab] = useState<SetupTab>('info');
@@ -138,10 +146,17 @@ export default function OnboardingVideosPage() {
   const fetchVideos = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/hr/onboarding/videos');
-      const data = await res.json();
+      const [videosRes, assignmentsRes] = await Promise.all([
+        fetch('/api/hr/onboarding/videos'),
+        fetch('/api/training-assignments?assignment_context=all', { headers: authHeaders(token) }),
+      ]);
+      const data = await videosRes.json();
       if (data.success) {
         setVideos(data.data || []);
+        if (assignmentsRes.ok) {
+          const assignmentData = await assignmentsRes.json();
+          setAllAssignments(Array.isArray(assignmentData.data) ? assignmentData.data : []);
+        }
       } else {
         toast.error(data.error || 'Không thể tải danh sách video');
       }
@@ -151,7 +166,7 @@ export default function OnboardingVideosPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     fetchVideos();
@@ -171,6 +186,12 @@ export default function OnboardingVideosPage() {
     return videos
       .filter((video) => video.status === tab)
       .filter((video) => {
+        if (stageFilter === 'all') return true;
+        return allAssignments.some(
+          (assignment) => Number(assignment.video_id) === Number(video.id) && assignment.training_stage === stageFilter,
+        );
+      })
+      .filter((video) => {
         if (!keyword) return true;
         return (
           video.title?.toLowerCase().includes(keyword) ||
@@ -178,7 +199,7 @@ export default function OnboardingVideosPage() {
           video.original_filename?.toLowerCase().includes(keyword)
         );
       });
-  }, [searchTerm, tab, videos]);
+  }, [allAssignments, searchTerm, stageFilter, tab, videos]);
 
   const tabCounts = useMemo(
     () => ({
@@ -189,15 +210,16 @@ export default function OnboardingVideosPage() {
     [videos]
   );
 
-  const stats = useMemo(
-    () => ({
+  const stats = useMemo(() => {
+    const activeVideos = videos.filter((video) => video.status === 'active');
+
+    return {
       total: videos.length,
-      active: tabCounts.active,
-      views: videos.reduce((sum, video) => sum + (video.view_count || 0), 0),
-      viewers: videos.reduce((sum, video) => sum + (video.viewers || 0), 0),
-    }),
-    [tabCounts.active, videos]
-  );
+      active: activeVideos.length,
+      views: activeVideos.reduce((sum, video) => sum + (video.view_count || 0), 0),
+      viewers: activeVideos.reduce((sum, video) => sum + (video.viewers || 0), 0),
+    };
+  }, [videos]);
 
   const openUpload = () => {
     fileInputRef.current?.click();
@@ -251,6 +273,27 @@ export default function OnboardingVideosPage() {
     setSelectedAssignmentId('');
     setAssignmentTitle('');
   };
+
+  const openVideoLesson = useCallback((video: OnboardingVideo) => {
+    if (!video.video_link) {
+      toast.error('Video chưa có đường dẫn để xem.');
+      return;
+    }
+
+    dispatch(setVideo({
+      id: video.id,
+      link: video.video_link,
+      duration: video.duration_minutes || (video.duration_seconds ? Math.ceil(video.duration_seconds / 60) : 1),
+      title: video.title,
+      segments: [{
+        id: video.id,
+        url: video.video_link,
+        duration_minutes: video.duration_minutes || 0,
+        duration_seconds: video.duration_seconds ?? null,
+      }],
+    }));
+    router.push(`/admin/hr-onboarding/videos/lesson?id=${video.id}`);
+  }, [dispatch, router]);
 
   const saveVideo = async (status?: 'draft' | 'active') => {
     if (!editingVideo) return;
@@ -330,7 +373,9 @@ export default function OnboardingVideosPage() {
   const loadAssignments = async (videoId: number) => {
     setAssignmentLoading(true);
     try {
-      const res = await fetch('/api/training-assignments');
+      const res = await fetch('/api/training-assignments?assignment_context=all', {
+        headers: authHeaders(token),
+      });
       const data = await res.json();
       if (data.success && Array.isArray(data.data)) {
         const assignments = data.data as AssignmentLink[];
@@ -468,7 +513,7 @@ export default function OnboardingVideosPage() {
     try {
       const response = await fetch(`/api/training-assignments?id=${selectedAssignmentId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
         body: JSON.stringify({ video_id: editingVideo.id }),
       });
       const data = await response.json();
@@ -495,7 +540,7 @@ export default function OnboardingVideosPage() {
     try {
       const response = await fetch('/api/training-assignments', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
         body: JSON.stringify({
           video_id: editingVideo.id,
           assignment_title: assignmentTitle.trim(),
@@ -622,6 +667,22 @@ export default function OnboardingVideosPage() {
       </div>
 
       <Card>
+        <div className="flex flex-wrap gap-2 border-b border-border px-4 py-3">
+          {[
+            { id: 'all', label: 'Tất cả video' },
+            { id: 'centralized_training', label: 'Đào tạo tập trung' },
+            { id: 'pedagogy_training', label: 'Tập huấn sư phạm' },
+          ].map((stage) => (
+            <button
+              key={stage.id}
+              type="button"
+              onClick={() => setStageFilter(stage.id as TrainingStageFilter)}
+              className={`rounded-md px-3 py-1.5 text-sm font-semibold transition ${stageFilter === stage.id ? 'bg-[#a1001f] text-white' : 'bg-muted text-muted-foreground hover:bg-muted/70'}`}
+            >
+              {stage.label}
+            </button>
+          ))}
+        </div>
         <Tabs
           tabs={[
             { id: 'active', label: 'Video đã giao', count: tabCounts.active },
@@ -653,23 +714,20 @@ export default function OnboardingVideosPage() {
                 <div className="relative aspect-video overflow-hidden bg-muted">
                   {video.thumbnail_url ? (
                     <img src={video.thumbnail_url} alt={video.title} className="h-full w-full object-cover" />
-                  ) : video.video_link ? (
-                    <video src={video.video_link} className="h-full w-full object-cover" preload="metadata" muted />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center bg-primary/10 text-primary">
                       <FileVideo className="h-10 w-10" />
                     </div>
                   )}
                   <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/20">
-                    <a
-                      href={video.video_link}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => openVideoLesson(video)}
                       className="flex h-11 w-11 scale-90 items-center justify-center rounded-full bg-white/95 text-primary opacity-0 shadow-lg transition group-hover:scale-100 group-hover:opacity-100"
                       aria-label="Xem video"
                     >
                       <Play className="ml-0.5 h-5 w-5 fill-current" />
-                    </a>
+                    </button>
                   </div>
                   {video.lesson_number && (
                     <span className="absolute left-2 top-2 rounded-md bg-black/70 px-2 py-1 text-xs font-bold text-white">
@@ -706,6 +764,10 @@ export default function OnboardingVideosPage() {
                     <Button variant="outline" size="xs" onClick={() => openEdit(video)}>
                       <Edit2 className="h-3.5 w-3.5" />
                       Sửa
+                    </Button>
+                    <Button variant="outline" size="xs" onClick={() => openVideoLesson(video)}>
+                      <Play className="h-3.5 w-3.5" />
+                      Xem
                     </Button>
                     {video.status !== 'active' && (
                       <Button variant="mindx" size="xs" onClick={() => updateStatus(video, 'active')}>
@@ -756,11 +818,17 @@ export default function OnboardingVideosPage() {
                     <div className="relative aspect-video bg-muted">
                       {editingVideo.thumbnail_url ? (
                         <img src={editingVideo.thumbnail_url} alt={editingVideo.title} className="h-full w-full object-cover" />
-                      ) : editingVideo.video_link ? (
-                        <video src={editingVideo.video_link} className="h-full w-full object-cover" preload="metadata" muted controls />
                       ) : (
                         <div className="flex h-full items-center justify-center text-primary">
                           <FileVideo className="h-12 w-12" />
+                        </div>
+                      )}
+                      {editingVideo.video_link && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/10">
+                          <Button variant="mindx" onClick={() => openVideoLesson(editingVideo)}>
+                            <Play className="h-4 w-4" />
+                            Xem bằng trình phát
+                          </Button>
                         </div>
                       )}
                       <StatusBadge status={editingVideo.status} />

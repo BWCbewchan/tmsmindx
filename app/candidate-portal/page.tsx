@@ -30,6 +30,7 @@ import K12DocsClient, { K12ClientDocItem, K12ClientDocNode } from '@/components/
 import ImageLightbox from '@/components/ImageLightbox';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { useAuth } from '@/lib/auth-context';
 import { setVideo } from '@/lib/redux/features/trainingSlice';
 import { useAppDispatch } from '@/lib/redux/hooks';
 
@@ -81,8 +82,9 @@ type CandidateVideo = {
   lesson_number?: number | null;
   status?: string | null;
 };
+type CandidateTrainingStage = 'centralized_training' | 'pedagogy_training';
 
-type CandidateTabId = 'observe' | 'videos' | 'schedule' | 'roadmap' | 'te-leader-info' | 'k12-teaching-policy';
+type CandidateTabId = 'observe' | 'videos' | 'tests' | 'schedule' | 'roadmap' | 'te-leader-info' | 'k12-teaching-policy';
 
 type CandidateTab = {
   id: CandidateTabId;
@@ -161,6 +163,7 @@ const ROADMAP_ILLUSTRATION_URL = '/candidate-portal/dao-tao-dau-vao.svg';
 const CANDIDATE_TAB_HREFS: Record<CandidateTabId, string> = {
   observe: '/candidate-portal',
   videos: '/candidate-portal/videos',
+  tests: '/candidate-portal/tests',
   schedule: '/candidate-portal/schedule',
   roadmap: '/candidate-portal/roadmap',
   'te-leader-info': '/candidate-portal/te-leader-info',
@@ -399,6 +402,7 @@ type RoadmapStageStatus = 'done' | 'current' | 'scheduled' | 'pending';
 function CandidatePortalContent() {
   const router = useRouter();
   const dispatch = useAppDispatch();
+  const { logout } = useAuth();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [profile, setProfile] = useState<CandidateProfile | null>(null);
@@ -425,6 +429,8 @@ function CandidatePortalContent() {
   const activeTab = useMemo(() => resolveCandidateTab(pathname), [pathname]);
   const [videos, setVideos] = useState<CandidateVideo[]>([]);
   const [loadingVideos, setLoadingVideos] = useState(false);
+  const [videoStageTab, setVideoStageTab] = useState<CandidateTrainingStage>('centralized_training');
+  const [videoStages, setVideoStages] = useState<Record<number, CandidateTrainingStage>>({});
   const [k12Docs, setK12Docs] = useState<CandidateK12Docs | null>(null);
   const [loadingK12Docs, setLoadingK12Docs] = useState(false);
   const [k12DocsError, setK12DocsError] = useState('');
@@ -435,17 +441,19 @@ function CandidatePortalContent() {
 
   const allowedTabs = useMemo(() => {
     return [
-      { id: 'roadmap', label: 'Lộ trình đào tạo', href: CANDIDATE_TAB_HREFS.roadmap },
-      { id: 'observe', label: 'Quản lý dự thính', href: CANDIDATE_TAB_HREFS.observe },
-      { id: 'videos', label: 'Video Đào tạo đầu vào', href: CANDIDATE_TAB_HREFS.videos },
-      { id: 'schedule', label: 'Lịch đào tạo', href: CANDIDATE_TAB_HREFS.schedule },
-      { id: 'te-leader-info', label: 'Thông tin TE/Leader', href: CANDIDATE_TAB_HREFS['te-leader-info'] },
-      { id: 'k12-teaching-policy', label: 'Quy trình quy định K12 Teaching', href: CANDIDATE_TAB_HREFS['k12-teaching-policy'] },
+      { id: 'roadmap', label: 'Lộ Trình Đào Tạo', href: CANDIDATE_TAB_HREFS.roadmap },
+      { id: 'observe', label: 'Quản Lý Dự Thính', href: CANDIDATE_TAB_HREFS.observe },
+      { id: 'videos', label: 'Video Đào Tạo Đầu Vào', href: CANDIDATE_TAB_HREFS.videos },
+      { id: 'tests', label: 'Bài Kiểm Tra Của Tôi', href: CANDIDATE_TAB_HREFS.tests },
+      { id: 'schedule', label: 'Lịch Đào Tạo', href: CANDIDATE_TAB_HREFS.schedule },
+      { id: 'te-leader-info', label: 'Thông Tin TE/Leader', href: CANDIDATE_TAB_HREFS['te-leader-info'] },
+      { id: 'k12-teaching-policy', label: 'Quy Trình Quy Định K12 Teaching', href: CANDIDATE_TAB_HREFS['k12-teaching-policy'] },
     ] satisfies CandidateTab[];
   }, []);
 
   const renderTabIcon = (tabId: CandidateTabId) => {
     if (tabId === 'videos') return <Video className="h-3.5 w-3.5" />;
+    if (tabId === 'tests') return <ClipboardList className="h-3.5 w-3.5" />;
     if (tabId === 'schedule') return <CalendarDays className="h-3.5 w-3.5" />;
     if (tabId === 'roadmap') return <Route className="h-3.5 w-3.5" />;
     if (tabId === 'te-leader-info') return <UsersRound className="h-3.5 w-3.5" />;
@@ -487,10 +495,20 @@ function CandidatePortalContent() {
   const fetchVideos = useCallback(async () => {
     setLoadingVideos(true);
     try {
-      const res = await fetch('/api/hr/onboarding/videos');
-      const data = await res.json();
+      const [res, assignmentsRes] = await Promise.all([
+        fetch('/api/hr/onboarding/videos'),
+        fetch('/api/training-assignments?assignment_context=all'),
+      ]);
+      const [data, assignmentsData] = await Promise.all([res.json(), assignmentsRes.json()]);
       if (data.success) {
         setVideos(((data.data || []) as CandidateVideo[]).filter((v) => v.status === 'active'));
+        const stages: Record<number, CandidateTrainingStage> = {};
+        if (assignmentsData.success && Array.isArray(assignmentsData.data)) {
+          assignmentsData.data.forEach((assignment: { video_id?: number; training_stage?: CandidateTrainingStage | null }) => {
+            if (assignment.video_id && assignment.training_stage) stages[assignment.video_id] = assignment.training_stage;
+          });
+        }
+        setVideoStages(stages);
       }
     } catch (err) {
       console.error('Error fetching videos:', err);
@@ -522,6 +540,11 @@ function CandidatePortalContent() {
       fetchVideos();
     }
   }, [activeTab, fetchVideos]);
+
+  const visibleVideos = useMemo(
+    () => videos.filter((video) => videoStages[video.id] === videoStageTab),
+    [videoStageTab, videoStages, videos],
+  );
 
   const fetchSessions = useCallback(async (candidateId: number) => {
     setLoadingSessions(true);
@@ -681,7 +704,7 @@ function CandidatePortalContent() {
     router.replace('/login?role=candidate');
   }, [fetchSessions, fetchTrainingSchedules, router]);
 
-  function handleLogout() {
+  async function handleLogout() {
     setProfile(null);
     setSessions([]);
     setVideos([]);
@@ -689,7 +712,7 @@ function CandidatePortalContent() {
     setCurrentGen(null);
     setTrainingSchedules([]);
     window.localStorage.removeItem('candidatePortalProfile');
-    router.replace('/login?role=candidate');
+    await logout('/login?role=candidate');
   }
 
   async function handleSubmitObserve() {
@@ -1192,14 +1215,19 @@ function CandidatePortalContent() {
       {activeTab === 'videos' && (
         <div className="animate-in fade-in duration-300">
           <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-            <h2 className="text-xl font-bold text-foreground mb-1">Video Đào tạo đầu vào</h2>
+            <h2 className="text-xl font-bold text-foreground mb-1">Video Đào Tạo Đầu Vào</h2>
             <p className="text-sm text-muted-foreground mb-6">Danh sách các video hướng dẫn và quy trình đào tạo dành cho ứng viên mới.</p>
+            <div className="mb-6 inline-flex rounded-lg border border-border bg-muted p-1">
+              {[{ id: 'centralized_training', label: 'Đào Tạo Tập Trung' }, { id: 'pedagogy_training', label: 'Tập Huấn Sư Phạm' }].map((stage) => (
+                <button key={stage.id} type="button" onClick={() => setVideoStageTab(stage.id as CandidateTrainingStage)} className={`rounded-md px-3 py-2 text-sm font-bold transition ${videoStageTab === stage.id ? 'bg-[#a1001f] text-white shadow-sm' : 'text-muted-foreground hover:bg-background'}`}>{stage.label}</button>
+              ))}
+            </div>
             
             {loadingVideos ? (
               <div className="flex h-52 items-center justify-center text-muted-foreground">
                 <LoadingSpinner size="md" />
               </div>
-            ) : videos.length === 0 ? (
+            ) : visibleVideos.length === 0 ? (
               <div className="flex h-72 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted text-center">
                 <Video className="mb-3 h-11 w-11 text-muted-foreground/50" />
                 <p className="font-bold text-foreground">Chưa có video đào tạo</p>
@@ -1207,7 +1235,7 @@ function CandidatePortalContent() {
               </div>
             ) : (
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {videos.map((video) => (
+                {visibleVideos.map((video) => (
                   <article key={video.id} className="group overflow-hidden rounded-xl border border-border bg-muted transition-all hover:border-primary/30 hover:bg-card hover:shadow-md flex flex-col h-full">
                     <div className="relative aspect-video w-full bg-muted overflow-hidden">
                       {video.thumbnail_url ? (
@@ -1291,7 +1319,7 @@ function CandidatePortalContent() {
                     Candidate Portal
                   </div>
                   <div>
-                    <h2 className="text-2xl font-black leading-tight text-foreground sm:text-3xl">Lộ trình đào tạo</h2>
+                    <h2 className="text-2xl font-black leading-tight text-foreground sm:text-3xl">Lộ Trình Đào Tạo</h2>
                     <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
                       Theo dõi toàn bộ hành trình từ dự thính, hoàn thành đào tạo đầu vào đến training theo GEN hiện tại.
                       Mỗi giai đoạn được cập nhật theo dữ liệu hiện tại của ứng viên.

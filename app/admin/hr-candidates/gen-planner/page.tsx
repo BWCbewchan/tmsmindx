@@ -90,26 +90,6 @@ function CandidatePopupCell({
       <p className="text-sm font-semibold text-gray-900">
         {row.full_name || 'Chưa có tên'}
       </p>
-      {row.candidate_code && (
-        <p className="text-xs font-bold text-[#a1001f]">
-          Mã UV: {row.candidate_code}
-        </p>
-      )}
-      <p className="text-xs text-gray-500">{row.email || 'Không có email'}</p>
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold">
-        <span
-          className={`inline-flex rounded-full border px-2 py-0.5 ${
-            row.gen_name
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-              : 'border-red-200 bg-red-50 text-red-700'
-          }`}
-        >
-          {row.gen_name || 'Chưa xếp GEN'}
-        </span>
-        <span className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-sky-700">
-          KV {row.region_code || 'N/A'}
-        </span>
-      </div>
 
       {/* Popup card */}
       <AnimatePresence>
@@ -630,56 +610,66 @@ export default function HrGenPlannerPage() {
             Quay lại trang danh sách
           </Link>
 
-          {/* Tab switcher */}
-          <div className="flex items-center gap-1 rounded-2xl border border-gray-200 bg-white p-1 shadow-sm">
-            <button
-              type="button"
-              onClick={() => setActiveTab('planner')}
-              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-all ${
-                activeTab === 'planner'
-                  ? 'bg-[#a1001f] text-white shadow-sm'
-                  : 'text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              <LayoutGrid className="h-4 w-4" />
-              GEN Planner
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('tracking')}
-              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-all ${
-                activeTab === 'tracking'
-                  ? 'bg-[#a1001f] text-white shadow-sm'
-                  : 'text-gray-600 hover:bg-gray-100'
-              }`}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Tab switcher */}
+            <div className="flex items-center gap-1 rounded-2xl border border-gray-200 bg-white p-1 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setActiveTab('planner')}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-all ${
+                  activeTab === 'planner'
+                    ? 'bg-[#a1001f] text-white shadow-sm'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <LayoutGrid className="h-4 w-4" />
+                GEN Planner
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('tracking')}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-all ${
+                  activeTab === 'tracking'
+                    ? 'bg-[#a1001f] text-white shadow-sm'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <ClipboardList className="h-4 w-4" />
+                Theo dõi đào tạo
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('scheduling')}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-all ${
+                  activeTab === 'scheduling'
+                    ? 'bg-[#a1001f] text-white shadow-sm'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <Calendar className="h-4 w-4" />
+                Xếp lịch training
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('overview')}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-all ${
+                  activeTab === 'overview'
+                    ? 'bg-[#a1001f] text-white shadow-sm'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <Eye className="h-4 w-4" />
+                Lịch training
+              </button>
+            </div>
+
+            <Link
+              href="/admin/hr-candidates/input-assessment"
+              className="inline-flex items-center gap-2 rounded-xl border border-[#f3b4bd] bg-white px-4 py-2 text-sm font-bold text-[#a1001f] shadow-sm transition-colors hover:bg-[#a1001f]/5"
             >
               <ClipboardList className="h-4 w-4" />
-              Theo dõi đào tạo
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('scheduling')}
-              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-all ${
-                activeTab === 'scheduling'
-                  ? 'bg-[#a1001f] text-white shadow-sm'
-                  : 'text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              <Calendar className="h-4 w-4" />
-              Xếp lịch training
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('overview')}
-              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-all ${
-                activeTab === 'overview'
-                  ? 'bg-[#a1001f] text-white shadow-sm'
-                  : 'text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              <Eye className="h-4 w-4" />
-              Lịch training
-            </button>
+              Cấu hình bảng điểm
+            </Link>
           </div>
         </div>
 
@@ -912,6 +902,9 @@ export default function HrGenPlannerPage() {
                             Ứng viên
                           </th>
                           <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500">
+                            Email
+                          </th>
+                          <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500">
                             Cơ sở mong muốn
                           </th>
                           <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500">
@@ -922,7 +915,7 @@ export default function HrGenPlannerPage() {
                       <tbody className="divide-y divide-gray-100">
                         {loading ? (
                           <tr>
-                            <td colSpan={5} className="py-14 text-center text-sm text-gray-500">
+                            <td colSpan={6} className="py-14 text-center text-sm text-gray-500">
                               <div className="inline-flex items-center gap-2">
                                 <Loader2 className="h-4 w-4 animate-spin" />
                                 Đang tải danh sách ứng viên...
@@ -931,7 +924,7 @@ export default function HrGenPlannerPage() {
                           </tr>
                         ) : rows.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="py-14 text-center text-sm text-gray-500">
+                            <td colSpan={6} className="py-14 text-center text-sm text-gray-500">
                               Không có ứng viên phù hợp trường lọc hiện tại.
                             </td>
                           </tr>
@@ -948,7 +941,7 @@ export default function HrGenPlannerPage() {
                               </td>
                               <td className="px-3 py-3">
                                 <span className="inline-flex rounded-lg border border-gray-200 bg-gray-100 px-2 py-1 text-xs font-bold text-gray-800">
-                                  #{row.id}
+                                  {row.candidate_code || 'Chưa có mã'}
                                 </span>
                               </td>
                               <td className="px-3 py-3">
@@ -957,6 +950,11 @@ export default function HrGenPlannerPage() {
                                   rowIndex={rowIndex}
                                   formatDateTime={formatDateTime}
                                 />
+                              </td>
+                              <td className="px-3 py-3 text-sm text-gray-600">
+                                <span className="block max-w-[260px] truncate" title={row.email || 'Không có email'}>
+                                  {row.email || 'Không có email'}
+                                </span>
                               </td>
                               <td className="px-3 py-3 text-sm text-gray-700">
                                 {row.desired_campus || '—'}

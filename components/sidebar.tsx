@@ -185,12 +185,41 @@ export function Sidebar() {
       icon: Users,
       submenu: [
         {
-          href: '/admin/hr-candidates/gen-planner?region=south',
-          label: 'Miền Nam (HCM + Tỉnh Nam)',
+          href: '/admin/hr-candidates',
+          label: 'Thông tin ứng viên sau phỏng vấn',
         },
         {
-          href: '/admin/hr-candidates/gen-planner?region=north',
-          label: 'Miền Bắc (HN + Tỉnh Bắc + Tỉnh Trung)',
+          label: 'Sắp xếp GEN',
+          submenu: [
+            {
+              href: '/admin/hr-candidates/gen-planner?region=south',
+              label: 'Miền Nam (HCM + Tỉnh Nam)',
+            },
+            {
+              href: '/admin/hr-candidates/gen-planner?region=north',
+              label: 'Miền Bắc (HN + Tỉnh Bắc + Tỉnh Trung)',
+            },
+          ],
+        },
+        {
+          href: '/admin/hr-candidates/training-calendar',
+          label: 'Lịch đào tạo',
+        },
+        {
+          href: '/admin/hr-onboarding/videos',
+          label: 'Quản lý video đào tạo',
+        },
+        {
+          href: '/admin/hr-candidates/input-assessment',
+          label: 'Cấu hình bảng điểm',
+        },
+        {
+          href: '/admin/hr-candidates/input-training-tests',
+          label: 'Thư viện bài kiểm tra',
+        },
+        {
+          href: '/admin/hr-candidates/pedagogy-training',
+          label: 'Tập huấn sư phạm',
         },
       ],
     },
