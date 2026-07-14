@@ -244,6 +244,7 @@ export function Sidebar() {
           submenu: [
             { href: '/admin/page5', label: 'Thư viện video nâng cao' },
             { href: '/admin/assignments', label: 'Thư viện đề nâng cao' },
+            { href: '/admin/xu-ly-tinh-huong', label: 'Bộ tham khảo xử lý tình huống', rawLabel: 'Bộ tham khảo xử lý tình huống' },
             { href: '/admin/training-dashboard', label: 'Thống kê' },
           ],
         },
@@ -346,6 +347,7 @@ export function Sidebar() {
       icon: BookOpen,
       submenu: [
         { href: '/user/quy-trinh-quy-dinh', label: 'Quy trình & Quy định' },
+        { href: '/user/xu-ly-tinh-huong', label: 'Bộ tham khảo xử lý tình huống', rawLabel: 'Bộ tham khảo xử lý tình huống' },
         {
           label: 'Giáo trình',
           submenu: [
@@ -585,7 +587,7 @@ export function Sidebar() {
           >
             <Menu className="h-4 w-4 transition-transform group-hover:rotate-180 duration-300" />
           </button>
-          
+
           <button
             type="button"
             onClick={() => setIsSearchOpen(true)}
@@ -779,21 +781,21 @@ export function Sidebar() {
                                       label: 'Quản Lý Tài Liệu',
                                     })
                                   }
-                                    // Hide "Quản Lý Tài Liệu" for te/leader/tc roles
-                                    const roleCodes = (user?.userRoles || []).map((code) =>
-                                      normalizeRoleToken(code),
+                                  // Hide "Quản Lý Tài Liệu" for te/leader/tc roles
+                                  const roleCodes = (user?.userRoles || []).map((code) =>
+                                    normalizeRoleToken(code),
+                                  )
+                                  const hasRestrictedRole = roleCodes.some(
+                                    (code) => code === 'te' || code === 'leader' || code === 'tc',
+                                  )
+
+                                  if (hasRestrictedRole) {
+                                    return current.filter(
+                                      (item: any) => item?.href !== '/admin/page2/manage'
                                     )
-                                    const hasRestrictedRole = roleCodes.some(
-                                      (code) => code === 'te' || code === 'leader' || code === 'tc',
-                                    )
-                  
-                                    if (hasRestrictedRole) {
-                                      return current.filter(
-                                        (item: any) => item?.href !== '/admin/page2/manage'
-                                      )
-                                    }
-                  
-                                    return current
+                                  }
+
+                                  return current
                                 })()
                                 : subItem.submenu
 
@@ -836,7 +838,7 @@ export function Sidebar() {
                                           )}
                                         >
                                           <span>
-                                            {toTitleCase(nestedItem.label)}
+                                            {nestedItem.rawLabel ?? toTitleCase(nestedItem.label)}
                                           </span>
                                         </Link>
                                       )
@@ -863,7 +865,7 @@ export function Sidebar() {
                                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 hover:border-l-3 hover:border-gray-300',
                                 )}
                               >
-                                <span>{toTitleCase(subItem.label)}</span>
+                                <span>{subItem.rawLabel ?? toTitleCase(subItem.label)}</span>
                               </Link>
                             )
                           })}
