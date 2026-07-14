@@ -1,4 +1,4 @@
-import { Search, RefreshCw } from 'lucide-react'
+import { RefreshCw, RotateCw, Search } from 'lucide-react'
 
 interface HrCandidatesFilterProps {
   searchInput: string
@@ -7,16 +7,21 @@ interface HrCandidatesFilterProps {
   setStatusFilter: (val: string) => void
   genFilter: string
   setGenFilter: (val: string) => void
+  genSort: 'none' | 'asc' | 'desc'
+  setGenSort: (val: 'none' | 'asc' | 'desc') => void
   availableGens: string[]
   refreshing: boolean
   onRefresh: () => void
+  syncing: boolean
+  onSync: () => void
 }
 
 export default function HrCandidatesFilter({
   searchInput, setSearchInput,
   statusFilter, setStatusFilter,
   genFilter, setGenFilter,
-  availableGens, refreshing, onRefresh,
+  genSort, setGenSort,
+  availableGens, refreshing, onRefresh, syncing, onSync,
 }: HrCandidatesFilterProps) {
   return (
     <div className="border-b border-gray-200 bg-gray-50/30 p-4 sm:p-5">
@@ -58,10 +63,24 @@ export default function HrCandidatesFilter({
             ))}
           </select>
 
+          <select value={genSort} onChange={(e) => setGenSort(e.target.value as 'none' | 'asc' | 'desc')}
+            className="cursor-pointer rounded-xl border-gray-300 py-2.5 pl-3.5 pr-8 text-sm font-medium text-gray-700 shadow-sm outline-none focus:border-[#a1001f] focus:ring-4 focus:ring-[#a1001f]/10 hover:bg-gray-50"
+            style={{ maxWidth: '180px' }}>
+            <option value="none">Sắp xếp GEN</option>
+            <option value="asc">GEN tăng dần</option>
+            <option value="desc">GEN giảm dần</option>
+          </select>
+
           <button onClick={onRefresh} disabled={refreshing}
             className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-[#f3b4bd] bg-white px-4 text-sm font-semibold text-[#a1001f] shadow-sm hover:bg-[#a1001f]/5 active:scale-95 disabled:opacity-50">
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">Làm mới</span>
+          </button>
+
+          <button onClick={onSync} disabled={syncing}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#a1001f] px-4 text-sm font-semibold text-white shadow-sm hover:bg-[#880019] active:scale-95 disabled:opacity-50">
+            <RotateCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">{syncing ? 'Đang đồng bộ' : 'Đồng bộ sheet'}</span>
           </button>
         </div>
       </div>

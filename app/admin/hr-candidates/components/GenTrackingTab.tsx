@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from '@/lib/app-toast'
 import {
+  INPUT_ASSESSMENT_CRITERIA,
+  getAssessmentProfile,
+  normalizeAssessmentProfileId,
+} from '@/lib/hr-input-assessment'
+import {
   BarChart2,
   CheckSquare2,
   Loader2,
@@ -32,9 +37,21 @@ interface TrainingSession {
 
 interface DbCandidate {
   candidate_id: number
+  candidate_code: string | null
   full_name: string
   email: string
+  phone: string | null
+  desired_campus: string | null
+  work_block: string | null
+  facebook_url: string | null
   status: string
+  assessments?: Array<{
+    assessment_type: string
+    total_score: number | null
+    is_passed: boolean | null
+    criteria_scores?: Record<string, number>
+    created_at: string
+  }>
   sessions: Array<{
     session_id: number
     session_number: number
@@ -76,6 +93,34 @@ function attendanceBadgeClass(count: number, total: number) {
 function initDraft(): SessionDraft {
   return { attendance: false, score: '' }
 }
+
+function assessmentLabel(type: string) {
+  if (type === 'technical_test') return 'Kỹ thuật'
+  if (type === 'pedagogical_review') return 'Sư phạm'
+  return getAssessmentProfile(normalizeAssessmentProfileId(type)).label || type
+}
+
+function latestAssessment(candidate: DbCandidate) {
+  const assessments = candidate.assessments || []
+  if (assessments.length === 0) return null
+  return assessments
+    .slice()
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
+}
+
+function formatScore(value: number | null | undefined) {
+  if (value == null || Number.isNaN(Number(value))) return '—'
+  return Number(value).toFixed(1)
+}
+
+function criteriaScore(candidate: DbCandidate, key: string) {
+  const assessment = latestAssessment(candidate)
+  const value = assessment?.criteria_scores?.[key]
+  return value == null ? null : Number(value)
+}
+
+const BASE_ASSESSMENT_KEYS = new Set(['attendance', 'lesson_1', 'lesson_2', 'lesson_3'])
+const campusCriteria = INPUT_ASSESSMENT_CRITERIA.filter((criterion) => !BASE_ASSESSMENT_KEYS.has(criterion.key))
 
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function GenTrackingTab({
@@ -306,12 +351,14 @@ export default function GenTrackingTab({
                       {filteredCandidates.length} ứng viên • {sessions.length} buổi học
                     </p>
                   </div>
-                  {candidates.length > 0 && sessions.length > 0 && (
+                  {candidates.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">
-                        <CheckSquare2 className="h-3 w-3" />
-                        Điểm danh: {Math.round(stats.avgAttendance * 100)}%
-                      </span>
+                      {sessions.length > 0 && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">
+                          <CheckSquare2 className="h-3 w-3" />
+                          Điểm danh: {Math.round(stats.avgAttendance * 100)}%
+                        </span>
+                      )}
                       {stats.avgScore !== null && (
                         <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700">
                           <BarChart2 className="h-3 w-3" />
@@ -356,29 +403,43 @@ export default function GenTrackingTab({
 
             {/* Table */}
             <div className="overflow-x-auto flex-1">
-              {sessions.length === 0 && !loading ? (
+              {candidates.length === 0 && !loading ? (
                 <div className="py-16 text-center text-gray-500">
-                  <p className="font-medium">Chưa có buổi training nào được thiết lập cho GEN này.</p>
-                  <p className="text-sm mt-1 text-gray-400">Vào tab "Đào tạo đầu vào" để tạo buổi training.</p>
+                  <p className="font-medium">Không có ứng viên nào trong GEN này.</p>
+                  <p className="text-sm mt-1 text-gray-400">Gán ứng viên vào GEN để hiển thị bảng điểm.</p>
                 </div>
               ) : (
                 <table className="min-w-full text-left text-sm">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="sticky left-0 z-20 bg-gray-50 px-4 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[210px] border-r border-gray-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">
+                      <th className="sticky left-0 z-20 bg-gray-50 px-4 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[240px] border-r border-gray-200 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">
                         Ứng viên
+                      </th>
+                      <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[130px]">
+                        Cơ sở
+                      </th>
+                      <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[100px]">
+                        Khối
                       </th>
                       <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[75px] text-center">
                         Đ.danh
                       </th>
                       {sessions.map(s => (
-                        <th key={s.id} className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[140px]">
+                        <th key={s.id} className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[145px]">
                           <div className="flex flex-col gap-0.5">
-                            <span className="text-[#a1001f]">Buổi {s.session_number}</span>
+                            <span className="text-[#a1001f]">Lesson {s.session_number}</span>
                             <span className="text-[10px] normal-case font-normal text-gray-400 truncate max-w-[120px]">{s.title}</span>
                           </div>
                         </th>
                       ))}
+                      {campusCriteria.map((criterion) => (
+                        <th key={criterion.key} className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[130px] text-center">
+                          {criterion.label}
+                        </th>
+                      ))}
+                      <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[140px] text-center">
+                        Kết quả đánh giá
+                      </th>
                       <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[80px] text-center">Điểm TB</th>
                       <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[90px] text-center">Chuyên cần</th>
                       <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[90px] text-center">Trạng thái</th>
@@ -387,7 +448,7 @@ export default function GenTrackingTab({
                   <tbody className="divide-y divide-gray-100">
                     {loading ? (
                       <tr>
-                        <td colSpan={sessions.length + 5} className="py-20 text-center">
+                        <td colSpan={sessions.length + campusCriteria.length + 8} className="py-20 text-center">
                           <div className="inline-flex items-center gap-2 text-sm text-gray-500">
                             <Loader2 className="h-5 w-5 animate-spin text-[#a1001f]" />
                             Đang tải dữ liệu từ database...
@@ -396,7 +457,7 @@ export default function GenTrackingTab({
                       </tr>
                     ) : filteredCandidates.length === 0 ? (
                       <tr>
-                        <td colSpan={sessions.length + 5} className="py-20 text-center">
+                        <td colSpan={sessions.length + campusCriteria.length + 8} className="py-20 text-center">
                           <div className="flex flex-col items-center gap-2 text-gray-400">
                             <Users className="h-8 w-8 opacity-40" />
                             <p className="text-sm font-medium">Không có ứng viên nào trong GEN này.</p>
@@ -407,6 +468,7 @@ export default function GenTrackingTab({
                     ) : filteredCandidates.map(candidate => {
                       const isDirty = dirtyIds.has(candidate.candidate_id)
                       const draft = drafts[candidate.candidate_id] ?? {}
+                      const assessment = latestAssessment(candidate)
 
                       const attendCount = sessions.filter(s => draft[s.id]?.attendance).length
                       const scores = sessions.map(s => draft[s.id]?.score).filter(sc => sc !== undefined && sc !== '')
@@ -424,15 +486,33 @@ export default function GenTrackingTab({
                             isDirty ? 'bg-[#fffbeb] group-hover:bg-[#fef3c7]' : 'bg-white group-hover:bg-gray-50'
                           }`}>
                             {isDirty && <div className="absolute left-0 top-0 h-full w-1 bg-amber-400" aria-hidden />}
-                            <p className="text-sm font-semibold text-gray-900 leading-tight truncate max-w-[185px]">{candidate.full_name}</p>
-                            <p className="text-xs text-gray-400 truncate max-w-[185px] mt-0.5">{candidate.email}</p>
+                            <p className="text-sm font-semibold text-gray-900 leading-tight truncate max-w-[210px]">{candidate.full_name}</p>
+                            <p className="mt-0.5 text-xs font-bold text-[#a1001f]">
+                              {candidate.candidate_code ? `Mã UV: ${candidate.candidate_code}` : 'Chưa có mã UV'}
+                            </p>
+                            <p className="text-xs text-gray-400 truncate max-w-[210px] mt-0.5">{candidate.email}</p>
                           </td>
 
-                          {/* Attendance summary */}
-                          <td className="px-3 py-2.5 align-middle text-center">
-                            <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-bold ${attendanceBadgeClass(attendCount, sessions.length)}`}>
-                              {attendCount}/{sessions.length}
+                          <td className="px-3 py-2.5 align-middle">
+                            <p className="max-w-[130px] truncate text-xs font-bold text-gray-700">
+                              {candidate.desired_campus || 'Chưa có cơ sở'}
+                            </p>
+                          </td>
+
+                          <td className="px-3 py-2.5 align-middle">
+                            <span className="inline-flex rounded-full bg-gray-100 px-2.5 py-1 text-xs font-black text-gray-700">
+                              {candidate.work_block || 'Chưa rõ'}
                             </span>
+                          </td>
+
+                          <td className="px-3 py-2.5 align-middle text-center">
+                            {sessions.length > 0 ? (
+                              <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-bold ${attendanceBadgeClass(attendCount, sessions.length)}`}>
+                                {attendCount}/{sessions.length}
+                              </span>
+                            ) : (
+                              <span className="text-xs font-bold text-gray-400">Chưa có buổi</span>
+                            )}
                           </td>
 
                           {/* Session columns */}
@@ -479,6 +559,36 @@ export default function GenTrackingTab({
                               </td>
                             )
                           })}
+
+                          {campusCriteria.map((criterion) => (
+                            <td key={criterion.key} className="px-3 py-2.5 align-middle text-center">
+                              <span className="text-sm font-extrabold text-gray-800">
+                                {formatScore(criteriaScore(candidate, criterion.key))}
+                              </span>
+                            </td>
+                          ))}
+
+                          <td className="px-3 py-2.5 align-middle text-center">
+                            {assessment?.total_score != null ? (
+                              <div className="space-y-1">
+                                <p className={`text-sm font-extrabold ${assessment.total_score >= 3.5 ? 'text-emerald-700' : 'text-red-600'}`}>
+                                  {assessment.total_score.toFixed(2)}
+                                </p>
+                                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${
+                                  assessment.is_passed
+                                    ? 'bg-emerald-100 text-emerald-700'
+                                    : 'bg-red-100 text-red-700'
+                                }`}>
+                                  {assessment.is_passed ? 'Đạt' : 'Không đạt'}
+                                </span>
+                                <p className="text-[10px] font-bold text-gray-400">
+                                  {assessmentLabel(assessment.assessment_type)}
+                                </p>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-400">Chưa chấm</span>
+                            )}
+                          </td>
 
                           {/* Avg score */}
                           <td className="px-3 py-2.5 align-middle text-center">

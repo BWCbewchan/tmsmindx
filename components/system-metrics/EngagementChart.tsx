@@ -116,8 +116,8 @@ export function EngagementChart({
               labelFormatter={(label) =>
                 activeTab === 'dau' ? `Giờ: ${label}` : `Ngày: ${label}`
               }
-              formatter={(value: number | undefined) => [
-                value,
+              formatter={(value) => [
+                value ?? 0,
                 activeTab === 'dau' ? 'Người dùng/giờ' : 'WAU theo ngày',
               ]}
             />

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PageContainer } from '@/components/PageContainer';
 import { toast } from '@/lib/app-toast';
+import { authHeaders } from '@/lib/auth-headers';
+import { useAuth } from '@/lib/auth-context';
 import { HrCandidateRow, HrSummary, HrPagination } from './types';
 import HrCandidateStats from './components/HrCandidateStats';
 import HrCandidatesFilter from './components/HrCandidatesFilter';
@@ -13,15 +15,18 @@ import Link from 'next/link';
 const PAGE_SIZE = 25;
 
 export default function HrCandidatesPage() {
+  const { token } = useAuth();
   const [rows, setRows] = useState<HrCandidateRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
   const [genFilter, setGenFilter] = useState('all');
+  const [genSort, setGenSort] = useState<'none' | 'asc' | 'desc'>('none');
   const [page, setPage] = useState(1);
 
   const [availableGens, setAvailableGens] = useState<string[]>([]);
@@ -54,6 +59,7 @@ export default function HrCandidatesPage() {
       });
       if (search) params.set('search', search);
       if (genFilter !== 'all') params.set('gen', genFilter);
+      if (genSort !== 'none') params.set('genSort', genSort);
       if (regionFilter !== 'all') params.set('region', regionFilter);
 
       const res = await fetch(`/api/hr/candidates?${params.toString()}`, { cache: 'no-store' });
@@ -70,9 +76,34 @@ export default function HrCandidatesPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [statusFilter, page, search, genFilter, regionFilter]);
+  }, [statusFilter, page, search, genFilter, genSort, regionFilter]);
 
   useEffect(() => { fetchRows(false); }, [fetchRows]);
+
+  const handleSyncFromSheet = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch('/api/hr/candidates/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(token),
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Không thể đồng bộ ứng viên từ sheet.');
+
+      const summary = data.summary || {};
+      toast.success(
+        `Đồng bộ xong: thêm ${summary.inserted || 0}, cập nhật ${summary.updated || 0}, bỏ qua ${summary.skipped || 0}.`,
+      );
+      await fetchRows(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Lỗi đồng bộ ứng viên từ sheet.');
+    } finally {
+      setSyncing(false);
+    }
+  }, [fetchRows, token]);
 
   const applyQuickFilter = (nextStatus: string) => {
     setStatusFilter(nextStatus);
@@ -138,9 +169,13 @@ export default function HrCandidatesPage() {
             setStatusFilter={(v) => { setStatusFilter(v); setPage(1); setSelectedKeys(new Set()); }}
             genFilter={genFilter}
             setGenFilter={(v) => { setGenFilter(v); setPage(1); setSelectedKeys(new Set()); }}
+            genSort={genSort}
+            setGenSort={(v) => { setGenSort(v); setPage(1); setSelectedKeys(new Set()); }}
             availableGens={availableGens}
             refreshing={refreshing}
             onRefresh={() => fetchRows(true)}
+            syncing={syncing}
+            onSync={handleSyncFromSheet}
           />
 
           <HrCandidatesTable
@@ -151,7 +186,7 @@ export default function HrCandidatesPage() {
             pagination={pagination}
             onOpenDetails={setSelectedDetailsCandidate}
             onPageChange={(p) => setPage(p)}
-            onClearFilters={() => { applyQuickFilter('all'); setGenFilter('all'); }}
+            onClearFilters={() => { applyQuickFilter('all'); setGenFilter('all'); setGenSort('none'); }}
             selectedKeys={selectedKeys}
             onToggleSelect={handleToggleSelect}
             onToggleSelectAll={handleToggleSelectAll}

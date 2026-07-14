@@ -8,9 +8,20 @@ import { createSupabaseS3Client } from '@/lib/supabase-s3'
 export const TEACHING_DOCUMENT_BUCKET = process.env.TEACHING_DOCUMENTS_BUCKET || 'teaching-documents'
 export const TEACHING_DOCUMENT_LEVELS = ['Basic', 'Advance', 'Intensive'] as const
 export const TEACHING_DOCUMENT_STATUSES = ['published', 'draft', 'disabled'] as const
+export const TEACHING_DOCUMENT_SOURCE_TYPES = ['file', 'material_link'] as const
+export const TEACHING_DOCUMENT_FOLDERS = [
+  'Lesson Plan',
+  'Slide',
+  'Homework',
+  'Assigment Barem',
+  'Sample',
+  'Material',
+] as const
 
 export type TeachingDocumentLevel = (typeof TEACHING_DOCUMENT_LEVELS)[number]
 export type TeachingDocumentStatus = (typeof TEACHING_DOCUMENT_STATUSES)[number]
+export type TeachingDocumentSourceType = (typeof TEACHING_DOCUMENT_SOURCE_TYPES)[number]
+export type TeachingDocumentFolder = (typeof TEACHING_DOCUMENT_FOLDERS)[number]
 
 export type TeachingDocument = {
   id: number
@@ -24,6 +35,9 @@ export type TeachingDocument = {
   subject_name: string
   course_name: string | null
   document_level: TeachingDocumentLevel
+  folder_name: TeachingDocumentFolder
+  source_type: TeachingDocumentSourceType
+  material_url: string | null
   lesson_number: string
   document_status: TeachingDocumentStatus
   is_secure_view: boolean
@@ -39,6 +53,10 @@ export function isTeachingDocumentLevel(value: string): value is TeachingDocumen
 
 export function isTeachingDocumentStatus(value: string): value is TeachingDocumentStatus {
   return TEACHING_DOCUMENT_STATUSES.includes(value as TeachingDocumentStatus)
+}
+
+export function isTeachingDocumentFolder(value: string): value is TeachingDocumentFolder {
+  return TEACHING_DOCUMENT_FOLDERS.includes(value as TeachingDocumentFolder)
 }
 
 export function classifyTeachingDocument(fileType: string, fileName: string) {
@@ -104,6 +122,8 @@ export async function listTeachingDocuments(options: { publishedOnly?: boolean }
       FROM teaching_documents
       ${options.publishedOnly ? `WHERE COALESCE(document_status, 'published') = 'published'` : ''}
       ORDER BY subject_name ASC,
+        course_name ASC,
+        folder_name ASC,
         CASE document_level
           WHEN 'Basic' THEN 1
           WHEN 'Advance' THEN 2
@@ -122,6 +142,20 @@ export async function findTeachingDocument(id: number): Promise<TeachingDocument
   return result.rows[0] ?? null
 }
 
+export async function updateTeachingDocumentFolder(id: number, folderName: TeachingDocumentFolder) {
+  const result = await pool.query(
+    `
+      UPDATE teaching_documents
+      SET folder_name = $2,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING *
+    `,
+    [id, folderName],
+  )
+  return (result.rows[0] as TeachingDocument | undefined) ?? null
+}
+
 export async function createTeachingDocumentRecord(input: {
   title: string
   description: string | null
@@ -132,17 +166,21 @@ export async function createTeachingDocumentRecord(input: {
   subjectName: string
   courseName?: string | null
   documentLevel: TeachingDocumentLevel
+  folderName: TeachingDocumentFolder
   lessonNumber: string
   documentStatus?: TeachingDocumentStatus
+  sourceType?: TeachingDocumentSourceType
+  materialUrl?: string | null
   createdByEmail: string
 }) {
   const result = await pool.query(
     `
       INSERT INTO teaching_documents (
         title, description, s3_bucket, s3_key, file_name, file_size, file_type,
-        subject_name, course_name, document_level, lesson_number, document_status, created_by_email
+        subject_name, course_name, document_level, folder_name, lesson_number, document_status,
+        source_type, material_url, created_by_email
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING *
     `,
     [
@@ -156,8 +194,11 @@ export async function createTeachingDocumentRecord(input: {
       input.subjectName,
       input.courseName || null,
       input.documentLevel,
+      input.folderName,
       input.lessonNumber,
       input.documentStatus || 'published',
+      input.sourceType || 'file',
+      input.materialUrl || null,
       input.createdByEmail,
     ],
   )
