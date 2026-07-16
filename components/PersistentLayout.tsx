@@ -14,6 +14,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   const { isOpen, navMode } = useSidebar();
   const { user } = useAuth();
   const [mounted, setMounted] = useState(false);
+  const isCandidatePortal = pathname.startsWith('/candidate-portal');
 
   useEffect(() => {
     setMounted(true);
@@ -24,7 +25,8 @@ function Layout({ children }: { children: React.ReactNode }) {
     pathname.startsWith('/login') ||
     pathname === '/' ||
     pathname.startsWith('/checkdatasource') ||
-    pathname.startsWith('/bao-tri')
+    pathname.startsWith('/bao-tri') ||
+    isCandidatePortal
   let shouldShowSidebar = !noSidebarPaths
 
   // Hide sidebar if admin user has no permissions
@@ -100,7 +102,7 @@ function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </main>
-      {!pathname.startsWith('/bao-tri') && <UserFirstLoginOnboarding />}
+      {!pathname.startsWith('/bao-tri') && !isCandidatePortal && <UserFirstLoginOnboarding />}
     </div>
   );
 }

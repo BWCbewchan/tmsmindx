@@ -57,7 +57,7 @@ export async function verifySessionCookieValue(
 export function setSessionCookieOnResponse(
   res: NextResponse,
   tokenValue: string,
-  maxAgeSeconds = 60 * 60 * 24 * 30, // 30 ngày
+  maxAgeSeconds = 60 * 60 * 12,
 ) {
   res.cookies.set(TPS_SESSION_COOKIE, tokenValue, {
     httpOnly: true,
@@ -67,4 +67,3 @@ export function setSessionCookieOnResponse(
     maxAge: maxAgeSeconds,
   });
 }
-

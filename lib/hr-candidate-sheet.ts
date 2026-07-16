@@ -2,11 +2,19 @@ import { createHash } from 'crypto';
 
 const DEFAULT_CACHE_TTL_MS = 2 * 60 * 1000;
 
-function hrSheetFallbackFromEnv(): { sheetId?: string; gid?: string } {
+function hrSheetFallbackFromEnv(): { sheetId?: string; gid?: string; gids?: string[] } {
   return {
     sheetId: process.env.HR_CANDIDATE_SHEET_ID?.trim(),
     gid: process.env.HR_CANDIDATE_SHEET_GID?.trim(),
+    gids: splitGids(process.env.HR_CANDIDATE_SHEET_GIDS),
   };
+}
+
+function splitGids(value: string | undefined) {
+  return (value || '')
+    .split(/[,;\s]+/g)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function resolveHrSheetIds(
@@ -51,6 +59,7 @@ export interface HrSheetCandidate {
   status: string;
   desiredCampus: string;
   workBlock: string;
+  workBlockCode?: string;
   subjectCode: string;
   desiredProgram: string;
   sheetGen: string;
@@ -65,6 +74,7 @@ export interface HrSheetCandidate {
 
 export interface HrCandidateSheetData {
   source: SheetSource;
+  sources?: SheetSource[];
   headers: string[];
   fetchedAt: string;
   availableGens: string[];
@@ -167,6 +177,29 @@ function pickColumnIndex(normalizedHeaders: string[], aliases: string[]) {
   return normalizedHeaders.findIndex((header) => aliases.some((alias) => header === alias || header.includes(alias)));
 }
 
+function pickExactColumnIndex(normalizedHeaders: string[], aliases: string[]) {
+  return normalizedHeaders.findIndex((header) => aliases.some((alias) => header === alias));
+}
+
+function pickPreferredColumnIndex(normalizedHeaders: string[], exactAliases: string[], fuzzyAliases: string[] = []) {
+  const exactIndex = pickExactColumnIndex(normalizedHeaders, exactAliases);
+  if (exactIndex >= 0) return exactIndex;
+  return pickColumnIndex(normalizedHeaders, [...exactAliases, ...fuzzyAliases]);
+}
+
+function inferRegionCode(regionName: string): '1' | '2' | '' {
+  const normalized = normalizeText(regionName);
+  if (normalized.includes('mien nam')) return '1';
+  if (normalized.includes('mien bac')) return '2';
+  return '';
+}
+
+function inferRegionNameFromSource(source: SheetSource) {
+  if (source.gid === '794802633') return 'Miền Nam';
+  if (source.gid === '1891942894') return 'Miền Bắc';
+  return '';
+}
+
 function findHeaderRow(rows: string[][]): number {
   const maxRows = Math.min(rows.length, 8);
   let bestRow = 0;
@@ -226,6 +259,27 @@ function extractSheetInfoFromUrl(rawUrl: string | undefined): SheetSource {
   }
 }
 
+function extractSheetSources(): SheetSource[] {
+  const rawUrl = process.env.HR_CANDIDATE_SHEET_CSV_URL;
+  const fb = hrSheetFallbackFromEnv();
+
+  if (rawUrl?.trim()) {
+    return [extractSheetInfoFromUrl(rawUrl)];
+  }
+
+  const sheetId = fb.sheetId?.trim();
+  const gids = fb.gids && fb.gids.length > 0 ? fb.gids : fb.gid ? [fb.gid] : [];
+  if (!sheetId || gids.length === 0) {
+    resolveHrSheetIds(sheetId, fb.gid);
+  }
+
+  return gids.map((gid) => ({
+    sheetId: sheetId!,
+    gid,
+    csvUrl: `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`,
+  }));
+}
+
 export function buildCandidateFingerprint(input: {
   name?: string;
   email?: string;
@@ -244,8 +298,7 @@ export function buildCandidateKey(fingerprint: string) {
   return createHash('sha256').update(fingerprint).digest('hex');
 }
 
-async function fetchAndParseSheet(): Promise<HrCandidateSheetData> {
-  const source = extractSheetInfoFromUrl(process.env.HR_CANDIDATE_SHEET_CSV_URL);
+async function fetchSheetCsv(source: SheetSource) {
   const response = await fetch(source.csvUrl, { cache: 'no-store' });
 
   if (!response.ok) {
@@ -262,10 +315,15 @@ async function fetchAndParseSheet(): Promise<HrCandidateSheetData> {
     throw new Error('Sheet HR chưa public CSV hoặc chưa cấp quyền cho service account. Vui lòng chia sẻ quyền đọc để hệ thống có thể đồng bộ.');
   }
 
+  return csvText;
+}
+
+function parseSheetCsv(source: SheetSource, csvText: string): HrCandidateSheetData {
   const rows = parseCsv(csvText).filter((cells) => cells.some((cell) => cell.trim()));
   if (rows.length === 0) {
     return {
       source,
+      sources: [source],
       headers: [],
       fetchedAt: new Date().toISOString(),
       availableGens: [],
@@ -282,26 +340,23 @@ async function fetchAndParseSheet(): Promise<HrCandidateSheetData> {
   const normalizedHeaders = headerRow.map((header) => normalizeText(header));
 
   const nameIndex = pickColumnIndex(normalizedHeaders, ['ho va ten', 'ho ten', 'ten ung vien', 'ten uv', 'ten', 'full name', 'candidate name', 'name']);
-  const emailIndex = pickColumnIndex(normalizedHeaders, ['email', 'mail']);
+  const emailIndex = pickColumnIndex(normalizedHeaders, ['email', 'e mail', 'mail ca nhan', 'mail']);
   const phoneIndex = pickColumnIndex(normalizedHeaders, ['so dien thoai', 'dien thoai', 'sdt', 'phone', 'mobile']);
   const statusIndex = pickColumnIndex(normalizedHeaders, ['trang thai', 'status', 'stage']);
   const genIndex = pickColumnIndex(normalizedHeaders, ['gen', 'nhom gen']);
-  const regionCodeIndex = pickColumnIndex(normalizedHeaders, ['ma khu vuc', 'region code', 'khu vuc']);
+  const regionNameIndex = pickExactColumnIndex(normalizedHeaders, ['khu vuc']);
+  const regionCodeIndex = pickPreferredColumnIndex(normalizedHeaders, ['ma khu vuc', 'region code']);
   const candidateCodeIndex = pickColumnIndex(normalizedHeaders, ['ma ung vien', 'ma uv', 'candidate code', 'candidate id', 'application id']);
   const desiredCampusIndex = pickColumnIndex(normalizedHeaders, ['co so mong muon', 'co so lam viec', 'desired campus', 'desired branch', 'campus mong muon']);
-  const workBlockIndex = pickColumnIndex(normalizedHeaders, ['khoi lam viec', 'work block', 'teaching block', 'khoi giang day']);
+  const workBlockIndex = pickColumnIndex(normalizedHeaders, ['khoi ban chon', 'khoi lam viec', 'work block', 'teaching block', 'khoi giang day']);
+  const workBlockCodeIndex = pickExactColumnIndex(normalizedHeaders, ['ma khoi']);
   const subjectCodeIndex = pickColumnIndex(normalizedHeaders, ['ma mon', 'subject code', 'ma bo mon', 'ma mon hoc']);
   const desiredProgramIndex = pickColumnIndex(normalizedHeaders, ['chuong trinh', 'program', 'bo mon', 'specialization']);
-
-  import('fs').then(fs => {
-    fs.writeFileSync('/tmp/hr-candidate-parser-debug.txt', JSON.stringify({
-      normalizedHeaders,
-      nameIndex,
-      phoneIndex,
-      regionCodeIndex,
-      candidateCodeIndex,
-    }, null, 2));
-  });
+  const birthYearIndex = pickColumnIndex(normalizedHeaders, ['nam sinh', 'birth year']);
+  const facebookUrlIndex = pickColumnIndex(normalizedHeaders, ['link facebook', 'facebook']);
+  const teachingExperienceIndex = pickColumnIndex(normalizedHeaders, ['kinh nghiem giang day', 'teaching experience']);
+  const genderIndex = pickColumnIndex(normalizedHeaders, ['gioi tinh', 'gender']);
+  const currentAddressIndex = pickColumnIndex(normalizedHeaders, ['dia chi noi o hien tai', 'dia chi hien tai', 'current address']);
 
   const candidates: HrSheetCandidate[] = [];
   const genSet = new Set<string>();
@@ -311,21 +366,31 @@ async function fetchAndParseSheet(): Promise<HrCandidateSheetData> {
     const nonEmptyCells = row.filter((cell) => cell.trim()).length;
     if (nonEmptyCells === 0) continue;
 
+    const regionName = (regionNameIndex >= 0 ? cleanCell(row[regionNameIndex]) : '') || inferRegionNameFromSource(source);
+    const rawRegionCode = regionCodeIndex >= 0 ? normalizeRegionCode(row[regionCodeIndex]) : '';
+
     const candidate: HrSheetCandidate = {
       rowNumber: i + 1,
       candidateKey: '',
       candidateFingerprint: '',
       candidateCode: candidateCodeIndex >= 0 ? cleanCell(row[candidateCodeIndex]) : '',
-      regionCode: regionCodeIndex >= 0 ? normalizeRegionCode(row[regionCodeIndex]) : '',
+      regionCode: rawRegionCode || inferRegionCode(regionName),
       name: nameIndex >= 0 ? cleanCell(row[nameIndex]) : '',
       email: emailIndex >= 0 ? cleanCell(row[emailIndex]).toLowerCase() : '',
       phone: phoneIndex >= 0 ? cleanCell(row[phoneIndex]) : '',
       status: statusIndex >= 0 ? cleanCell(row[statusIndex]) : '',
       desiredCampus: desiredCampusIndex >= 0 ? cleanCell(row[desiredCampusIndex]) : '',
       workBlock: workBlockIndex >= 0 ? cleanCell(row[workBlockIndex]) : '',
+      workBlockCode: workBlockCodeIndex >= 0 ? cleanCell(row[workBlockCodeIndex]) : '',
       subjectCode: subjectCodeIndex >= 0 ? cleanCell(row[subjectCodeIndex]) : '',
       desiredProgram: desiredProgramIndex >= 0 ? cleanCell(row[desiredProgramIndex]) : '',
       sheetGen: genIndex >= 0 ? cleanCell(row[genIndex]) : '',
+      birthYear: birthYearIndex >= 0 ? cleanCell(row[birthYearIndex]) : '',
+      facebookUrl: facebookUrlIndex >= 0 ? cleanCell(row[facebookUrlIndex]) : '',
+      teachingExperience: teachingExperienceIndex >= 0 ? cleanCell(row[teachingExperienceIndex]) : '',
+      gender: genderIndex >= 0 ? cleanCell(row[genderIndex]) : '',
+      currentAddress: currentAddressIndex >= 0 ? cleanCell(row[currentAddressIndex]) : '',
+      regionName,
       raw: {},
     };
 
@@ -354,10 +419,42 @@ async function fetchAndParseSheet(): Promise<HrCandidateSheetData> {
 
   return {
     source,
+    sources: [source],
     headers: headerRow,
     fetchedAt: new Date().toISOString(),
     availableGens: Array.from(genSet).sort((a, b) => a.localeCompare(b, 'vi')),
     candidates,
+  };
+}
+
+async function fetchAndParseSheet(): Promise<HrCandidateSheetData> {
+  const sources = extractSheetSources();
+  const parsedSheets = await Promise.all(
+    sources.map(async (source) => parseSheetCsv(source, await fetchSheetCsv(source))),
+  );
+
+  if (parsedSheets.length === 1) return parsedSheets[0];
+
+  const candidateMap = new Map<string, HrSheetCandidate>();
+  const genSet = new Set<string>();
+
+  for (const sheet of parsedSheets) {
+    for (const gen of sheet.availableGens) {
+      genSet.add(gen);
+    }
+    for (const candidate of sheet.candidates) {
+      const key = `${candidate.email || candidate.candidateKey}_${candidate.sheetGen || ''}`;
+      candidateMap.set(key, candidate);
+    }
+  }
+
+  return {
+    source: sources[0],
+    sources,
+    headers: parsedSheets[0]?.headers || [],
+    fetchedAt: new Date().toISOString(),
+    availableGens: Array.from(genSet).sort((a, b) => a.localeCompare(b, 'vi')),
+    candidates: Array.from(candidateMap.values()),
   };
 }
 
