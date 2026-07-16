@@ -33,6 +33,8 @@ interface BUMetric {
   teacher_count: number
   avg_expertise_score: number | null
   expertise_participant_count: number
+  max_teacher_score: number | null
+  max_score_teachers_count: number
 }
 
 // ─── Permission check ─────────────────────────────────────────────────────────
@@ -184,6 +186,40 @@ export default function Dashboard() {
   const [trendData, setTrendData] = useState<Array<{ month: string; avg_score: number | null; participant_count: number }>>([])
   const [selectedBU, setSelectedBU] = useState<BUMetric | null>(null)
   const [selectedTrendBU, setSelectedTrendBU] = useState<string>('all')
+  const [modalTeachers, setModalTeachers] = useState<Array<{ code: string; email: string; score: number | null }>>([])
+  const [modalLoading, setModalLoading] = useState(false)
+  const [modalError, setModalError] = useState('')
+
+  useEffect(() => {
+    if (!selectedBU) {
+      setModalTeachers([])
+      return
+    }
+
+    setModalLoading(true)
+    setModalError('')
+
+    let url = `/api/dashboard/bu-metrics/teachers?bu_name=${encodeURIComponent(selectedBU.bu_name)}`
+    if (selectedMonth !== 'all') {
+      const [m, y] = selectedMonth.split('-')
+      url += `&month=${m}&year=${y}`
+    }
+
+    fetch(url, {
+      cache: 'no-store',
+      headers: authHeaders(token),
+    })
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.success) {
+          setModalTeachers(json.data || [])
+        } else {
+          setModalError(json.error || 'Lỗi tải danh sách giáo viên')
+        }
+      })
+      .catch(() => setModalError('Lỗi kết nối máy chủ'))
+      .finally(() => setModalLoading(false))
+  }, [selectedBU, selectedMonth, token])
 
   useEffect(() => {
     if (hasAccess !== true) return
@@ -232,24 +268,47 @@ export default function Dashboard() {
     if (withScore.length === 0) return null
     return withScore.reduce((s, d) => s + d.avg_expertise_score!, 0) / withScore.length
   }, [data])
-  const topBU = useMemo(
-    () =>
-      [...data]
-        .filter((d) => d.avg_expertise_score != null)
-        .sort((a, b) => (b.avg_expertise_score ?? 0) - (a.avg_expertise_score ?? 0))[0] ??
-      null,
-    [data],
-  )
+  const topBU = useMemo(() => {
+    const withScore = [...data].filter((d) => d.avg_expertise_score != null)
+    if (withScore.length === 0) return null
+    return withScore.sort((a, b) => {
+      const avgA = a.avg_expertise_score ?? -1
+      const avgB = b.avg_expertise_score ?? -1
+      if (avgB !== avgA) return avgB - avgA
+
+      const maxA = a.max_teacher_score ?? -1
+      const maxB = b.max_teacher_score ?? -1
+      if (maxB !== maxA) return maxB - maxA
+
+      const teachersCountDiff = b.max_score_teachers_count - a.max_score_teachers_count
+      if (teachersCountDiff !== 0) return teachersCountDiff
+
+      // Tiêu chí 4: Tỷ lệ hoàn thành chuyên sâu (expertise_participant_count / teacher_count)
+      const rateA = a.teacher_count > 0 ? (a.expertise_participant_count / a.teacher_count) : 0
+      const rateB = b.teacher_count > 0 ? (b.expertise_participant_count / b.teacher_count) : 0
+      return rateB - rateA
+    })[0]
+  }, [data])
+
   const sortedData = useMemo(() => {
     return [...data].sort((a, b) => {
-      const scoreA = a.avg_expertise_score ?? -1;
-      const scoreB = b.avg_expertise_score ?? -1;
-      if (scoreB !== scoreA) {
-        return scoreB - scoreA;
-      }
-      return b.teacher_count - a.teacher_count; // Tie breaker
-    });
-  }, [data]);
+      const avgA = a.avg_expertise_score ?? -1
+      const avgB = b.avg_expertise_score ?? -1
+      if (avgB !== avgA) return avgB - avgA
+
+      const maxA = a.max_teacher_score ?? -1
+      const maxB = b.max_teacher_score ?? -1
+      if (maxB !== maxA) return maxB - maxA
+
+      const teachersCountDiff = b.max_score_teachers_count - a.max_score_teachers_count
+      if (teachersCountDiff !== 0) return teachersCountDiff
+
+      // Tiêu chí 4: Tỷ lệ hoàn thành chuyên sâu (expertise_participant_count / teacher_count)
+      const rateA = a.teacher_count > 0 ? (a.expertise_participant_count / a.teacher_count) : 0
+      const rateB = b.teacher_count > 0 ? (b.expertise_participant_count / b.teacher_count) : 0
+      return rateB - rateA
+    })
+  }, [data])
 
   // ── Chờ auth context xác nhận role từ /api/auth/me (tránh flash placeholder) ──
   if (hasAccess === null) {
@@ -428,7 +487,7 @@ export default function Dashboard() {
                       <LabelList
                         dataKey="avg_expertise_score"
                         position="right"
-                        formatter={(v: any) => (v != null ? Number(v).toFixed(1) : '')}
+                        formatter={(v: any) => (v != null ? Number(v).toFixed(2) : '')}
                         style={{ fontSize: 10, fontWeight: 'bold', fill: '#475569' }}
                         offset={8}
                       />
@@ -520,9 +579,16 @@ export default function Dashboard() {
 
             return (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 transition-opacity duration-300">
-                <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 max-w-md w-full overflow-hidden transform scale-100 transition-all duration-300 animate-in fade-in zoom-in-95">
+                <div className="relative bg-white rounded-2xl shadow-2xl border border-slate-100 max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden transform scale-100 transition-all duration-300 animate-in fade-in zoom-in-95">
+                  {/* Subtle MindX Watermark (Rotated and Larger for Premium Brand Feel) */}
+                  <img
+                    src="/logo.svg"
+                    alt=""
+                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 h-auto opacity-[0.045] pointer-events-none select-none z-0 rotate-[-12deg]"
+                  />
+
                   {/* Modal Header */}
-                  <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-b border-slate-100">
+                  <div className="relative flex items-center justify-between px-6 py-4 bg-slate-50/80 backdrop-blur-[2px] border-b border-slate-100 z-10 shrink-0">
                     <div className="flex items-center gap-3 min-w-0">
                       <img
                         src={`/images/rank-${shieldNum}.png`}
@@ -547,9 +613,9 @@ export default function Dashboard() {
                   </div>
 
                   {/* Modal Content */}
-                  <div className="px-6 py-6 space-y-5">
-                    {/* Score Card */}
-                    <div className="bg-gradient-to-r from-red-50/50 to-slate-50 p-4 rounded-xl border border-red-100/50 flex items-center justify-between">
+                  <div className="relative px-6 py-6 space-y-5 z-10 overflow-y-auto flex-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-350">
+                    {/* Score Card (Semi-transparent Red-to-Slate Gradient) */}
+                    <div className="bg-gradient-to-r from-red-50/30 to-slate-50/20 p-4 rounded-xl border border-red-100/30 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Award className="w-5 h-5 text-[#a1001f]" />
                         <span className="text-xs font-bold text-slate-700">Điểm chuyên sâu trung bình</span>
@@ -559,15 +625,15 @@ export default function Dashboard() {
                       </span>
                     </div>
 
-                    {/* Stats Grid */}
+                    {/* Stats Grid (Translucent Glass Cards to let Watermark shine through) */}
                     <div className="grid grid-cols-2 gap-4">
                       {/* Stat 1 */}
-                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                      <div className="bg-slate-50/30 backdrop-blur-[1px] p-4 rounded-xl border border-slate-100/40">
                         <p className="text-xs text-slate-400 font-semibold mb-1">Tổng số giáo viên</p>
                         <p className="text-xl font-bold text-slate-700">{selectedBU.teacher_count}</p>
                       </div>
                       {/* Stat 2 */}
-                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                      <div className="bg-slate-50/30 backdrop-blur-[1px] p-4 rounded-xl border border-slate-100/40">
                         <p className="text-xs text-slate-400 font-semibold mb-1">GV thực hiện bài</p>
                         <p className="text-xl font-bold text-slate-700">{selectedBU.expertise_participant_count}</p>
                       </div>
@@ -579,17 +645,82 @@ export default function Dashboard() {
                         <span>Tỷ lệ thực hiện bài chuyên sâu</span>
                         <span className="font-bold text-[#a1001f]">{rate}%</span>
                       </div>
-                      <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-2.5 bg-slate-100/50 rounded-full overflow-hidden">
                         <div
                           className="h-full bg-[#a1001f] rounded-full transition-all duration-500"
                           style={{ width: `${Math.min(100, parseFloat(rate))}%` }}
                         />
                       </div>
                     </div>
+
+                    {/* Divider */}
+                    <div className="h-px bg-slate-100/50" />
+
+                    {/* Teacher Scores List */}
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wide">
+                          Chi tiết điểm giáo viên
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-medium">
+                          {modalLoading ? 'Đang tải...' : `${modalTeachers.length} GV`}
+                        </span>
+                      </div>
+
+                      {modalLoading ? (
+                        <div className="space-y-2 py-1">
+                          <div className="h-9 bg-slate-100/60 rounded-xl animate-pulse" />
+                          <div className="h-9 bg-slate-100/60 rounded-xl animate-pulse" />
+                        </div>
+                      ) : modalError ? (
+                        <p className="text-center text-xs text-red-500 py-3 font-medium">{modalError}</p>
+                      ) : modalTeachers.length === 0 ? (
+                        <p className="text-center text-xs text-slate-400 py-4">Không có giáo viên hoạt động</p>
+                      ) : (
+                        <div className="space-y-1.5 pr-1">
+                          {modalTeachers.map((teacher) => (
+                            <div
+                              key={teacher.code}
+                              className="flex items-center justify-between px-3 py-2 bg-slate-50/30 hover:bg-slate-50/70 hover:translate-x-0.5 border border-slate-100/50 rounded-xl transition-all duration-200"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                {/* Styled Avatar with Initial */}
+                                <div className="w-8 h-8 rounded-full bg-red-50/50 border border-red-100/40 text-[#a1001f] flex items-center justify-center font-black text-xs uppercase shrink-0">
+                                  {teacher.code.charAt(0)}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-xs font-bold text-slate-700 truncate">
+                                    {teacher.code}
+                                  </p>
+                                  {teacher.email && (
+                                    <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                                      {teacher.email}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              <span
+                                className={`text-xs font-black px-2 py-0.5 rounded-lg shrink-0 ${
+                                  teacher.score != null
+                                    ? teacher.score >= 8.5
+                                      ? 'text-emerald-700 bg-emerald-50 border border-emerald-100'
+                                      : teacher.score >= 7.0
+                                      ? 'text-amber-700 bg-amber-50 border border-amber-100'
+                                      : 'text-[#a1001f] bg-red-50 border border-red-100/50'
+                                    : 'text-slate-400 bg-slate-100/50'
+                                }`}
+                              >
+                                {teacher.score != null ? teacher.score.toFixed(2) : '—'}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Modal Footer */}
-                  <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+                  <div className="relative px-6 py-4 bg-slate-50/80 border-t border-slate-100 flex justify-end z-10 shrink-0">
                     <button
                       onClick={() => setSelectedBU(null)}
                       className="px-4 py-2 text-xs font-semibold text-white bg-[#a1001f] hover:bg-[#800018] active:bg-[#600010] rounded-xl shadow-sm transition-all"

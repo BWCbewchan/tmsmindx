@@ -11,6 +11,8 @@ export interface BUMetric {
   avg_expertise_score: number | null
   /** Số GV đã từng thi chuyên sâu ít nhất 1 lần */
   expertise_participant_count: number
+  max_teacher_score: number | null
+  max_score_teachers_count: number
 }
 
 export interface SimulatibleManager {
@@ -116,26 +118,74 @@ export const GET = withApiProtection(async (request: NextRequest) => {
       bu_name: string
       avg_score: string | null
       participant_count: string
+      max_teacher_score: string | null
+      max_score_teachers_count: string
     }>(`
-      SELECT
-        TRIM(COALESCE(NULLIF(t.main_centre, ''), t."Main centre")) AS bu_name,
-        ROUND(AVG(r.diem)::numeric, 2) AS avg_score,
-        COUNT(DISTINCT t.code) AS participant_count
-      FROM chuyen_sau_results r
-      JOIN teachers t ON (
-        LOWER(TRIM(r.ma_giao_vien)) = LOWER(TRIM(t.code))
-        OR (r.dia_chi_email IS NOT NULL AND LOWER(TRIM(r.dia_chi_email)) = LOWER(TRIM(t.work_email)))
+      WITH teacher_averages AS (
+        SELECT
+          TRIM(COALESCE(NULLIF(t.main_centre, ''), t."Main centre")) AS bu_name,
+          t.code AS teacher_code,
+          TRUNC(AVG(r.diem)::numeric, 2) AS teacher_avg_score
+        FROM chuyen_sau_results r
+        JOIN teachers t ON (
+          LOWER(TRIM(r.ma_giao_vien)) = LOWER(TRIM(t.code))
+          OR (r.dia_chi_email IS NOT NULL AND LOWER(TRIM(r.dia_chi_email)) = LOWER(TRIM(t.work_email)))
+        )
+        ${whereClause}
+        GROUP BY TRIM(COALESCE(NULLIF(t.main_centre, ''), t."Main centre")), t.code
+      ),
+      bu_max_scores AS (
+        SELECT
+          bu_name,
+          MAX(teacher_avg_score) AS max_teacher_score
+        FROM teacher_averages
+        GROUP BY bu_name
+      ),
+      bu_max_teachers_count AS (
+        SELECT
+          ta.bu_name,
+          COUNT(*) AS max_score_teachers_count
+        FROM teacher_averages ta
+        JOIN bu_max_scores bms ON ta.bu_name = bms.bu_name AND ta.teacher_avg_score = bms.max_teacher_score
+        GROUP BY ta.bu_name
+      ),
+      bu_overall_avg AS (
+        SELECT
+          TRIM(COALESCE(NULLIF(t.main_centre, ''), t."Main centre")) AS bu_name,
+          TRUNC(AVG(r.diem)::numeric, 2) AS avg_score,
+          COUNT(DISTINCT t.code) AS participant_count
+        FROM chuyen_sau_results r
+        JOIN teachers t ON (
+          LOWER(TRIM(r.ma_giao_vien)) = LOWER(TRIM(t.code))
+          OR (r.dia_chi_email IS NOT NULL AND LOWER(TRIM(r.dia_chi_email)) = LOWER(TRIM(t.work_email)))
+        )
+        ${whereClause}
+        GROUP BY TRIM(COALESCE(NULLIF(t.main_centre, ''), t."Main centre"))
       )
-      ${whereClause}
-      GROUP BY TRIM(COALESCE(NULLIF(t.main_centre, ''), t."Main centre"))
+      SELECT
+        boa.bu_name,
+        boa.avg_score,
+        boa.participant_count,
+        bms.max_teacher_score,
+        bmtc.max_score_teachers_count
+      FROM bu_overall_avg boa
+      LEFT JOIN bu_max_scores bms ON boa.bu_name = bms.bu_name
+      LEFT JOIN bu_max_teachers_count bmtc ON boa.bu_name = bmtc.bu_name
     `, queryParams)
 
     // Merge 2 datasets theo tên BU (fuzzy match: lowercase + trim)
-    const expertiseMap = new Map<string, { avg: number | null; participants: number }>()
+    const expertiseMap = new Map<string, { 
+      avg: number | null; 
+      participants: number;
+      maxTeacherScore: number | null;
+      maxScoreTeachersCount: number;
+    }>()
     for (const row of expertiseResult.rows) {
       expertiseMap.set(row.bu_name.toLowerCase(), {
         avg: row.avg_score ? parseFloat(row.avg_score) : null,
         participants: parseInt(row.participant_count) || 0,
+        maxTeacherScore: row.max_teacher_score ? parseFloat(row.max_teacher_score) : null,
+        maxScoreTeachersCount: parseInt(row.max_score_teachers_count) || 0,
       })
     }
 
@@ -147,6 +197,8 @@ export const GET = withApiProtection(async (request: NextRequest) => {
         teacher_count: parseInt(row.teacher_count) || 0,
         avg_expertise_score: expertise?.avg ?? null,
         expertise_participant_count: expertise?.participants ?? 0,
+        max_teacher_score: expertise?.maxTeacherScore ?? null,
+        max_score_teachers_count: expertise?.maxScoreTeachersCount ?? 0,
       }
     })
 
@@ -165,6 +217,8 @@ export const GET = withApiProtection(async (request: NextRequest) => {
             teacher_count: 0,
             avg_expertise_score: expertise.avg,
             expertise_participant_count: expertise.participants,
+            max_teacher_score: expertise.maxTeacherScore,
+            max_score_teachers_count: expertise.maxScoreTeachersCount,
           })
         }
       }
@@ -237,14 +291,14 @@ export const GET = withApiProtection(async (request: NextRequest) => {
       SELECT
         r.nam_dk,
         r.thang_dk,
-        ROUND(AVG(r.diem)::numeric, 2) AS avg_score,
+        TRUNC(AVG(r.diem)::numeric, 2) AS avg_score,
         COUNT(DISTINCT t.code) AS participant_count
       FROM chuyen_sau_results r
       JOIN teachers t ON (
         LOWER(TRIM(r.ma_giao_vien)) = LOWER(TRIM(t.code))
         OR (r.dia_chi_email IS NOT NULL AND LOWER(TRIM(r.dia_chi_email)) = LOWER(TRIM(t.work_email)))
       )
-      ${whereClause}
+      ${trendWhereClause}
       GROUP BY r.nam_dk, r.thang_dk
       ORDER BY r.nam_dk ASC, r.thang_dk ASC
     `, trendQueryParams)
