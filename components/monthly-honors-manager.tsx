@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Trophy, Upload, X, CheckCircle, AlertCircle, ChevronDown, Trash2, Eye, Star, Crown, Medal, Download, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import useSWR from 'swr'
+import useSWR, { useSWRConfig } from 'swr'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -32,7 +32,8 @@ interface VinhDanhData {
   data: HonorRecord[]
 }
 
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+const fetcher = (url: string) => fetch(url, { cache: 'no-store' }).then(r => r.json())
+const HONORS_SCORE_LABEL = 'CR45'
 
 function initials(name: string) {
   const p = name.trim().split(/\s+/)
@@ -161,9 +162,17 @@ function HonorCard({
           </p>
         )}
 
-        {/* Tỉ lệ */}
-        <div className="flex items-center gap-1.5 bg-black/30 rounded-xl px-3 py-1.5 mt-1 border border-white/15">
-          <Star className="w-3 h-3 fill-yellow-300 text-yellow-300 shrink-0" />
+        {/* CR45 */}
+        <div
+          className="flex items-center gap-1.5 rounded-xl bg-gradient-to-br from-yellow-100 via-amber-300 to-orange-500 px-3 py-1.5 mt-1 border border-yellow-100/80 whitespace-nowrap text-red-950 shadow-[0_10px_22px_rgba(69,10,10,0.22),inset_0_1px_0_rgba(255,255,255,0.72)]"
+          title={`Chỉ số ${HONORS_SCORE_LABEL}: ${record.ti_le.toFixed(1)}%`}
+          aria-label={`Chỉ số ${HONORS_SCORE_LABEL}: ${record.ti_le.toFixed(1)}%`}
+        >
+          <Star className="w-3 h-3 fill-red-900 text-red-900 shrink-0" />
+          <span className="text-[10px] font-black uppercase leading-none">
+            {HONORS_SCORE_LABEL}
+          </span>
+          <span className="h-3.5 w-px bg-red-950/25" />
           <span className={cn('font-black tabular-nums', rank === 1 ? 'text-[15px]' : 'text-[13px]')}>
             {record.ti_le.toFixed(1)}%
           </span>
@@ -256,9 +265,17 @@ function HonorRow({ record, index }: { record: HonorRecord; index: number }) {
       <td className="px-4 py-3 text-center tabular-nums text-sm font-semibold text-gray-700">{record.so_case}</td>
       <td className="px-4 py-3 text-center tabular-nums text-sm font-semibold text-gray-700">{record.so_hoc_sinh}</td>
       <td className="px-4 py-3 text-center">
-        <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 rounded-lg px-2 py-0.5 text-xs font-black">
-          <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-500" />
-          {record.ti_le.toFixed(1)}%
+        <span
+          className="inline-flex items-center overflow-hidden rounded-lg border border-amber-200 bg-white text-xs font-black whitespace-nowrap shadow-sm"
+          title={`Chỉ số ${HONORS_SCORE_LABEL}: ${record.ti_le.toFixed(1)}%`}
+          aria-label={`Chỉ số ${HONORS_SCORE_LABEL}: ${record.ti_le.toFixed(1)}%`}
+        >
+          <span className="bg-amber-300 px-1.5 py-0.5 text-[9px] uppercase leading-none text-red-950">
+            {HONORS_SCORE_LABEL}
+          </span>
+          <span className="bg-red-950 px-1.5 py-0.5 text-yellow-100 tabular-nums leading-none">
+            {record.ti_le.toFixed(1)}%
+          </span>
         </span>
       </td>
       <td className="px-4 py-3 text-sm text-gray-600">{record.loai || '—'}</td>
@@ -275,12 +292,30 @@ interface ImportResult {
   success: boolean
   inserted?: number
   total?: number
+  source_total?: number
+  deleted?: number
+  current_month?: string | null
   errors?: string[]
   preview?: Record<string, unknown>[]
   error?: string
 }
 
-function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+type TopImageBox = 'top1' | 'top2' | 'top3'
+
+function getClipboardImageFile(items: DataTransferItemList | undefined | null): File | null {
+  if (!items) return null
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      return item.getAsFile()
+    }
+  }
+
+  return null
+}
+
+function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: (month?: string | null) => void }) {
   const [file, setFile] = useState<File | null>(null)
   const [thang, setThang] = useState('')
   const [loading, setLoading] = useState(false)
@@ -288,7 +323,8 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Track which image box is hovered for paste
-  const [hoveredImageBox, setHoveredImageBox] = useState<string | null>(null)
+  const [hoveredImageBox, setHoveredImageBox] = useState<TopImageBox | null>(null)
+  const [activeImageBox, setActiveImageBox] = useState<TopImageBox | null>(null)
   // Images for top 1, 2, 3
   const [top1Image, setTop1Image] = useState<File | null>(null)
   const [top2Image, setTop2Image] = useState<File | null>(null)
@@ -296,24 +332,27 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
   const [top1Preview, setTop1Preview] = useState<string | null>(null)
   const [top2Preview, setTop2Preview] = useState<string | null>(null)
   const [top3Preview, setTop3Preview] = useState<string | null>(null)
+  const top1PasteRef = useRef<HTMLDivElement>(null)
+  const top2PasteRef = useRef<HTMLDivElement>(null)
+  const top3PasteRef = useRef<HTMLDivElement>(null)
 
-  const handleFile = (f: File) => {
+  const handleFile = useCallback((f: File) => {
     if (!f.name.endsWith('.csv')) {
       alert('Chỉ hỗ trợ file CSV')
       return
     }
     setFile(f)
     setResult(null)
-  }
+  }, [])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
     const f = e.dataTransfer.files[0]
     if (f) handleFile(f)
-  }, [])
+  }, [handleFile])
 
-  const handleImageSelect = (
+  const handleImageSelect = useCallback((
     file: File,
     setImage: React.Dispatch<React.SetStateAction<File | null>>,
     setPreview: React.Dispatch<React.SetStateAction<string | null>>
@@ -326,29 +365,82 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
     const reader = new FileReader()
     reader.onload = (e) => setPreview(e.target?.result as string)
     reader.readAsDataURL(file)
-  }
+  }, [])
 
-  // Handle paste event
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    e.preventDefault()
-    const items = e.clipboardData.items
-    if (!items) return
-
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        const file = items[i].getAsFile()
-        if (file && hoveredImageBox) {
-          if (hoveredImageBox === 'top1') {
-            handleImageSelect(file, setTop1Image, setTop1Preview)
-          } else if (hoveredImageBox === 'top2') {
-            handleImageSelect(file, setTop2Image, setTop2Preview)
-          } else if (hoveredImageBox === 'top3') {
-            handleImageSelect(file, setTop3Image, setTop3Preview)
-          }
-        }
-      }
+  const applyImageToBox = useCallback((box: TopImageBox, imageFile: File) => {
+    if (box === 'top1') {
+      handleImageSelect(imageFile, setTop1Image, setTop1Preview)
+    } else if (box === 'top2') {
+      handleImageSelect(imageFile, setTop2Image, setTop2Preview)
+    } else {
+      handleImageSelect(imageFile, setTop3Image, setTop3Preview)
     }
-  }, [hoveredImageBox])
+  }, [handleImageSelect])
+
+  const focusImagePasteCatcher = useCallback((box: TopImageBox) => {
+    setActiveImageBox(box)
+
+    requestAnimationFrame(() => {
+      const target = box === 'top1'
+        ? top1PasteRef.current
+        : box === 'top2'
+          ? top2PasteRef.current
+          : top3PasteRef.current
+
+      if (!target) return
+
+      target.textContent = ''
+      target.focus({ preventScroll: true })
+
+      const selection = window.getSelection()
+      const range = document.createRange()
+      range.selectNodeContents(target)
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+    })
+  }, [])
+
+  const openImagePicker = useCallback((box: TopImageBox) => {
+    setActiveImageBox(box)
+    document.getElementById(`${box}ImageInput`)?.click()
+  }, [])
+
+  const handleImageBoxKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>, box: TopImageBox) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return
+
+    e.preventDefault()
+    openImagePicker(box)
+  }, [openImagePicker])
+
+  const handleImagePaste = useCallback((event: React.ClipboardEvent<HTMLDivElement>, box: TopImageBox) => {
+    const pastedImage = getClipboardImageFile(event.clipboardData?.items)
+
+    event.preventDefault()
+    event.stopPropagation()
+    setActiveImageBox(box)
+
+    if (pastedImage) {
+      applyImageToBox(box, pastedImage)
+    }
+  }, [applyImageToBox])
+
+  useEffect(() => {
+    const onWindowPaste = (event: ClipboardEvent) => {
+      if (event.defaultPrevented) return
+
+      const targetBox = hoveredImageBox || activeImageBox
+      if (!targetBox) return
+
+      const pastedImage = getClipboardImageFile(event.clipboardData?.items)
+      if (!pastedImage) return
+
+      event.preventDefault()
+      applyImageToBox(targetBox, pastedImage)
+    }
+
+    window.addEventListener('paste', onWindowPaste)
+    return () => window.removeEventListener('paste', onWindowPaste)
+  }, [activeImageBox, applyImageToBox, hoveredImageBox])
 
   // Handle drag event for image boxes
   const handleImageDragOver = (e: React.DragEvent) => {
@@ -356,17 +448,12 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
   }
 
   // Handle drop event for image boxes
-  const handleImageDrop = (e: React.DragEvent, box: string) => {
+  const handleImageDrop = (e: React.DragEvent, box: TopImageBox) => {
     e.preventDefault()
+    setActiveImageBox(box)
     const file = e.dataTransfer.files[0]
     if (file && file.type.startsWith('image/')) {
-      if (box === 'top1') {
-        handleImageSelect(file, setTop1Image, setTop1Preview)
-      } else if (box === 'top2') {
-        handleImageSelect(file, setTop2Image, setTop2Preview)
-      } else if (box === 'top3') {
-        handleImageSelect(file, setTop3Image, setTop3Preview)
-      }
+      applyImageToBox(box, file)
     }
   }
 
@@ -384,7 +471,7 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
       const data: ImportResult = await res.json()
       setResult(data)
       if (data.success && (data.inserted ?? 0) > 0) {
-        setTimeout(() => { onSuccess(); onClose() }, 1800)
+        setTimeout(() => { onSuccess(data.current_month); onClose() }, 1800)
       }
     } catch {
       setResult({ success: false, error: 'Lỗi kết nối máy chủ' })
@@ -393,12 +480,15 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
     }
   }
 
+  const top1PasteTarget = hoveredImageBox === 'top1' || activeImageBox === 'top1'
+  const top2PasteTarget = hoveredImageBox === 'top2' || activeImageBox === 'top2'
+  const top3PasteTarget = hoveredImageBox === 'top3' || activeImageBox === 'top3'
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
         className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden"
         onClick={e => e.stopPropagation()}
-        onPaste={handlePaste}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
@@ -485,38 +575,67 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
                 Tải file mẫu
               </a>
             </div>
-            <p className="text-amber-700 font-mono break-all">STT, Tên, Email, Khối dạy, Cơ sở, Tháng, Số case, Số học sinh, Tỉ lệ, Loại/Chọn, Thưởng CR</p>
+            <p className="text-amber-700 font-mono break-all">STT, Tên, Email, Khối dạy, Cơ sở, Tháng, Số case, Số học sinh, CR45, Loại/Chọn, Thưởng CR</p>
+            <p className="text-amber-700/80">Cột cần có để import chính xác: Tên, Email, Tháng, CR45. Ảnh Top 1/2/3 upload riêng ở bên dưới.</p>
           </div>
 
           {/* Upload images for Top 3 */}
           <div className="bg-gray-50 rounded-xl p-3 space-y-3">
-            <p className="text-xs font-bold text-gray-700">Ảnh đại diện Top 3 (tùy chọn)</p>
+            <div>
+              <p className="text-xs font-bold text-gray-700">Ảnh đại diện Top 3 (tùy chọn)</p>
+              <p className="mt-0.5 text-[10px] font-medium text-gray-400">Bấm hoặc rê vào ô Top cần thay ảnh, sau đó dán ảnh từ clipboard.</p>
+            </div>
             <div className="grid grid-cols-3 gap-3">
               {/* Top 1 */}
               <div className="space-y-1">
                 <p className="text-[10px] font-black text-amber-700 flex items-center gap-1">
-                  <Crown className="w-3 h-3" /> Top 1 {hoveredImageBox === 'top1' && <span className="text-[9px] text-amber-500">— Paste ảnh tại đây</span>}
+                  <Crown className="w-3 h-3" /> Top 1 {top1PasteTarget && <span className="text-[9px] text-amber-500">— Paste ảnh tại đây</span>}
                 </p>
                 <div
-                  onClick={() => document.getElementById('top1ImageInput')?.click()}
+                  role="group"
+                  tabIndex={0}
+                  aria-label="Vùng dán ảnh đại diện Top 1"
+                  onClick={() => focusImagePasteCatcher('top1')}
+                  onKeyDown={(e) => handleImageBoxKeyDown(e, 'top1')}
+                  onFocus={() => focusImagePasteCatcher('top1')}
                   onMouseEnter={() => setHoveredImageBox('top1')}
                   onMouseLeave={() => setHoveredImageBox(null)}
                   onDragOver={handleImageDragOver}
                   onDrop={(e) => handleImageDrop(e, 'top1')}
                   className={cn(
-                    'aspect-square rounded-xl border-2 border-dashed flex items-center justify-center cursor-pointer transition-all overflow-hidden',
+                    'relative aspect-square rounded-xl border-2 border-dashed flex items-center justify-center cursor-pointer transition-all overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2',
                     top1Preview
                       ? 'border-amber-300 bg-amber-50'
-                      : hoveredImageBox === 'top1'
+                      : top1PasteTarget
                       ? 'border-amber-400 bg-amber-100'
                       : 'border-gray-200 hover:border-amber-300 hover:bg-amber-50/40'
                   )}
                 >
+                  <div
+                    ref={top1PasteRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    spellCheck={false}
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    onPaste={(e) => handleImagePaste(e, 'top1')}
+                    className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-0 outline-none caret-transparent"
+                  />
                   {top1Preview ? (
-                    <img src={top1Preview} alt="Top 1" className="w-full h-full object-cover" />
+                    <img src={top1Preview} alt="Top 1" className="relative z-10 w-full h-full object-cover pointer-events-none" />
                   ) : (
-                    <Upload className="w-5 h-5 text-gray-300" />
+                    <div className="relative z-10 flex flex-col items-center gap-1 pointer-events-none">
+                      <Upload className="w-5 h-5 text-gray-300" />
+                      <span className="text-[9px] font-semibold text-gray-400">Dán ảnh</span>
+                    </div>
                   )}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); openImagePicker('top1') }}
+                    className="absolute bottom-2 left-1/2 z-20 -translate-x-1/2 rounded-full border border-amber-200 bg-white/90 px-2 py-0.5 text-[9px] font-black text-amber-700 shadow-sm transition-colors hover:bg-white"
+                  >
+                    Chọn ảnh
+                  </button>
                 </div>
                 <input
                   id="top1ImageInput"
@@ -529,28 +648,53 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
               {/* Top 2 */}
               <div className="space-y-1">
                 <p className="text-[10px] font-black text-gray-600 flex items-center gap-1">
-                  <Medal className="w-3 h-3" /> Top 2 {hoveredImageBox === 'top2' && <span className="text-[9px] text-gray-500">— Paste ảnh tại đây</span>}
+                  <Medal className="w-3 h-3" /> Top 2 {top2PasteTarget && <span className="text-[9px] text-gray-500">— Paste ảnh tại đây</span>}
                 </p>
                 <div
-                  onClick={() => document.getElementById('top2ImageInput')?.click()}
+                  role="group"
+                  tabIndex={0}
+                  aria-label="Vùng dán ảnh đại diện Top 2"
+                  onClick={() => focusImagePasteCatcher('top2')}
+                  onKeyDown={(e) => handleImageBoxKeyDown(e, 'top2')}
+                  onFocus={() => focusImagePasteCatcher('top2')}
                   onMouseEnter={() => setHoveredImageBox('top2')}
                   onMouseLeave={() => setHoveredImageBox(null)}
                   onDragOver={handleImageDragOver}
                   onDrop={(e) => handleImageDrop(e, 'top2')}
                   className={cn(
-                    'aspect-square rounded-xl border-2 border-dashed flex items-center justify-center cursor-pointer transition-all overflow-hidden',
+                    'relative aspect-square rounded-xl border-2 border-dashed flex items-center justify-center cursor-pointer transition-all overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2',
                     top2Preview
                       ? 'border-gray-300 bg-gray-50'
-                      : hoveredImageBox === 'top2'
+                      : top2PasteTarget
                       ? 'border-gray-400 bg-gray-100'
                       : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/40'
                   )}
                 >
+                  <div
+                    ref={top2PasteRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    spellCheck={false}
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    onPaste={(e) => handleImagePaste(e, 'top2')}
+                    className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-0 outline-none caret-transparent"
+                  />
                   {top2Preview ? (
-                    <img src={top2Preview} alt="Top 2" className="w-full h-full object-cover" />
+                    <img src={top2Preview} alt="Top 2" className="relative z-10 w-full h-full object-cover pointer-events-none" />
                   ) : (
-                    <Upload className="w-5 h-5 text-gray-300" />
+                    <div className="relative z-10 flex flex-col items-center gap-1 pointer-events-none">
+                      <Upload className="w-5 h-5 text-gray-300" />
+                      <span className="text-[9px] font-semibold text-gray-400">Dán ảnh</span>
+                    </div>
                   )}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); openImagePicker('top2') }}
+                    className="absolute bottom-2 left-1/2 z-20 -translate-x-1/2 rounded-full border border-gray-200 bg-white/90 px-2 py-0.5 text-[9px] font-black text-gray-600 shadow-sm transition-colors hover:bg-white"
+                  >
+                    Chọn ảnh
+                  </button>
                 </div>
                 <input
                   id="top2ImageInput"
@@ -563,28 +707,53 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
               {/* Top 3 */}
               <div className="space-y-1">
                 <p className="text-[10px] font-black text-orange-700 flex items-center gap-1">
-                  <Medal className="w-3 h-3" /> Top 3 {hoveredImageBox === 'top3' && <span className="text-[9px] text-orange-500">— Paste ảnh tại đây</span>}
+                  <Medal className="w-3 h-3" /> Top 3 {top3PasteTarget && <span className="text-[9px] text-orange-500">— Paste ảnh tại đây</span>}
                 </p>
                 <div
-                  onClick={() => document.getElementById('top3ImageInput')?.click()}
+                  role="group"
+                  tabIndex={0}
+                  aria-label="Vùng dán ảnh đại diện Top 3"
+                  onClick={() => focusImagePasteCatcher('top3')}
+                  onKeyDown={(e) => handleImageBoxKeyDown(e, 'top3')}
+                  onFocus={() => focusImagePasteCatcher('top3')}
                   onMouseEnter={() => setHoveredImageBox('top3')}
                   onMouseLeave={() => setHoveredImageBox(null)}
                   onDragOver={handleImageDragOver}
                   onDrop={(e) => handleImageDrop(e, 'top3')}
                   className={cn(
-                    'aspect-square rounded-xl border-2 border-dashed flex items-center justify-center cursor-pointer transition-all overflow-hidden',
+                    'relative aspect-square rounded-xl border-2 border-dashed flex items-center justify-center cursor-pointer transition-all overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2',
                     top3Preview
                       ? 'border-orange-300 bg-orange-50'
-                      : hoveredImageBox === 'top3'
+                      : top3PasteTarget
                       ? 'border-orange-400 bg-orange-100'
                       : 'border-gray-200 hover:border-orange-300 hover:bg-orange-50/40'
                   )}
                 >
+                  <div
+                    ref={top3PasteRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    spellCheck={false}
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    onPaste={(e) => handleImagePaste(e, 'top3')}
+                    className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-0 outline-none caret-transparent"
+                  />
                   {top3Preview ? (
-                    <img src={top3Preview} alt="Top 3" className="w-full h-full object-cover" />
+                    <img src={top3Preview} alt="Top 3" className="relative z-10 w-full h-full object-cover pointer-events-none" />
                   ) : (
-                    <Upload className="w-5 h-5 text-gray-300" />
+                    <div className="relative z-10 flex flex-col items-center gap-1 pointer-events-none">
+                      <Upload className="w-5 h-5 text-gray-300" />
+                      <span className="text-[9px] font-semibold text-gray-400">Dán ảnh</span>
+                    </div>
                   )}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); openImagePicker('top3') }}
+                    className="absolute bottom-2 left-1/2 z-20 -translate-x-1/2 rounded-full border border-orange-200 bg-white/90 px-2 py-0.5 text-[9px] font-black text-orange-700 shadow-sm transition-colors hover:bg-white"
+                  >
+                    Chọn ảnh
+                  </button>
                 </div>
                 <input
                   id="top3ImageInput"
@@ -608,7 +777,14 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
                   <CheckCircle className="w-4 h-4 shrink-0 mt-0.5 text-green-600" />
                   <div>
                     <p className="font-bold">Import thành công!</p>
-                    <p className="text-xs mt-0.5">Đã nhập {result.inserted}/{result.total} bản ghi.</p>
+                    <p className="text-xs mt-0.5">
+                      Đã xoá {result.deleted ?? 0} bản ghi cũ và nhập {result.inserted}/{result.total} giáo viên Top 3 mới.
+                    </p>
+                    {(result.source_total ?? 0) > (result.total ?? 0) && (
+                      <p className="text-xs mt-1 text-green-700/80">
+                        CSV có {result.source_total} dòng, hệ thống chỉ lấy 3 giáo viên vinh danh đầu bảng.
+                      </p>
+                    )}
                     {(result.errors?.length ?? 0) > 0 && (
                       <p className="text-xs mt-1 text-amber-700">{result.errors?.length} dòng bị bỏ qua.</p>
                     )}
@@ -663,6 +839,7 @@ export default function MonthlyHonorsManager() {
   const [viewMode, setViewMode] = useState<'podium' | 'table'>('podium')
   const [deleting, setDeleting] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const { mutate: mutateGlobal } = useSWRConfig()
 
   const queryKey = selectedMonth
     ? `/api/truyenthong/vinh-danh?thang=${encodeURIComponent(selectedMonth)}`
@@ -885,7 +1062,7 @@ export default function MonthlyHonorsManager() {
                         <th className="px-4 py-3 text-xs font-black text-amber-800">Khối dạy</th>
                         <th className="px-4 py-3 text-xs font-black text-amber-800 text-center">Case</th>
                         <th className="px-4 py-3 text-xs font-black text-amber-800 text-center">HS</th>
-                        <th className="px-4 py-3 text-xs font-black text-amber-800 text-center">Tỉ lệ</th>
+                        <th className="px-4 py-3 text-xs font-black text-amber-800 text-center">CR45</th>
                         <th className="px-4 py-3 text-xs font-black text-amber-800">Loại</th>
                         <th className="px-4 py-3 text-xs font-black text-amber-800 text-right">Thưởng CR</th>
                       </tr>
@@ -907,7 +1084,13 @@ export default function MonthlyHonorsManager() {
       {showImport && (
         <ImportDialog
           onClose={() => setShowImport(false)}
-          onSuccess={() => { mutate(); setShowImport(false) }}
+          onSuccess={(importedMonth) => {
+            if (importedMonth) setSelectedMonth(importedMonth)
+            mutateGlobal('/api/truyenthong/top-teachers')
+            mutateGlobal('/api/truyenthong/vinh-danh')
+            mutate()
+            setShowImport(false)
+          }}
         />
       )}
     </>

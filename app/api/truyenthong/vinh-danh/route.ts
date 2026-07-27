@@ -2,7 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { deleteObject, isSupabaseS3Configured, parsePublicUrl } from '@/lib/supabase-s3'
 
+export const dynamic = 'force-dynamic'
+
+const HONORS_BUCKET_NAME = 'mindx-avatars'
 const HONORS_KEY_PREFIX = 'honors-monthly/'
+
+function jsonNoStore(body: unknown, init?: ResponseInit) {
+  const response = NextResponse.json(body, init)
+  response.headers.set('Cache-Control', 'no-store, max-age=0')
+  return response
+}
 
 /** Xóa ảnh vinh danh khỏi S3 — chỉ xóa file có prefix honors-monthly/ */
 async function deleteHonorsAvatarIfOwned(avatarUrl: string | null): Promise<void> {
@@ -10,7 +19,7 @@ async function deleteHonorsAvatarIfOwned(avatarUrl: string | null): Promise<void
   try {
     const parsed = parsePublicUrl(avatarUrl)
     if (!parsed) return
-    if (!parsed.key.startsWith(HONORS_KEY_PREFIX)) return
+    if (parsed.bucket !== HONORS_BUCKET_NAME || !parsed.key.startsWith(HONORS_KEY_PREFIX)) return
     await deleteObject(parsed.bucket, parsed.key)
   } catch (e) {
     console.warn('⚠️ Không xóa được ảnh vinh danh:', e)
@@ -55,13 +64,15 @@ export async function GET(request: NextRequest) {
 
       // Lấy danh sách các tháng đã có dữ liệu
       const monthsRes = await client.query(`
-        SELECT DISTINCT thang FROM teacher_monthly_honors
-        ORDER BY thang DESC
+        SELECT thang
+        FROM teacher_monthly_honors
+        GROUP BY thang
+        ORDER BY MAX(imported_at) DESC NULLS LAST, thang DESC
       `)
       const months: string[] = monthsRes.rows.map((r: { thang: string }) => r.thang)
 
       if (!thang && !months.length) {
-        return NextResponse.json({ success: true, months: [], data: [] })
+        return jsonNoStore({ success: true, months: [], data: [] })
       }
 
       const targetMonth = thang || months[0]
@@ -77,7 +88,7 @@ export async function GET(request: NextRequest) {
         ORDER BY stt ASC NULLS LAST, ti_le DESC
       `, [targetMonth])
 
-      return NextResponse.json({
+      return jsonNoStore({
         success: true,
         months,
         current_month: targetMonth,
@@ -88,7 +99,7 @@ export async function GET(request: NextRequest) {
     }
   } catch (err) {
     console.error('Get vinh danh error:', err)
-    return NextResponse.json({ success: false, error: 'Lỗi server' }, { status: 500 })
+    return jsonNoStore({ success: false, error: 'Lỗi server' }, { status: 500 })
   }
 }
 
