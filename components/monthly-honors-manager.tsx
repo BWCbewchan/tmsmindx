@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Trophy, Upload, X, CheckCircle, AlertCircle, ChevronDown, Trash2, Eye, Star, Crown, Medal, Download, RefreshCw } from 'lucide-react'
+import { Trophy, Upload, X, CheckCircle, AlertCircle, Trash2, Eye, Star, Crown, Medal, Download, RefreshCw, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import useSWR, { useSWRConfig } from 'swr'
 import { cn } from '@/lib/utils'
@@ -42,163 +42,221 @@ function initials(name: string) {
     : (p[p.length - 2][0] + p[p.length - 1][0]).toUpperCase()
 }
 
-// ─── Inline editable field ────────────────────────────────────────────────────
-
-function EditableField({
-  value, placeholder, onSave, className, inputClassName,
-}: {
-  value: string; placeholder?: string
-  onSave: (val: string) => void
-  className?: string; inputClassName?: string
-}) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => { if (editing) inputRef.current?.select() }, [editing])
-
-  const commit = () => { setEditing(false); if (draft.trim() !== value) onSave(draft.trim()) }
-  const cancel = () => { setEditing(false); setDraft(value) }
-
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        value={draft}
-        onChange={e => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel() }}
-        className={cn('bg-black/20 border border-white/40 rounded-lg text-center outline-none w-full px-1', inputClassName)}
-        placeholder={placeholder}
-      />
-    )
-  }
-  return (
-    <span
-      onClick={() => { setEditing(true); setDraft(value) }}
-      title="Click để chỉnh sửa"
-      className={cn('cursor-pointer hover:bg-white/10 rounded transition-colors px-1', className)}
-    >
-      {value || <span className="opacity-40 italic">{placeholder}</span>}
-    </span>
-  )
-}
-
 // ─── Honor Card (preview display) ────────────────────────────────────────────
 
-const DEFAULT_SLOGANS = ['Kiên trì · Không bỏ cuộc', 'Chấp nhận · Làm lại', 'Cải thiện · Tốt hơn']
-
 function HonorCard({
-  record, rank, onUpdate,
+  record, rank, onSave,
 }: {
   record: HonorRecord; rank: number
-  onUpdate?: (field: 'slogan' | 'full_name' | 'co_so', value: string) => void
+  onSave?: (id: number, values: { full_name: string; co_so: string; ti_le: string }, avatarFile?: File | null) => Promise<void>
 }) {
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+  const [fullNameDraft, setFullNameDraft] = useState(record.full_name)
+  const [coSoDraft, setCoSoDraft] = useState(record.co_so || '')
+  const [tiLeDraft, setTiLeDraft] = useState(String(record.ti_le))
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
+  const [hovered, setHovered] = useState(false)
+  const [saving, setSaving] = useState(false)
   const rankConfigs = [
-    { bg: 'from-rose-500 to-pink-600',      badge: 'bg-rose-600',   ring: 'ring-rose-300',   icon: Crown },
-    { bg: 'from-indigo-500 to-violet-600',  badge: 'bg-indigo-600', ring: 'ring-indigo-300', icon: Medal },
-    { bg: 'from-teal-500 to-emerald-600',   badge: 'bg-teal-600',   ring: 'ring-teal-300',   icon: Medal },
+    { badge: 'bg-[#a1001f] text-white', ring: 'ring-amber-200', stripe: 'bg-[#a1001f]', icon: Crown },
+    { badge: 'bg-amber-600 text-white', ring: 'ring-amber-100', stripe: 'bg-amber-500', icon: Medal },
+    { badge: 'bg-gray-700 text-white', ring: 'ring-gray-200', stripe: 'bg-gray-500', icon: Medal },
   ]
   const cfg = rankConfigs[rank - 1] || rankConfigs[2]
   const Icon = cfg.icon
-  const slogan = record.slogan || DEFAULT_SLOGANS[rank - 1] || ''
+  const isDirty = fullNameDraft.trim() !== record.full_name
+    || coSoDraft.trim() !== (record.co_so || '')
+    || Number(tiLeDraft.replace(',', '.')) !== record.ti_le
+    || Boolean(avatarFile)
+
+  useEffect(() => {
+    setFullNameDraft(record.full_name)
+    setCoSoDraft(record.co_so || '')
+    setTiLeDraft(String(record.ti_le))
+    setAvatarFile(null)
+    setAvatarPreview(null)
+  }, [record.co_so, record.full_name, record.id, record.ti_le])
+
+  const applyAvatarFile = useCallback((file: File) => {
+    if (!file.type.startsWith('image/')) {
+      alert('Chỉ hỗ trợ file ảnh')
+      return
+    }
+
+    setAvatarFile(file)
+    const reader = new FileReader()
+    reader.onload = (event) => setAvatarPreview(event.target?.result as string)
+    reader.readAsDataURL(file)
+  }, [])
+
+  useEffect(() => {
+    if (!hovered || !onSave) return
+
+    const onWindowPaste = (event: ClipboardEvent) => {
+      const pastedImage = getClipboardImageFile(event.clipboardData?.items)
+      if (!pastedImage) return
+
+      event.preventDefault()
+      applyAvatarFile(pastedImage)
+    }
+
+    window.addEventListener('paste', onWindowPaste)
+    return () => window.removeEventListener('paste', onWindowPaste)
+  }, [applyAvatarFile, hovered, onSave])
+
+  const submit = async () => {
+    if (!onSave || !isDirty) return
+    const percent = Number(tiLeDraft.replace(',', '.'))
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+      alert('CR45 cần là số từ 0 đến 100')
+      return
+    }
+    setSaving(true)
+    try {
+      await onSave(record.id, {
+        full_name: fullNameDraft.trim(),
+        co_so: coSoDraft.trim(),
+        ti_le: tiLeDraft.trim(),
+      }, avatarFile)
+      setAvatarFile(null)
+      setAvatarPreview(null)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Không thể lưu thông tin vinh danh')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
-    <div className={cn(
-      'relative flex flex-col items-center rounded-2xl p-4 text-white shadow-lg transition-transform hover:-translate-y-0.5',
-      'bg-gradient-to-br', cfg.bg,
-      rank === 1 ? 'w-[210px] min-h-[270px]' : 'w-[190px] min-h-[248px]'
-    )}>
-      {/* rank badge */}
-      <div className={cn('absolute top-2.5 left-2.5 rounded-lg px-2 py-0.5 text-[10px] font-black', cfg.badge)}>
-        #{rank}
+    <div
+      className={cn(
+        'relative grid grid-cols-[92px_minmax(0,1fr)_auto] items-center gap-4 overflow-hidden rounded-2xl border border-amber-100 bg-white p-4 text-gray-900 shadow-sm transition-transform hover:-translate-y-0.5 hover:shadow-md'
+      )}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <div className={cn('absolute left-4 top-3 rounded-lg px-2.5 py-1 text-[11px] font-black shadow-sm', cfg.badge)}>
+        Top {rank}
       </div>
-      {rank === 1 && <Icon className="absolute top-2.5 left-1/2 -translate-x-1/2 w-5 h-5 text-white/80" />}
+      <div className={cn('absolute inset-y-0 left-0 w-1.5', cfg.stripe)} />
+      {rank === 1 && <Icon className="absolute right-4 top-3 h-5 w-5 text-amber-500" />}
 
-      {/* Avatar */}
       <div className={cn(
-        'rounded-full overflow-hidden flex items-center justify-center shrink-0 ring-2',
-        cfg.ring,
-        rank === 1 ? 'w-[76px] h-[76px] mt-6' : 'w-[62px] h-[62px] mt-4'
+        'group/avatar relative mt-5 flex h-[78px] w-[78px] shrink-0 items-center justify-center overflow-hidden rounded-full ring-2',
+        cfg.ring
       )}>
-        {record.avatar_url ? (
-          <img src={record.avatar_url} alt={record.full_name} className="w-full h-full object-cover" />
+        {avatarPreview || record.avatar_url ? (
+          <img src={avatarPreview || record.avatar_url || ''} alt={record.full_name} className="h-full w-full object-cover" />
         ) : (
-          <div className="w-full h-full bg-white/20 flex items-center justify-center">
-            <span className={cn('font-black text-white', rank === 1 ? 'text-xl' : 'text-base')}>
+          <div className="flex h-full w-full items-center justify-center bg-amber-50">
+            <span className="text-xl font-black text-amber-700">
               {initials(record.full_name)}
             </span>
           </div>
         )}
+        {onSave && (
+          <>
+            <button
+              type="button"
+              onClick={() => avatarInputRef.current?.click()}
+              className={cn(
+                'absolute inset-0 flex items-center justify-center bg-black/45 text-white transition-opacity focus:opacity-100',
+                hovered ? 'opacity-100' : 'opacity-0 group-hover/avatar:opacity-100'
+              )}
+              title="Đổi avatar"
+              aria-label={`Đổi avatar cho ${record.full_name}`}
+            >
+              <Upload className="w-4 h-4" />
+            </button>
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const nextFile = e.target.files?.[0]
+                if (nextFile) applyAvatarFile(nextFile)
+                e.currentTarget.value = ''
+              }}
+            />
+          </>
+        )}
       </div>
 
-      {/* Info — editable khi có onUpdate */}
-      <div className="mt-3 flex flex-col items-center text-center gap-1 flex-1 w-full px-1">
-        {onUpdate ? (
-          <EditableField
-            value={record.full_name}
+      <div className="min-w-0 space-y-2 pt-4">
+        {onSave ? (
+          <input
+            value={fullNameDraft}
+            onChange={e => setFullNameDraft(e.target.value)}
+            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-base font-black leading-tight text-gray-900 outline-none placeholder:text-gray-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
             placeholder="Họ và tên"
-            onSave={v => onUpdate('full_name', v)}
-            className={cn('font-black leading-snug block w-full', rank === 1 ? 'text-[14px]' : 'text-[13px]')}
-            inputClassName={cn('font-black text-white', rank === 1 ? 'text-[14px]' : 'text-[13px]')}
           />
         ) : (
-          <p className={cn('font-black leading-snug', rank === 1 ? 'text-[14px]' : 'text-[13px]')}>
-            {record.full_name}
-          </p>
+          <p className="truncate text-base font-black leading-tight">{record.full_name}</p>
         )}
-
-        {onUpdate ? (
-          <EditableField
-            value={record.co_so || ''}
+        {onSave ? (
+          <input
+            value={coSoDraft}
+            onChange={e => setCoSoDraft(e.target.value)}
+            className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-700 outline-none placeholder:text-gray-400 focus:border-amber-400 focus:bg-white focus:ring-2 focus:ring-amber-100"
             placeholder="Cơ sở"
-            onSave={v => onUpdate('co_so', v)}
-            className="text-white/80 font-medium text-[10px] block w-full"
-            inputClassName="text-[10px] text-white"
           />
         ) : (
-          <p className="text-white/80 font-medium text-[10px]" style={{ wordBreak: 'break-word' }}>
-            {record.co_so || '—'}
-          </p>
+          <p className="truncate text-sm font-semibold text-gray-600">{record.co_so || '—'}</p>
         )}
 
-        {/* CR45 */}
         <div
-          className="flex items-center gap-1.5 rounded-xl bg-gradient-to-br from-yellow-100 via-amber-300 to-orange-500 px-3 py-1.5 mt-1 border border-yellow-100/80 whitespace-nowrap text-red-950 shadow-[0_10px_22px_rgba(69,10,10,0.22),inset_0_1px_0_rgba(255,255,255,0.72)]"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-[#6b0015]"
           title={`Chỉ số ${HONORS_SCORE_LABEL}: ${record.ti_le.toFixed(1)}%`}
           aria-label={`Chỉ số ${HONORS_SCORE_LABEL}: ${record.ti_le.toFixed(1)}%`}
         >
-          <Star className="w-3 h-3 fill-red-900 text-red-900 shrink-0" />
+          <Star className="h-3 w-3 shrink-0 fill-[#a1001f] text-[#a1001f]" />
           <span className="text-[10px] font-black uppercase leading-none">
             {HONORS_SCORE_LABEL}
           </span>
-          <span className="h-3.5 w-px bg-red-950/25" />
-          <span className={cn('font-black tabular-nums', rank === 1 ? 'text-[15px]' : 'text-[13px]')}>
-            {record.ti_le.toFixed(1)}%
-          </span>
-        </div>
-
-        {/* Slogan — editable */}
-        <div className="w-full bg-black/30 rounded-xl px-2 py-1.5 mt-1 border border-white/10">
-          {onUpdate ? (
-            <EditableField
-              value={slogan}
-              placeholder="Nhập slogan..."
-              onSave={v => onUpdate('slogan', v)}
-              className="font-black text-white/90 text-[8px] uppercase tracking-wider block w-full text-center"
-              inputClassName="font-black text-[8px] uppercase text-white"
-            />
+          <span className="h-3.5 w-px bg-[#a1001f]/20" />
+          {onSave ? (
+            <label className="flex items-center gap-1">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={tiLeDraft}
+                onChange={e => setTiLeDraft(e.target.value)}
+                className="w-16 bg-transparent text-[15px] font-black tabular-nums text-[#6b0015] outline-none"
+                aria-label={`Nhập chỉ số ${HONORS_SCORE_LABEL}`}
+              />
+              <span className="text-[15px] font-black">%</span>
+            </label>
           ) : (
-            <span className="font-black text-white/90 text-[8px] uppercase tracking-wider text-center block">
-              {slogan}
+            <span className="text-[15px] font-black tabular-nums">
+              {record.ti_le.toFixed(1)}%
             </span>
           )}
         </div>
-
-        {onUpdate && (
-          <p className="text-white/40 text-[8px] mt-0.5">✎ click text để sửa</p>
-        )}
       </div>
+
+      {onSave && (
+        <div className="flex justify-end pt-4">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={submit}
+            disabled={!isDirty || saving || !fullNameDraft.trim()}
+            className="min-w-20 border-amber-200 bg-amber-50 text-[#a1001f] hover:bg-amber-100 disabled:bg-gray-50 disabled:text-gray-400"
+          >
+            {saving ? (
+              <span className="flex items-center gap-2">
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-gray-400 border-t-gray-900" />
+                Lưu
+              </span>
+            ) : (
+              'Lưu'
+            )}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
@@ -206,23 +264,21 @@ function HonorCard({
 // ─── Podium Preview ───────────────────────────────────────────────────────────
 
 function PodiumPreview({
-  records, onUpdateRecord,
+  records, onSaveRecord,
 }: {
   records: HonorRecord[]
-  onUpdateRecord?: (id: number, field: 'slogan' | 'full_name' | 'co_so', value: string) => void
+  onSaveRecord?: (id: number, values: { full_name: string; co_so: string; ti_le: string }, avatarFile?: File | null) => Promise<void>
 }) {
   const top3 = records.slice(0, 3)
-  const podium = [top3[1], top3[0], top3[2]].filter(Boolean) as HonorRecord[]
-  const podiumRanks = [2, 1, 3]
 
   return (
-    <div className="flex items-end justify-center gap-3">
-      {podium.map((r, i) => (
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
+      {top3.map((r, i) => (
         <HonorCard
           key={r.id}
           record={r}
-          rank={podiumRanks[i]}
-          onUpdate={onUpdateRecord ? (field, val) => onUpdateRecord(r.id, field, val) : undefined}
+          rank={i + 1}
+          onSave={onSaveRecord}
         />
       ))}
     </div>
@@ -301,6 +357,36 @@ interface ImportResult {
 }
 
 type TopImageBox = 'top1' | 'top2' | 'top3'
+type ImportMode = 'csv' | 'manual'
+
+type ManualHonorRow = {
+  full_name: string
+  email: string
+  co_so: string
+  khoi_day: string
+  ti_le: string
+  so_case: string
+  so_hoc_sinh: string
+  loai: string
+  thuong_cr: string
+}
+
+const emptyManualRow = (): ManualHonorRow => ({
+  full_name: '',
+  email: '',
+  co_so: '',
+  khoi_day: '',
+  ti_le: '',
+  so_case: '',
+  so_hoc_sinh: '',
+  loai: '',
+  thuong_cr: '',
+})
+
+function csvCell(value: string) {
+  const escaped = value.replace(/"/g, '""')
+  return /[",\n]/.test(escaped) ? `"${escaped}"` : escaped
+}
 
 function getClipboardImageFile(items: DataTransferItemList | undefined | null): File | null {
   if (!items) return null
@@ -316,11 +402,17 @@ function getClipboardImageFile(items: DataTransferItemList | undefined | null): 
 }
 
 function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: (month?: string | null) => void }) {
+  const [mode, setMode] = useState<ImportMode>('csv')
   const [file, setFile] = useState<File | null>(null)
   const [thang, setThang] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<ImportResult | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [manualRows, setManualRows] = useState<ManualHonorRow[]>([
+    emptyManualRow(),
+    emptyManualRow(),
+    emptyManualRow(),
+  ])
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Track which image box is hovered for paste
   const [hoveredImageBox, setHoveredImageBox] = useState<TopImageBox | null>(null)
@@ -342,6 +434,13 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
       return
     }
     setFile(f)
+    setResult(null)
+  }, [])
+
+  const updateManualRow = useCallback((index: number, field: keyof ManualHonorRow, value: string) => {
+    setManualRows(rows => rows.map((row, rowIndex) => (
+      rowIndex === index ? { ...row, [field]: value } : row
+    )))
     setResult(null)
   }, [])
 
@@ -457,12 +556,45 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
     }
   }
 
-  const handleImport = async () => {
-    if (!file) return
+  const buildManualCsvFile = () => {
+    const cleanRows = manualRows.map((row, index) => ({ ...row, stt: String(index + 1) }))
+    const missingName = cleanRows.findIndex(row => !row.full_name.trim())
+    if (!thang.trim()) {
+      setResult({ success: false, error: 'Vui lòng nhập tháng trước khi lưu thủ công.' })
+      return null
+    }
+    if (missingName >= 0) {
+      setResult({ success: false, error: `Top ${missingName + 1} đang thiếu họ và tên.` })
+      return null
+    }
+
+    const headers = ['STT', 'Tên', 'Email', 'Khối dạy', 'Cơ sở', 'Tháng', 'Số case', 'Số học sinh', 'CR45', 'Loại/Chọn', 'Thưởng CR']
+    const lines = [
+      headers.join(','),
+      ...cleanRows.map(row => [
+        row.stt,
+        row.full_name,
+        row.email,
+        row.khoi_day,
+        row.co_so,
+        thang.trim(),
+        row.so_case,
+        row.so_hoc_sinh,
+        row.ti_le,
+        row.loai,
+        row.thuong_cr,
+      ].map(value => csvCell(value.trim())).join(',')),
+    ]
+    return new File([lines.join('\n')], `vinh-danh-thu-cong-${Date.now()}.csv`, { type: 'text/csv;charset=utf-8' })
+  }
+
+  const handleSubmit = async () => {
+    const sourceFile = mode === 'csv' ? file : buildManualCsvFile()
+    if (!sourceFile) return
     setLoading(true)
     try {
       const fd = new FormData()
-      fd.append('file', file)
+      fd.append('file', sourceFile)
       if (thang) fd.append('thang', thang)
       if (top1Image) fd.append('top1Image', top1Image)
       if (top2Image) fd.append('top2Image', top2Image)
@@ -487,7 +619,7 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden"
+        className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -498,7 +630,7 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
             </div>
             <div>
               <h2 className="text-base font-black text-gray-900">Cập nhật Vinh Danh Tháng</h2>
-              <p className="text-xs text-gray-500">Import dữ liệu giáo viên từ file CSV</p>
+              <p className="text-xs text-gray-500">Import CSV hoặc nhập thủ công Top 1/2/3</p>
             </div>
           </div>
           <button
@@ -510,11 +642,36 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
           </button>
         </div>
 
-        <div className="px-6 py-5 space-y-4">
+        <div className="max-h-[calc(100vh-180px)] overflow-y-auto px-6 py-5 space-y-4">
+          <div className="grid grid-cols-2 rounded-xl border border-gray-200 bg-gray-50 p-1">
+            <button
+              type="button"
+              onClick={() => { setMode('csv'); setResult(null) }}
+              className={cn(
+                'flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-black transition-colors',
+                mode === 'csv' ? 'bg-white text-amber-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+              )}
+            >
+              <Upload className="w-3.5 h-3.5" />
+              Import CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMode('manual'); setResult(null) }}
+              className={cn(
+                'flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-black transition-colors',
+                mode === 'manual' ? 'bg-white text-amber-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+              )}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Nhập thủ công
+            </button>
+          </div>
+
           {/* Tháng override */}
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-1.5">
-              Tháng (để trống nếu file đã có cột tháng)
+              {mode === 'csv' ? 'Tháng (để trống nếu file đã có cột tháng)' : 'Tháng vinh danh'}
             </label>
             <input
               type="text"
@@ -525,59 +682,143 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
             />
           </div>
 
-          {/* Dropzone */}
-          <div
-            onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={cn(
-              'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all',
-              dragOver
-                ? 'border-amber-400 bg-amber-50'
-                : file
-                ? 'border-green-300 bg-green-50'
-                : 'border-gray-200 hover:border-amber-300 hover:bg-amber-50/40'
-            )}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv"
-              className="hidden"
-              onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]) }}
-            />
-            {file ? (
-              <div className="flex flex-col items-center gap-2">
-                <CheckCircle className="w-8 h-8 text-green-500" />
-                <p className="text-sm font-bold text-green-700">{file.name}</p>
-                <p className="text-xs text-green-600">{(file.size / 1024).toFixed(1)} KB</p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-2">
-                <Upload className="w-8 h-8 text-gray-300" />
-                <p className="text-sm font-semibold text-gray-600">Kéo thả file CSV vào đây</p>
-                <p className="text-xs text-gray-400">hoặc click để chọn file</p>
-              </div>
-            )}
-          </div>
-
-          {/* CSV format hint */}
-          <div className="bg-amber-50 rounded-xl p-3 text-xs text-amber-800 space-y-1">
-            <div className="flex items-center justify-between">
-              <p className="font-bold">Định dạng file CSV:</p>
-              <a
-                href="/templates/vinh-danh-mau.csv"
-                download="vinh-danh-mau.csv"
-                className="flex items-center gap-1 text-amber-700 font-bold hover:text-amber-900 hover:underline transition-colors"
+          {mode === 'csv' ? (
+            <>
+              {/* Dropzone */}
+              <div
+                onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className={cn(
+                  'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all',
+                  dragOver
+                    ? 'border-amber-400 bg-amber-50'
+                    : file
+                    ? 'border-green-300 bg-green-50'
+                    : 'border-gray-200 hover:border-amber-300 hover:bg-amber-50/40'
+                )}
               >
-                <Download className="w-3 h-3" />
-                Tải file mẫu
-              </a>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]) }}
+                />
+                {file ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <CheckCircle className="w-8 h-8 text-green-500" />
+                    <p className="text-sm font-bold text-green-700">{file.name}</p>
+                    <p className="text-xs text-green-600">{(file.size / 1024).toFixed(1)} KB</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-2">
+                    <Upload className="w-8 h-8 text-gray-300" />
+                    <p className="text-sm font-semibold text-gray-600">Kéo thả file CSV vào đây</p>
+                    <p className="text-xs text-gray-400">hoặc click để chọn file</p>
+                  </div>
+                )}
+              </div>
+
+              {/* CSV format hint */}
+              <div className="bg-amber-50 rounded-xl p-3 text-xs text-amber-800 space-y-1">
+                <div className="flex items-center justify-between">
+                  <p className="font-bold">Định dạng file CSV:</p>
+                  <a
+                    href="/templates/vinh-danh-mau.csv"
+                    download="vinh-danh-mau.csv"
+                    className="flex items-center gap-1 text-amber-700 font-bold hover:text-amber-900 hover:underline transition-colors"
+                  >
+                    <Download className="w-3 h-3" />
+                    Tải file mẫu
+                  </a>
+                </div>
+                <p className="text-amber-700 font-mono break-all">STT, Tên, Email, Khối dạy, Cơ sở, Tháng, Số case, Số học sinh, CR45, Loại/Chọn, Thưởng CR</p>
+                <p className="text-amber-700/80">Cột cần có để import chính xác: Tên, Email, Tháng, CR45. Ảnh Top 1/2/3 upload riêng ở bên dưới.</p>
+              </div>
+            </>
+          ) : (
+            <div className="rounded-xl border border-gray-200 overflow-hidden">
+              <div className="grid grid-cols-[52px_1.45fr_1.25fr_1fr_0.75fr] gap-2 bg-amber-50/70 px-3 py-2 text-[11px] font-black text-amber-800">
+                <span>Top</span>
+                <span>Họ tên</span>
+                <span>Email</span>
+                <span>Cơ sở</span>
+                <span>CR45</span>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {manualRows.map((row, index) => (
+                  <div key={index} className="grid grid-cols-[52px_1.45fr_1.25fr_1fr_0.75fr] gap-2 px-3 py-3">
+                    <div className="flex items-center">
+                      <span className={cn(
+                        'inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-black',
+                        index === 0 ? 'bg-yellow-100 text-yellow-700' : index === 1 ? 'bg-gray-100 text-gray-600' : 'bg-orange-100 text-orange-700'
+                      )}>
+                        {index + 1}
+                      </span>
+                    </div>
+                    <input
+                      value={row.full_name}
+                      onChange={e => updateManualRow(index, 'full_name', e.target.value)}
+                      placeholder="Nguyễn Văn A"
+                      className="min-w-0 rounded-lg border border-gray-200 px-2.5 py-2 text-sm font-semibold outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                    <input
+                      value={row.email}
+                      onChange={e => updateManualRow(index, 'email', e.target.value)}
+                      placeholder="email@mindx.edu.vn"
+                      className="min-w-0 rounded-lg border border-gray-200 px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                    <input
+                      value={row.co_so}
+                      onChange={e => updateManualRow(index, 'co_so', e.target.value)}
+                      placeholder="Cơ sở"
+                      className="min-w-0 rounded-lg border border-gray-200 px-2.5 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                    <input
+                      value={row.ti_le}
+                      onChange={e => updateManualRow(index, 'ti_le', e.target.value)}
+                      placeholder="95"
+                      className="min-w-0 rounded-lg border border-gray-200 px-2.5 py-2 text-sm font-bold tabular-nums outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                    <div className="col-start-2 col-span-4 grid grid-cols-5 gap-2">
+                      <input
+                        value={row.khoi_day}
+                        onChange={e => updateManualRow(index, 'khoi_day', e.target.value)}
+                        placeholder="Khối dạy"
+                        className="min-w-0 rounded-lg border border-gray-200 px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                      <input
+                        value={row.so_case}
+                        onChange={e => updateManualRow(index, 'so_case', e.target.value)}
+                        placeholder="Số case"
+                        className="min-w-0 rounded-lg border border-gray-200 px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                      <input
+                        value={row.so_hoc_sinh}
+                        onChange={e => updateManualRow(index, 'so_hoc_sinh', e.target.value)}
+                        placeholder="Số học sinh"
+                        className="min-w-0 rounded-lg border border-gray-200 px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                      <input
+                        value={row.loai}
+                        onChange={e => updateManualRow(index, 'loai', e.target.value)}
+                        placeholder="Loại"
+                        className="min-w-0 rounded-lg border border-gray-200 px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                      <input
+                        value={row.thuong_cr}
+                        onChange={e => updateManualRow(index, 'thuong_cr', e.target.value)}
+                        placeholder="Thưởng CR"
+                        className="min-w-0 rounded-lg border border-gray-200 px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <p className="text-amber-700 font-mono break-all">STT, Tên, Email, Khối dạy, Cơ sở, Tháng, Số case, Số học sinh, CR45, Loại/Chọn, Thưởng CR</p>
-            <p className="text-amber-700/80">Cột cần có để import chính xác: Tên, Email, Tháng, CR45. Ảnh Top 1/2/3 upload riêng ở bên dưới.</p>
-          </div>
+          )}
 
           {/* Upload images for Top 3 */}
           <div className="bg-gray-50 rounded-xl p-3 space-y-3">
@@ -778,7 +1019,7 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
                   <div>
                     <p className="font-bold">Import thành công!</p>
                     <p className="text-xs mt-0.5">
-                      Đã xoá {result.deleted ?? 0} bản ghi cũ và nhập {result.inserted}/{result.total} giáo viên Top 3 mới.
+                      Đã xoá {result.deleted ?? 0} bản ghi cũ của tháng này và lưu {result.inserted}/{result.total} giáo viên Top 3 mới.
                     </p>
                     {(result.source_total ?? 0) > (result.total ?? 0) && (
                       <p className="text-xs mt-1 text-green-700/80">
@@ -808,19 +1049,19 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
           <Button
             variant="mindx"
             size="sm"
-            onClick={handleImport}
-            disabled={!file || loading}
+            onClick={handleSubmit}
+            disabled={(mode === 'csv' && !file) || loading}
             className="gap-2"
           >
             {loading ? (
               <span className="flex items-center gap-2">
                 <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                Đang import...
+                Đang lưu...
               </span>
             ) : (
               <>
                 <Upload className="w-3.5 h-3.5" />
-                Nhập dữ liệu
+                {mode === 'csv' ? 'Nhập dữ liệu' : 'Lưu thủ công'}
               </>
             )}
           </Button>
@@ -855,10 +1096,6 @@ export default function MonthlyHonorsManager() {
   const currentMonth = selectedMonth || data?.current_month || ''
   const records = data?.data || []
 
-  const handleMonthChange = (m: string) => {
-    setSelectedMonth(m)
-  }
-
   const handleDelete = async () => {
     if (!currentMonth) return
     if (!confirm(`Xóa toàn bộ dữ liệu vinh danh tháng ${currentMonth}?`)) return
@@ -885,12 +1122,27 @@ export default function MonthlyHonorsManager() {
     }
   }
 
-  const handleUpdateRecord = async (id: number, field: 'slogan' | 'full_name' | 'co_so', value: string) => {
-    await fetch('/api/truyenthong/vinh-danh', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, [field]: value }),
-    })
+  const handleSaveRecord = async (
+    id: number,
+    values: { full_name: string; co_so: string; ti_le: string },
+    avatarFile?: File | null
+  ) => {
+    if (avatarFile && !avatarFile.type.startsWith('image/')) {
+      alert('Chỉ hỗ trợ file ảnh')
+      return
+    }
+    const fd = new FormData()
+    fd.append('id', String(id))
+    fd.append('full_name', values.full_name)
+    fd.append('co_so', values.co_so)
+    fd.append('ti_le', values.ti_le)
+    if (avatarFile) fd.append('avatar', avatarFile)
+    const res = await fetch('/api/truyenthong/vinh-danh', { method: 'PATCH', body: fd })
+    const data = await res.json().catch(() => null)
+    if (!res.ok || data?.success === false) {
+      throw new Error(data?.error || 'Không thể lưu thông tin vinh danh')
+    }
+    mutateGlobal('/api/truyenthong/top-teachers')
     mutate()
   }
 
@@ -939,21 +1191,6 @@ export default function MonthlyHonorsManager() {
 
             {/* Toolbar */}
             <div className="flex flex-wrap items-center gap-3 px-6 py-3 border-b border-gray-100 bg-gray-50/50 shrink-0">
-              {/* Month picker */}
-              <div className="relative">
-                <select
-                  value={currentMonth}
-                  onChange={e => handleMonthChange(e.target.value)}
-                  className="appearance-none pl-3 pr-8 py-1.5 text-sm font-semibold border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-amber-400 cursor-pointer"
-                >
-                  {months.length === 0 && <option value="">— Chưa có dữ liệu —</option>}
-                  {months.map(m => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-              </div>
-
               {/* View toggle */}
               <div className="flex rounded-xl border border-gray-200 overflow-hidden">
                 <button
@@ -1003,7 +1240,7 @@ export default function MonthlyHonorsManager() {
                   className="gap-1.5 text-xs"
                 >
                   <Upload className="w-3 h-3" />
-                  Import CSV
+                  Thêm vinh danh
                 </Button>
               </div>
             </div>
@@ -1020,12 +1257,12 @@ export default function MonthlyHonorsManager() {
                   <p className="text-lg font-bold text-gray-400">Chưa có dữ liệu vinh danh</p>
                   <p className="text-sm text-gray-400 mt-1 mb-5">
                     {months.length === 0
-                      ? 'Import file CSV để bắt đầu cập nhật bảng vinh danh'
+                      ? 'Import CSV hoặc nhập thủ công để bắt đầu cập nhật bảng vinh danh'
                       : `Tháng ${currentMonth} chưa có dữ liệu`}
                   </p>
                   <Button variant="mindx" size="sm" onClick={() => setShowImport(true)} className="gap-2">
-                    <Upload className="w-3.5 h-3.5" />
-                    Import dữ liệu CSV
+                    <Plus className="w-3.5 h-3.5" />
+                    Thêm dữ liệu vinh danh
                   </Button>
                 </div>
               ) : viewMode === 'podium' ? (
@@ -1038,7 +1275,7 @@ export default function MonthlyHonorsManager() {
                       </span>
                     </span>
                   </div>
-                  <PodiumPreview records={records} onUpdateRecord={handleUpdateRecord} />
+                  <PodiumPreview records={records} onSaveRecord={handleSaveRecord} />
                   {records.length > 3 && (
                     <div className="mt-6 text-center">
                       <button
