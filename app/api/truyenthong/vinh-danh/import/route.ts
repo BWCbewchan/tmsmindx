@@ -323,7 +323,8 @@ export async function POST(request: NextRequest) {
       const oldHonorsAvatarRows = await client.query(
         `SELECT honors_avatar_url
          FROM teacher_monthly_honors
-         WHERE honors_avatar_url IS NOT NULL`
+         WHERE thang = $1 AND honors_avatar_url IS NOT NULL`,
+        [targetMonth]
       )
       const oldHonorsAvatarUrls = oldHonorsAvatarRows.rows
         .map((row: { honors_avatar_url: string | null }) => row.honors_avatar_url)
@@ -331,7 +332,10 @@ export async function POST(request: NextRequest) {
 
       await client.query('BEGIN')
       try {
-        const deleteRes = await client.query(`DELETE FROM teacher_monthly_honors`)
+        const deleteRes = await client.query(
+          `DELETE FROM teacher_monthly_honors WHERE thang = $1`,
+          [targetMonth]
+        )
         deletedCount = deleteRes.rowCount || 0
 
         for (const { row, rankIndex } of importRows) {
