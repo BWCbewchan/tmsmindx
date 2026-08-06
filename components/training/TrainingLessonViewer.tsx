@@ -2391,9 +2391,17 @@ function LessonContent() {
 
           <div className="flex-1 overflow-y-auto divide-y divide-slate-100 custom-scrollbar">
             {isLoadingLessons && allLessons.length === 0 ? (
-              <div className="flex flex-col items-center justify-center p-8 text-gray-500 space-y-2">
-                <Loader2 className="w-6 h-6 animate-spin text-[#a1001f]" />
-                <span className="text-xs">Đang tải danh sách...</span>
+              <div className="animate-pulse divide-y divide-slate-100">
+                {Array.from({ length: 5 }).map((_, index) => (
+                  <div key={index} className="flex gap-3 p-3">
+                    <div className="h-16 w-24 shrink-0 rounded-lg bg-slate-200" />
+                    <div className="flex-1 space-y-2 py-1">
+                      <div className="h-3 w-16 rounded bg-slate-200" />
+                      <div className="h-4 w-4/5 rounded bg-slate-200" />
+                      <div className="h-3 w-1/2 rounded bg-slate-100" />
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : allLessons.length === 0 ? (
               <div className="p-8 text-center text-xs text-gray-500">

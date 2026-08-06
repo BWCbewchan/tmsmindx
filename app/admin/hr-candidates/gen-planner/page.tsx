@@ -25,6 +25,7 @@ import {
 
 import { PageContainer } from '@/components/PageContainer'
 import { useAuth } from '@/lib/auth-context'
+import { authHeaders } from '@/lib/auth-headers'
 import { HrCandidateRow, HrPagination, GenEntry } from '../types'
 
 const PAGE_SIZE = 50
@@ -50,6 +51,129 @@ function sortGenEntries(a: GenEntry, b: GenEntry, order: 'asc' | 'desc') {
 
 function normalizeGenCountKey(genName: string) {
   return genName.trim().toUpperCase().replace(/^GEN\s+/, '').replace(/\s+/g, ' ')
+}
+
+type TrainingScheduleSummaryRow = {
+  genId?: number | null
+  gen?: string | null
+  session?: number | null
+  date?: string | null
+  startTime?: string | null
+  endTime?: string | null
+}
+
+function parseScheduleDateTime(dateValue?: string | null, timeValue?: string | null, fallbackTime = '18:30') {
+  const datePart = typeof dateValue === 'string' ? dateValue.slice(0, 10) : ''
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return null
+
+  const rawTime = typeof timeValue === 'string' ? timeValue.slice(0, 5) : ''
+  const timePart = /^\d{2}:\d{2}$/.test(rawTime) ? rawTime : fallbackTime
+  const parsed = new Date(`${datePart}T${timePart}:00`)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function formatProgressDate(value: Date | null) {
+  if (!value) return ''
+  return value.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })
+}
+
+function buildGenTrainingProgress(schedules: TrainingScheduleSummaryRow[]) {
+  const sessions = schedules
+    .map((schedule) => {
+      const start = parseScheduleDateTime(schedule.date, schedule.startTime, '18:30')
+      if (!start) return null
+      const end = parseScheduleDateTime(schedule.date, schedule.endTime, '21:00') ?? new Date(start)
+      if (end.getTime() <= start.getTime()) end.setDate(end.getDate() + 1)
+
+      return {
+        session: Number(schedule.session) || 1,
+        start,
+        end,
+      }
+    })
+    .filter((item): item is { session: number; start: Date; end: Date } => Boolean(item))
+    .sort((a, b) => a.start.getTime() - b.start.getTime())
+
+  if (sessions.length === 0) {
+    return {
+      status: 'not_open' as const,
+      label: 'Chưa mở',
+      helper: 'Chưa có lịch buổi 1',
+      sessionCount: 0,
+      firstStartAt: null,
+      lastEndAt: null,
+    }
+  }
+
+  const firstSession =
+    sessions
+      .filter((session) => session.session === 1)
+      .sort((a, b) => a.start.getTime() - b.start.getTime())[0] ?? sessions[0]
+  const latestSession = sessions.reduce((latest, current) =>
+    current.end.getTime() > latest.end.getTime() ? current : latest,
+  )
+
+  const now = new Date()
+  if (now.getTime() < firstSession.start.getTime()) {
+    return {
+      status: 'not_open' as const,
+      label: 'Chưa mở',
+      helper: `Mở ${formatProgressDate(firstSession.start)}`,
+      sessionCount: sessions.length,
+      firstStartAt: firstSession.start.toISOString(),
+      lastEndAt: latestSession.end.toISOString(),
+    }
+  }
+
+  if (now.getTime() > latestSession.end.getTime()) {
+    return {
+      status: 'completed' as const,
+      label: 'Đã hoàn thành',
+      helper: `Xong ${formatProgressDate(latestSession.end)}`,
+      sessionCount: sessions.length,
+      firstStartAt: firstSession.start.toISOString(),
+      lastEndAt: latestSession.end.toISOString(),
+    }
+  }
+
+  return {
+    status: 'in_progress' as const,
+    label: 'Đang diễn ra',
+    helper: `Đến ${formatProgressDate(latestSession.end)}`,
+    sessionCount: sessions.length,
+    firstStartAt: firstSession.start.toISOString(),
+    lastEndAt: latestSession.end.toISOString(),
+  }
+}
+
+function PlannerTableSkeletonRows() {
+  return (
+    <>
+      {Array.from({ length: 8 }).map((_, index) => (
+        <tr key={index} className="animate-pulse">
+          <td className="px-4 py-3">
+            <div className="h-4 w-4 rounded bg-gray-200" />
+          </td>
+          <td className="px-3 py-3">
+            <div className="h-6 w-20 rounded-lg bg-gray-200" />
+          </td>
+          <td className="px-3 py-3">
+            <div className="h-4 w-40 rounded bg-gray-200" />
+            <div className="mt-2 h-3 w-56 rounded bg-gray-100" />
+          </td>
+          <td className="px-3 py-3">
+            <div className="h-4 w-48 rounded bg-gray-100" />
+          </td>
+          <td className="px-3 py-3">
+            <div className="h-4 w-36 rounded bg-gray-100" />
+          </td>
+          <td className="px-3 py-3">
+            <div className="h-6 w-20 rounded-full bg-gray-100" />
+          </td>
+        </tr>
+      ))}
+    </>
+  )
 }
 
 // --- Sub-component: Candidate hover popup cell ---
@@ -151,7 +275,7 @@ function CandidatePopupCell({
 type ActiveTab = 'planner' | 'tracking' | 'scheduling' | 'overview'
 
 export default function HrGenPlannerPage() {
-  const { user } = useAuth()
+  const { user, token } = useAuth()
   const searchParams = useSearchParams()
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('planner')
@@ -253,10 +377,28 @@ export default function HrGenPlannerPage() {
         if (search) genCountParams.set('search', search)
         if (regionFilter !== 'all') genCountParams.set('region', regionFilter)
 
-        const [candidateRes, genCountRes, genRes] = await Promise.all([
+        const scheduleParams = new URLSearchParams()
+        if (regionFilter !== 'all') scheduleParams.set('region', regionFilter)
+        const scheduleQuery = scheduleParams.toString()
+
+        const scheduleRequest = fetch(
+          `/api/hr/training-schedules${scheduleQuery ? `?${scheduleQuery}` : ''}`,
+          {
+            cache: 'no-store',
+            headers: authHeaders(token),
+          },
+        )
+          .then(async (res) => {
+            const data = await res.json().catch(() => ({}))
+            return res.ok ? data : { schedules: [] }
+          })
+          .catch(() => ({ schedules: [] }))
+
+        const [candidateRes, genCountRes, genRes, scheduleData] = await Promise.all([
           fetch(`/api/hr/candidates?${candidateParams.toString()}`, { cache: 'no-store' }),
           fetch(`/api/hr/candidates?${genCountParams.toString()}`, { cache: 'no-store' }),
           fetch('/api/hr/gens', { cache: 'no-store' }),
+          scheduleRequest,
         ])
 
         const candidateData = await candidateRes.json()
@@ -283,17 +425,47 @@ export default function HrGenPlannerPage() {
             count,
           ]),
         )
+        const scheduleRows = Array.isArray(scheduleData.schedules)
+          ? (scheduleData.schedules as TrainingScheduleSummaryRow[])
+          : []
+        const schedulesByGenId = new Map<number, TrainingScheduleSummaryRow[]>()
+        const schedulesByGenCode = new Map<string, TrainingScheduleSummaryRow[]>()
+        for (const schedule of scheduleRows) {
+          const genId = Number(schedule.genId)
+          if (Number.isInteger(genId) && genId > 0) {
+            const current = schedulesByGenId.get(genId) ?? []
+            current.push(schedule)
+            schedulesByGenId.set(genId, current)
+          }
+
+          const genCode = normalizeGenCountKey(schedule.gen || '')
+          if (genCode) {
+            const current = schedulesByGenCode.get(genCode) ?? []
+            current.push(schedule)
+            schedulesByGenCode.set(genCode, current)
+          }
+        }
+
         const catalog: Array<{ id: number; gen_name: string }> = genData.catalog || []
-        const entries: GenEntry[] = catalog.map(g => ({
-          key: `all::${g.gen_name}`,
-          id: g.id,
-          genCode: g.gen_name,
-          count: byGen[normalizeGenCountKey(g.gen_name)] || 0,
-          regionCode: 'all',
-          regionLabel: 'Tất cả khu vực',
-          isTeacher4Plus: false,
-          note: '',
-        }))
+        const entries: GenEntry[] = catalog.map((g) => {
+          const genKey = normalizeGenCountKey(g.gen_name)
+          const trainingProgress = buildGenTrainingProgress(
+            schedulesByGenId.get(g.id) ?? schedulesByGenCode.get(genKey) ?? [],
+          )
+
+          return {
+            key: `all::${g.gen_name}`,
+            id: g.id,
+            genCode: g.gen_name,
+            count: byGen[genKey] || 0,
+            regionCode: 'all',
+            regionLabel: 'Tất cả khu vực',
+            isTeacher4Plus: false,
+            note: '',
+            trainingProgress,
+            latestTrainingAt: trainingProgress.lastEndAt,
+          }
+        })
         setAvailableGenEntries(entries)
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Lỗi không xác định')
@@ -302,16 +474,32 @@ export default function HrGenPlannerPage() {
         setRefreshing(false)
       }
     },
-    [user?.email, page, statusFilter, search, sourceGenFilter, regionFilter],
+    [user?.email, token, page, statusFilter, search, sourceGenFilter, regionFilter],
   )
 
   useEffect(() => {
     fetchBoardData(false)
   }, [fetchBoardData])
 
+  useEffect(() => {
+    const handleSchedulesUpdated = () => {
+      fetchBoardData(true)
+    }
+
+    window.addEventListener('hr-training-schedules-updated', handleSchedulesUpdated)
+    return () => {
+      window.removeEventListener('hr-training-schedules-updated', handleSchedulesUpdated)
+    }
+  }, [fetchBoardData])
+
   const selectedRows = useMemo(
     () => rows.filter((row) => selectedKeys.has(String(row.id))),
     [rows, selectedKeys],
+  )
+
+  const activeGenEntry = useMemo(
+    () => availableGenEntries.find((entry) => entry.key === activeGenKey) ?? null,
+    [activeGenKey, availableGenEntries],
   )
 
   useEffect(() => {
@@ -342,6 +530,24 @@ export default function HrGenPlannerPage() {
     south: 'Miền Nam',
     north: 'Miền Bắc',
   }
+
+  const summaryScope = activeGenEntry
+    ? {
+        totalLabel: `Tổng ứng viên ${activeGenEntry.genCode}`,
+        total: activeGenEntry.count,
+        unassigned: 0,
+        assigned: activeGenEntry.count,
+        genCount: 1,
+        genCountLabel: 'GEN đang chọn',
+      }
+    : {
+        totalLabel: 'Tổng ứng viên khu vực',
+        total: regionTotalCandidates,
+        unassigned: regionUnassignedCandidates,
+        assigned: regionAssignedCandidates,
+        genCount: availableGenEntries.length,
+        genCountLabel: 'Số mã GEN đang hiển thị',
+      }
 
   const hasActiveFilters =
     Boolean(search) ||
@@ -731,10 +937,10 @@ export default function HrGenPlannerPage() {
                     }`}
                   >
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                      Tổng ứng viên khu vực
+                      {summaryScope.totalLabel}
                     </p>
                     <p className="mt-2 text-2xl font-black text-gray-900">
-                      {regionTotalCandidates}
+                      {summaryScope.total}
                     </p>
                   </button>
                   <button
@@ -751,10 +957,10 @@ export default function HrGenPlannerPage() {
                     }`}
                   >
                     <p className="text-xs font-semibold uppercase tracking-wide text-red-600">
-                      Chưa xếp GEN
+                      {activeGenEntry ? 'Chưa xếp trong GEN' : 'Chưa xếp GEN'}
                     </p>
                     <p className="mt-2 text-2xl font-black text-red-700">
-                      {regionUnassignedCandidates}
+                      {summaryScope.unassigned}
                     </p>
                   </button>
                   <button
@@ -771,10 +977,10 @@ export default function HrGenPlannerPage() {
                     }`}
                   >
                     <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                      Đã có GEN
+                      {activeGenEntry ? 'Đã có trong GEN' : 'Đã có GEN'}
                     </p>
                     <p className="mt-2 text-2xl font-black text-emerald-800">
-                      {regionAssignedCandidates}
+                      {summaryScope.assigned}
                     </p>
                   </button>
                   <button
@@ -789,10 +995,10 @@ export default function HrGenPlannerPage() {
                     title="Nhấn để bỏ lọc nguồn GEN và xem toàn bộ mã GEN"
                   >
                     <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
-                      Số mã GEN đang hiển thị
+                      {summaryScope.genCountLabel}
                     </p>
                     <p className="mt-2 text-2xl font-black text-blue-800">
-                      {availableGenEntries.length}
+                      {summaryScope.genCount}
                     </p>
                   </button>
                 </section>
@@ -914,14 +1120,7 @@ export default function HrGenPlannerPage() {
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {loading ? (
-                          <tr>
-                            <td colSpan={6} className="py-14 text-center text-sm text-gray-500">
-                              <div className="inline-flex items-center gap-2">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                Đang tải danh sách ứng viên...
-                              </div>
-                            </td>
-                          </tr>
+                          <PlannerTableSkeletonRows />
                         ) : rows.length === 0 ? (
                           <tr>
                             <td colSpan={6} className="py-14 text-center text-sm text-gray-500">

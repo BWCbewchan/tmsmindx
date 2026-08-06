@@ -34,6 +34,49 @@ type Assignment = {
 type Question = { id: number; question_text: string; question_type: string; options?: string[] | string | null; points?: number }
 type Submission = { id: number }
 
+function AssignmentCardsSkeleton() {
+  return (
+    <>
+      {Array.from({ length: 4 }).map((_, index) => (
+        <article key={index} className="animate-pulse rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 space-y-3">
+              <div className="h-3 w-32 rounded bg-slate-200" />
+              <div className="h-5 w-4/5 rounded bg-slate-200" />
+            </div>
+            <div className="h-5 w-5 rounded-full bg-slate-200" />
+          </div>
+          <div className="mt-5 h-4 w-24 rounded bg-slate-100" />
+          <div className="mt-4 h-10 w-full rounded-md bg-slate-200" />
+        </article>
+      ))}
+    </>
+  )
+}
+
+function CandidateTestsPageSkeleton() {
+  return (
+    <main className="min-h-screen px-4 py-6 sm:px-8">
+      <div className="mx-auto max-w-5xl animate-pulse">
+        <div className="mt-4 border-b border-slate-200 pb-5">
+          <div className="h-4 w-32 rounded bg-slate-200" />
+          <div className="mt-3 h-8 w-72 rounded bg-slate-200" />
+          <div className="mt-3 h-4 w-96 max-w-full rounded bg-slate-100" />
+        </div>
+        <div className="mt-5 h-10 w-80 max-w-full rounded-lg bg-slate-200" />
+        <div className="mt-5 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="h-4 w-48 rounded bg-slate-200" />
+          <div className="mt-3 h-6 w-56 rounded bg-slate-200" />
+          <div className="mt-3 h-2 rounded-full bg-slate-100" />
+        </div>
+        <section className="mt-6 grid gap-4 md:grid-cols-2">
+          <AssignmentCardsSkeleton />
+        </section>
+      </div>
+    </main>
+  )
+}
+
 function candidateCode(): { code: string; name: string } {
   try {
     const raw = window.localStorage.getItem('candidatePortalProfile')
@@ -403,13 +446,13 @@ function CandidateTestsContent() {
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-[#a1001f] transition-all" style={{ width: `${videoProgress}%` }} /></div>
     </section>
     {message && <p className="mt-5 rounded-md border border-[#a1001f]/20 bg-[#a1001f]/5 p-3 text-sm font-medium text-[#820019]">{message}</p>}
-    <section className="mt-6 grid gap-4 md:grid-cols-2">{loading ? <div className="col-span-full flex items-center justify-center py-16 text-slate-500"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Đang tải bài kiểm tra...</div> : available.length === 0 ? <div className="col-span-full rounded-lg border border-dashed border-slate-300 bg-white p-12 text-center"><ClipboardList className="mx-auto h-9 w-9 text-slate-400" /><p className="mt-3 font-semibold text-slate-800">Chưa có bài kiểm tra được mở</p><p className="mt-1 text-sm text-slate-500">Hoàn thành video liên kết để mở bài kiểm tra.</p></div> : available.map((assignment) => <article key={assignment.id} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase text-slate-500">{assignment.video_title || 'Video đào tạo đầu vào'}</p><h2 className="mt-1 text-lg font-bold text-slate-950">{assignment.assignment_title}</h2></div><CheckCircle2 className="h-5 w-5 text-emerald-600" /></div><p className="mt-3 text-sm text-slate-600">{assignment.question_count || 0} câu hỏi</p>{assignment.recent_submission ? <><p className="mt-4 text-sm font-semibold text-emerald-700">Đã nộp: {Number(assignment.recent_submission.score || 0).toFixed(1)}/10</p><Button variant="outline" className="mt-3 w-full border-[#a1001f]/30 text-[#a1001f] hover:bg-[#a1001f]/5" disabled={starting} onClick={() => startTest(assignment)}><PlayCircle className="h-4 w-4" /> Làm lại để cải thiện điểm</Button></> : <Button className="mt-4 w-full bg-[#a1001f] hover:bg-[#820019]" disabled={starting} onClick={() => startTest(assignment)}><PlayCircle className="h-4 w-4" /> Làm bài kiểm tra</Button>}</article>)}</section>
+    <section className="mt-6 grid gap-4 md:grid-cols-2">{loading ? <AssignmentCardsSkeleton /> : available.length === 0 ? <div className="col-span-full rounded-lg border border-dashed border-slate-300 bg-white p-12 text-center"><ClipboardList className="mx-auto h-9 w-9 text-slate-400" /><p className="mt-3 font-semibold text-slate-800">Chưa có bài kiểm tra được mở</p><p className="mt-1 text-sm text-slate-500">Hoàn thành video liên kết để mở bài kiểm tra.</p></div> : available.map((assignment) => <article key={assignment.id} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase text-slate-500">{assignment.video_title || 'Video đào tạo đầu vào'}</p><h2 className="mt-1 text-lg font-bold text-slate-950">{assignment.assignment_title}</h2></div><CheckCircle2 className="h-5 w-5 text-emerald-600" /></div><p className="mt-3 text-sm text-slate-600">{assignment.question_count || 0} câu hỏi</p>{assignment.recent_submission ? <><p className="mt-4 text-sm font-semibold text-emerald-700">Đã nộp: {Number(assignment.recent_submission.score || 0).toFixed(1)}/10</p><Button variant="outline" className="mt-3 w-full border-[#a1001f]/30 text-[#a1001f] hover:bg-[#a1001f]/5" disabled={starting} onClick={() => startTest(assignment)}><PlayCircle className="h-4 w-4" /> Làm lại để cải thiện điểm</Button></> : <Button className="mt-4 w-full bg-[#a1001f] hover:bg-[#820019]" disabled={starting} onClick={() => startTest(assignment)}><PlayCircle className="h-4 w-4" /> Làm bài kiểm tra</Button>}</article>)}</section>
   </div></main>)
 }
 
 export default function CandidateTestsPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Loader2 className="w-8 h-8 animate-spin text-[#a1001f]" /></div>}>
+    <Suspense fallback={<CandidateTestsPageSkeleton />}>
       <CandidateTestsContent />
     </Suspense>
   )

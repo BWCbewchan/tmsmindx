@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import { getJwtSecret } from '@/lib/jwt-secret';
 import { setSessionCookieOnResponse } from '@/lib/session-cookie';
 import { clientIpFromRequest, rateLimitOr429Async } from '@/lib/rate-limit-memory';
+import { requireCandidateSession } from '@/lib/candidate-session';
 
 const CANDIDATE_DEFAULT_PERMISSIONS = [
   '/candidate-portal',
@@ -12,6 +13,77 @@ const CANDIDATE_DEFAULT_PERMISSIONS = [
   '/admin/hr-candidates/gen-planner/overview',
   '/admin/hr-candidates',
 ];
+
+async function resolveCandidatePermissions() {
+  let permissions: string[] = [...CANDIDATE_DEFAULT_PERMISSIONS];
+  try {
+    const permResult = await pool.query(
+      "SELECT DISTINCT route_path FROM role_permissions WHERE role_code = 'CANDI'"
+    );
+    permissions = Array.from(
+      new Set([
+        ...permissions,
+        ...permResult.rows.map((row: any) => row.route_path),
+      ]),
+    );
+  } catch (permErr) {
+    console.error('[Candidate Auth] failed to fetch CANDI permissions:', permErr);
+  }
+  return permissions;
+}
+
+function candidateProfileFromRow(user: any, permissions: string[]) {
+  return {
+    candidate_id: user.candidate_id,
+    candidate_code: user.candidate_code,
+    full_name: user.full_name,
+    current_gen_id: user.current_gen_id,
+    current_gen_name: user.current_gen_name,
+    region_code: user.region_code,
+    region_name: user.region_name,
+    role: 'CANDI',
+    permissions,
+  };
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const candidateAuth = await requireCandidateSession(request);
+    if (!candidateAuth.ok) return candidateAuth.response;
+
+    const result = await pool.query(
+      `SELECT u.candidate_id, c.full_name, c.candidate_code,
+              COALESCE(c.current_gen_id, c.gen_id) AS current_gen_id,
+              g.gen_name AS current_gen_name,
+              c.region_code, c.region_name
+       FROM hr_candidate_users u
+       JOIN hr_candidates c ON u.candidate_id = c.id
+       LEFT JOIN hr_gen_catalog g ON g.id = COALESCE(c.current_gen_id, c.gen_id)
+       WHERE u.candidate_id = $1 AND u.is_active = true AND c.is_deleted = false
+       LIMIT 1`,
+      [candidateAuth.candidateId],
+    );
+
+    if (result.rows.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Phiên ứng viên không hợp lệ hoặc tài khoản đã bị khóa' },
+        { status: 401 },
+      );
+    }
+
+    const permissions = await resolveCandidatePermissions();
+    return NextResponse.json({
+      success: true,
+      data: candidateProfileFromRow(result.rows[0], permissions),
+    });
+  } catch (error) {
+    console.error('[Candidate Auth Restore Error]', error);
+    return NextResponse.json(
+      { success: false, error: 'Không thể khôi phục phiên ứng viên' },
+      { status: 500 },
+    );
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -60,21 +132,7 @@ export async function POST(request: NextRequest) {
     // Update last login
     await pool.query('UPDATE hr_candidate_users SET last_login_at = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
 
-    // Fetch permissions of role CANDI
-    let permissions: string[] = [...CANDIDATE_DEFAULT_PERMISSIONS];
-    try {
-      const permResult = await pool.query(
-        "SELECT DISTINCT route_path FROM role_permissions WHERE role_code = 'CANDI'"
-      );
-      permissions = Array.from(
-        new Set([
-          ...permissions,
-          ...permResult.rows.map((row: any) => row.route_path),
-        ]),
-      );
-    } catch (permErr) {
-      console.error('[Candidate Auth] failed to fetch CANDI permissions:', permErr);
-    }
+    const permissions = await resolveCandidatePermissions();
 
     const sessionEmail = `candidate-${user.candidate_id}@candidate.local`;
     const token = jwt.sign(
@@ -91,17 +149,7 @@ export async function POST(request: NextRequest) {
 
     const res = NextResponse.json({
       success: true,
-      data: {
-        candidate_id: user.candidate_id,
-        candidate_code: user.candidate_code,
-        full_name: user.full_name,
-        current_gen_id: user.current_gen_id,
-        current_gen_name: user.current_gen_name,
-        region_code: user.region_code,
-        region_name: user.region_name,
-        role: 'CANDI',
-        permissions,
-      }
+      data: candidateProfileFromRow(user, permissions),
     });
     setSessionCookieOnResponse(res, token);
     return res;

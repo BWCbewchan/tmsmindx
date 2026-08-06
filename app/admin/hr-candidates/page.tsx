@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PageContainer } from '@/components/PageContainer';
 import { toast } from '@/lib/app-toast';
-import { authHeaders } from '@/lib/auth-headers';
-import { useAuth } from '@/lib/auth-context';
 import { HrCandidateRow, HrSummary, HrPagination } from './types';
 import HrCandidateStats from './components/HrCandidateStats';
 import HrCandidatesFilter from './components/HrCandidatesFilter';
@@ -15,11 +13,9 @@ import Link from 'next/link';
 const PAGE_SIZE = 25;
 
 export default function HrCandidatesPage() {
-  const { token } = useAuth();
   const [rows, setRows] = useState<HrCandidateRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [syncing, setSyncing] = useState(false);
 
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -79,31 +75,6 @@ export default function HrCandidatesPage() {
   }, [statusFilter, page, search, genFilter, genSort, regionFilter]);
 
   useEffect(() => { fetchRows(false); }, [fetchRows]);
-
-  const handleSyncFromSheet = useCallback(async () => {
-    setSyncing(true);
-    try {
-      const res = await fetch('/api/hr/candidates/sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders(token),
-        },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Không thể đồng bộ ứng viên từ sheet.');
-
-      const summary = data.summary || {};
-      toast.success(
-        `Đồng bộ xong: thêm ${summary.inserted || 0}, cập nhật ${summary.updated || 0}, bỏ qua ${summary.skipped || 0}.`,
-      );
-      await fetchRows(true);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Lỗi đồng bộ ứng viên từ sheet.');
-    } finally {
-      setSyncing(false);
-    }
-  }, [fetchRows, token]);
 
   const applyQuickFilter = (nextStatus: string) => {
     setStatusFilter(nextStatus);
@@ -174,8 +145,7 @@ export default function HrCandidatesPage() {
             availableGens={availableGens}
             refreshing={refreshing}
             onRefresh={() => fetchRows(true)}
-            syncing={syncing}
-            onSync={handleSyncFromSheet}
+            publicFormHref="/hr-candidate-application"
           />
 
           <HrCandidatesTable

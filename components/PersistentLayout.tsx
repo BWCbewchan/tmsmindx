@@ -29,6 +29,7 @@ function Layout({ children }: { children: React.ReactNode }) {
     pathname === '/' ||
     pathname.startsWith('/checkdatasource') ||
     pathname.startsWith('/bao-tri') ||
+    pathname.startsWith('/hr-candidate-application') ||
     isCandidatePortal ||
     isStandaloneLesson
   let shouldShowSidebar = !noSidebarPaths

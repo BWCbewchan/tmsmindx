@@ -29,7 +29,6 @@ import GenOverviewTab, { TrainingScheduleEvent } from '../admin/hr-candidates/co
 import K12DocsClient, { K12ClientDocItem, K12ClientDocNode } from '@/components/k12-docs/K12DocsClient';
 import ImageLightbox from '@/components/ImageLightbox';
 import { Button } from '@/components/ui/button';
-import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { useAuth } from '@/lib/auth-context';
 import { setVideo } from '@/lib/redux/features/trainingSlice';
 import { useAppDispatch } from '@/lib/redux/hooks';
@@ -56,6 +55,17 @@ type CandidateProfile = {
   region_name?: string | null;
   permissions?: string[];
 };
+
+function isCandidateProfile(value: unknown): value is CandidateProfile {
+  if (!value || typeof value !== 'object') return false;
+  const profile = value as Partial<CandidateProfile>;
+  return (
+    Number.isInteger(Number(profile.candidate_id)) &&
+    Number(profile.candidate_id) > 0 &&
+    typeof profile.full_name === 'string' &&
+    typeof profile.candidate_code === 'string'
+  );
+}
 
 type CandidateCurrentGen = {
   id: number;
@@ -109,6 +119,100 @@ type TeLeaderManager = {
   email: string;
   centers: string[];
 };
+
+function CandidateListSkeleton({ items = 3 }: { items?: number }) {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: items }).map((_, index) => (
+        <div key={index} className="animate-pulse rounded-xl border border-border bg-muted p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 space-y-3">
+              <div className="flex gap-2">
+                <div className="h-6 w-20 rounded-full bg-background" />
+                <div className="h-6 w-24 rounded-full bg-background" />
+              </div>
+              <div className="h-5 w-40 rounded bg-background" />
+              <div className="h-4 w-56 max-w-full rounded bg-background/70" />
+            </div>
+            <div className="h-9 w-24 rounded-lg bg-background" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CandidateVideoGridSkeleton({ items = 6 }: { items?: number }) {
+  return (
+    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      {Array.from({ length: items }).map((_, index) => (
+        <article key={index} className="animate-pulse overflow-hidden rounded-xl border border-border bg-muted">
+          <div className="aspect-video bg-background" />
+          <div className="space-y-3 p-5">
+            <div className="h-5 w-4/5 rounded bg-background" />
+            <div className="h-3 w-full rounded bg-background/70" />
+            <div className="h-3 w-2/3 rounded bg-background/70" />
+            <div className="h-9 w-full rounded-lg bg-background" />
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ContactCardsSkeleton() {
+  return (
+    <div className="space-y-6">
+      {Array.from({ length: 2 }).map((_, sectionIndex) => (
+        <section key={sectionIndex} className="animate-pulse space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="h-6 w-40 rounded bg-muted" />
+            <div className="h-6 w-20 rounded-full bg-muted" />
+          </div>
+          <div className="grid gap-4 xl:grid-cols-2">
+            {Array.from({ length: 2 }).map((__, cardIndex) => (
+              <div key={cardIndex} className="rounded-xl border border-border bg-background p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-3">
+                    <div className="h-3 w-24 rounded bg-muted" />
+                    <div className="h-5 w-36 rounded bg-muted" />
+                  </div>
+                  <div className="h-6 w-20 rounded-full bg-muted" />
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  <div className="h-4 w-28 rounded bg-muted" />
+                  <div className="h-4 w-40 rounded bg-muted" />
+                </div>
+                <div className="mt-4 h-24 rounded-lg bg-muted" />
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function K12DocsSkeleton() {
+  return (
+    <div className="animate-pulse rounded-xl border border-border bg-card p-5 shadow-sm">
+      <div className="mb-5 h-8 w-72 max-w-full rounded bg-muted" />
+      <div className="grid gap-5 lg:grid-cols-[280px_1fr]">
+        <div className="space-y-3 rounded-xl border border-border p-4">
+          {Array.from({ length: 7 }).map((_, index) => (
+            <div key={index} className="h-4 rounded bg-muted" style={{ width: `${90 - (index % 3) * 12}%` }} />
+          ))}
+        </div>
+        <div className="space-y-4 rounded-xl border border-border p-5">
+          <div className="h-7 w-2/3 rounded bg-muted" />
+          {Array.from({ length: 8 }).map((_, index) => (
+            <div key={index} className="h-4 rounded bg-muted" style={{ width: `${100 - (index % 4) * 10}%` }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const CENTER_OPTIONS = [
   'MindX 71 Nguyễn Chí Thanh',
@@ -574,6 +678,26 @@ function CandidatePortalContent() {
     }
   }, []);
 
+  const applyCandidateProfile = useCallback((nextProfile: CandidateProfile) => {
+    const normalizedProfile = {
+      ...nextProfile,
+      candidate_id: Number(nextProfile.candidate_id),
+    };
+    setProfile(normalizedProfile);
+    setCurrentGen(
+      normalizedProfile.current_gen_name
+        ? {
+            id: normalizedProfile.current_gen_id || 0,
+            genCode: normalizedProfile.current_gen_name,
+            regionCode: normalizedProfile.region_code || '',
+            regionName: normalizedProfile.region_name || '',
+          }
+        : null
+    );
+    fetchSessions(normalizedProfile.candidate_id);
+    fetchTrainingSchedules(normalizedProfile.candidate_id);
+  }, [fetchSessions, fetchTrainingSchedules]);
+
   const fetchK12Docs = useCallback(async () => {
     if (k12Docs || loadingK12Docs) return;
 
@@ -679,30 +803,59 @@ function CandidatePortalContent() {
   }, [filteredTeLeaderManagers]);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem('candidatePortalProfile');
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as CandidateProfile;
-        setProfile(parsed);
-        setCurrentGen(
-          parsed.current_gen_name
-            ? {
-                id: parsed.current_gen_id || 0,
-                genCode: parsed.current_gen_name,
-                regionCode: parsed.region_code || '',
-                regionName: parsed.region_name || '',
-              }
-            : null
-        );
-        fetchSessions(parsed.candidate_id);
-        fetchTrainingSchedules(parsed.candidate_id);
-        return;
-      } catch {
-        window.localStorage.removeItem('candidatePortalProfile');
+    let cancelled = false;
+
+    const restoreProfile = async () => {
+      let restoredFromStorage = false;
+      const stored = window.localStorage.getItem('candidatePortalProfile');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored) as unknown;
+          if (isCandidateProfile(parsed)) {
+            applyCandidateProfile(parsed);
+            restoredFromStorage = true;
+          }
+        } catch {
+          // Fall through to server session restore.
+        }
+        if (!restoredFromStorage) {
+          window.localStorage.removeItem('candidatePortalProfile');
+        }
       }
-    }
-    router.replace('/login?role=candidate');
-  }, [fetchSessions, fetchTrainingSchedules, router]);
+
+      try {
+        const res = await fetch('/api/hr/onboarding/candidate-auth', { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+
+        if (res.ok && data.success && isCandidateProfile(data.data)) {
+          window.localStorage.setItem('candidatePortalProfile', JSON.stringify(data.data));
+          applyCandidateProfile(data.data);
+          return;
+        }
+
+        if (restoredFromStorage && res.status !== 401 && res.status !== 403) {
+          return;
+        }
+      } catch (error) {
+        console.error('Error restoring candidate profile:', error);
+        if (restoredFromStorage) {
+          return;
+        }
+      }
+
+      if (!cancelled) {
+        window.localStorage.removeItem('candidatePortalProfile');
+        router.replace('/login?role=candidate');
+      }
+    };
+
+    void restoreProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applyCandidateProfile, router]);
 
   async function handleLogout() {
     setProfile(null);
@@ -998,9 +1151,7 @@ function CandidatePortalContent() {
             </div>
 
             {loadingSessions ? (
-              <div className="flex h-52 items-center justify-center text-muted-foreground">
-                <LoadingSpinner size="md" />
-              </div>
+              <CandidateListSkeleton />
             ) : sessions.length === 0 ? (
               <div className="flex h-72 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted text-center">
                 <FileText className="mb-3 h-11 w-11 text-muted-foreground/50" />
@@ -1222,11 +1373,9 @@ function CandidatePortalContent() {
                 <button key={stage.id} type="button" onClick={() => setVideoStageTab(stage.id as CandidateTrainingStage)} className={`rounded-md px-3 py-2 text-sm font-bold transition ${videoStageTab === stage.id ? 'bg-[#a1001f] text-white shadow-sm' : 'text-muted-foreground hover:bg-background'}`}>{stage.label}</button>
               ))}
             </div>
-            
+
             {loadingVideos ? (
-              <div className="flex h-52 items-center justify-center text-muted-foreground">
-                <LoadingSpinner size="md" />
-              </div>
+              <CandidateVideoGridSkeleton />
             ) : visibleVideos.length === 0 ? (
               <div className="flex h-72 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted text-center">
                 <Video className="mb-3 h-11 w-11 text-muted-foreground/50" />
@@ -1559,9 +1708,7 @@ function CandidatePortalContent() {
               </label>
 
               {loadingTeLeaderContacts ? (
-                <div className="flex min-h-64 items-center justify-center rounded-xl border border-dashed border-border text-muted-foreground">
-                  <LoadingSpinner size="md" />
-                </div>
+                <ContactCardsSkeleton />
               ) : teLeaderContactsError ? (
                 <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-5 text-sm font-semibold text-destructive">
                   {teLeaderContactsError}
@@ -1648,9 +1795,7 @@ function CandidatePortalContent() {
       {activeTab === 'k12-teaching-policy' && (
         <div className="animate-in fade-in duration-300">
           {loadingK12Docs ? (
-            <div className="flex h-[60vh] items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
-              <LoadingSpinner size="md" />
-            </div>
+            <K12DocsSkeleton />
           ) : k12DocsError ? (
             <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-5 text-sm font-semibold text-destructive">
               {k12DocsError}

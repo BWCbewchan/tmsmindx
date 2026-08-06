@@ -3,6 +3,10 @@ import { requireBearerSession } from '@/lib/datasource-api-auth';
 import { checkTeacherExistsByEmailDetailed } from '@/lib/db-helpers';
 import { NextRequest, NextResponse } from 'next/server';
 
+function isCandidateSessionEmail(email: string) {
+  return /^candidate-\d+@candidate\.local$/i.test(email.trim());
+}
+
 /** Trả về thông tin user theo Bearer (không tin email từ query/body). */
 export async function GET(request: NextRequest) {
   try {
@@ -10,6 +14,13 @@ export async function GET(request: NextRequest) {
 
     const auth = await requireBearerSession(request);
     if (!auth.ok) return auth.response;
+
+    if (isCandidateSessionEmail(auth.sessionEmail)) {
+      return NextResponse.json(
+        { success: false, error: 'Phiên ứng viên dùng endpoint candidate-auth.' },
+        { status: 401 },
+      );
+    }
 
     const access = await resolveAppUserAccessForEmail(auth.sessionEmail);
     const teacherSync =

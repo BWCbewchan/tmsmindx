@@ -950,7 +950,15 @@ export default function OnboardingVideosPage() {
                       )}
 
                       {questionLoading ? (
-                        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">Đang tải câu hỏi...</div>
+                        <div className="animate-pulse space-y-3">
+                          {Array.from({ length: 3 }).map((_, index) => (
+                            <div key={index} className="rounded-lg border border-border bg-background p-4">
+                              <div className="h-3 w-24 rounded bg-muted" />
+                              <div className="mt-3 h-5 w-3/4 rounded bg-muted" />
+                              <div className="mt-3 h-4 w-1/2 rounded bg-muted/70" />
+                            </div>
+                          ))}
+                        </div>
                       ) : questions.length === 0 ? (
                         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">Chưa có câu hỏi trong video.</div>
                       ) : (
@@ -1014,7 +1022,12 @@ export default function OnboardingVideosPage() {
                             ))}
                           </select>
                         </label>
-                        <Button variant="secondary" onClick={handleLinkAssignment} disabled={!selectedAssignmentId || assignmentLoading}>
+                        <Button
+                          variant="secondary"
+                          onClick={handleLinkAssignment}
+                          disabled={!selectedAssignmentId || assignmentLoading}
+                          className="bg-[#a1001f] text-white shadow-sm hover:bg-[#870018] disabled:border disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500 disabled:shadow-none"
+                        >
                           Liên kết bài kiểm tra
                         </Button>
                       </div>

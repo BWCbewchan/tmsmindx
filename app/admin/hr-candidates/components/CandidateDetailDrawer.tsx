@@ -1,4 +1,4 @@
-import { X, Mail, Phone, MapPin, Briefcase } from 'lucide-react';
+import { X, Mail, Phone, MapPin, Briefcase, Award, ExternalLink } from 'lucide-react';
 import { HrCandidateRow } from '../types';
 
 interface CandidateDetailDrawerProps {
@@ -71,6 +71,29 @@ export default function CandidateDetailDrawer({ candidate, isOpen, onClose }: Ca
             </div>
           </div>
 
+          {/* Pedagogy documents */}
+          <div className="mb-6">
+            <h3 className="text-sm font-bold text-gray-900 border-b border-gray-100 pb-2 mb-3">Hồ sơ sư phạm</h3>
+            <div className="rounded-xl bg-gray-50 p-4 border border-gray-100">
+              <p className="text-[10px] flex items-center gap-1.5 font-bold uppercase tracking-widest text-gray-400 mb-2">
+                <Award className="h-3 w-3" /> Văn bằng / chứng chỉ sư phạm
+              </p>
+              {candidate.pedagogy_certificate_url ? (
+                <a
+                  href={candidate.pedagogy_certificate_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-lg border border-[#a1001f]/20 bg-white px-3 py-2 text-sm font-bold text-[#a1001f] transition-colors hover:bg-[#a1001f]/5"
+                >
+                  Mở link hồ sơ
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              ) : (
+                <p className="text-sm font-semibold text-gray-500">Chưa cung cấp</p>
+              )}
+            </div>
+          </div>
+
           {/* GEN info */}
           <div className="mb-6">
             <h3 className="text-sm font-bold text-gray-900 border-b border-gray-100 pb-2 mb-3">Thông tin GEN</h3>
@@ -93,17 +116,6 @@ export default function CandidateDetailDrawer({ candidate, isOpen, onClose }: Ca
               </div>
             </div>
           </div>
-        </div>
-
-        <div className="p-4 border-t border-gray-100 bg-gray-50/50 flex justify-between gap-3">
-          <button type="button"
-            className="flex-1 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-bold rounded-xl hover:bg-gray-50 flex items-center gap-2 justify-center">
-            <Mail className="w-4 h-4" /> Gửi Email
-          </button>
-          <button type="button" onClick={onClose}
-            className="flex-1 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700">
-            Đóng
-          </button>
         </div>
       </div>
     </>

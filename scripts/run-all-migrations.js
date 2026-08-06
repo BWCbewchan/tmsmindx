@@ -304,7 +304,8 @@ async function main() {
                 { name: 'V100_teaching_document_folders', file: '../migrations/add_teaching_document_folders.sql' },
                 { name: 'V101_teaching_document_material_links', file: '../migrations/add_teaching_document_material_links.sql' },
                 { name: 'V102_hr_training_absence_notes', file: '../migrations/add_hr_training_absence_notes.sql' },
-                { name: 'V103_training_assignment_context', file: '../migrations/add_training_assignment_context.sql' }
+                { name: 'V103_training_assignment_context', file: '../migrations/add_training_assignment_context.sql' },
+                { name: 'V103_hr_candidate_pedagogy_certificate_url', file: '../migrations/add_hr_candidate_pedagogy_certificate_url.sql' }
         ];
 
 

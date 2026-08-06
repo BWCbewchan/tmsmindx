@@ -2561,6 +2561,14 @@ const migrations: Migration[] = [
       EXECUTE FUNCTION update_updated_at_column();
     `,
   },
+  {
+    name: 'V103_hr_candidate_pedagogy_certificate_url',
+    version: 103,
+    sql: `
+      ALTER TABLE hr_candidates
+      ADD COLUMN IF NOT EXISTS pedagogy_certificate_url TEXT;
+    `,
+  },
 ]
 
 // ========== HÀM CHẠY MIGRATIONS ==========
