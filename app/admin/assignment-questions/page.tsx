@@ -58,6 +58,7 @@ function AssignmentQuestionsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const assignmentId = searchParams.get('assignment_id');
+  const returnTo = searchParams.get('return_to');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -283,8 +284,8 @@ function AssignmentQuestionsContent() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.name.endsWith('.csv')) {
-      toast.error('Vui lòng chọn file CSV');
+    if (!/\.(csv|xlsx|xls)$/i.test(file.name)) {
+      toast.error('Vui lòng chọn file CSV hoặc Excel');
       return;
     }
 
@@ -380,13 +381,18 @@ function AssignmentQuestionsContent() {
     }
   };
 
+  const backHref =
+    returnTo && returnTo.startsWith('/admin/')
+      ? returnTo
+      : '/admin/assignments';
+
   if (!assignmentId) {
     return (
       <PageContainer title="Quản lý câu hỏi">
         <div className="text-center py-12">
           <p className="text-red-600">Không tìm thấy bài tập</p>
           <button
-            onClick={() => router.push('/admin/assignments')}
+            onClick={() => router.push(backHref)}
             className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
             Quay lại danh sách
@@ -424,7 +430,7 @@ function AssignmentQuestionsContent() {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".csv"
+        accept=".csv,.xlsx,.xls"
         onChange={handleFileChange}
         className="hidden"
       />
@@ -432,7 +438,7 @@ function AssignmentQuestionsContent() {
       {/* Actions */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
         <button
-          onClick={() => router.push('/admin/assignments')}
+          onClick={() => router.push(backHref)}
           className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -469,7 +475,7 @@ function AssignmentQuestionsContent() {
               className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Upload className="w-4 h-4" />
-              <span className="text-sm font-medium">{importing ? 'Đang import...' : 'Import'}</span>
+              <span className="text-sm font-medium">{importing ? 'Đang import...' : 'Import CSV/Excel'}</span>
             </button>
 
             {/* Export */}
@@ -545,10 +551,10 @@ function AssignmentQuestionsContent() {
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <h3 className="font-semibold text-blue-900 mb-2">🚀 Bắt đầu nhanh</h3>
                 <ol className="list-decimal list-inside space-y-1 text-blue-800">
-                  <li>Click <strong>&quot;Tải file mẫu&quot;</strong> để download file CSV mẫu đầy đủ</li>
-                  <li>Mở file bằng Excel hoặc Google Sheets</li>
+                  <li>Chọn <strong>file CSV hoặc Excel (.xlsx/.xls)</strong> cần import</li>
+                  <li>Có thể dùng trực tiếp mẫu Excel có các cột Question, Option A-D và Correct Answer</li>
                   <li>Thêm câu hỏi của bạn (giữ nguyên dòng header)</li>
-                  <li>Lưu file dạng CSV (UTF-8 with BOM)</li>
+                  <li>Nếu dùng CSV, lưu file với mã hóa UTF-8 để hiển thị tiếng Việt đúng</li>
                   <li>Click <strong>&quot;Import&quot;</strong> và chọn file vừa tạo</li>
                 </ol>
               </div>
@@ -615,7 +621,7 @@ function AssignmentQuestionsContent() {
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-green-600 font-bold shrink-0">✓</span>
-                    <span className="text-gray-700"><strong>Encoding:</strong> Lưu CSV với UTF-8 (có BOM) để hiển thị tiếng Việt đúng trong Excel</span>
+                    <span className="text-gray-700"><strong>Định dạng file:</strong> Hỗ trợ CSV (UTF-8) và Excel (.xlsx/.xls)</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-green-600 font-bold shrink-0">✓</span>

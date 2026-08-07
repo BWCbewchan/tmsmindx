@@ -9,9 +9,13 @@ import UsersTab from "./components/UsersTab";
 
 type Tab = 'users' | 'roles' | 'screens' | 'data';
 
+import { useSearchParams } from "next/navigation";
+
 export default function UserManagementPage() {
     const { user } = useAuth();
-    const [tab, setTab] = useState<Tab>('users');
+    const searchParams = useSearchParams();
+    const initialTab = (searchParams.get('tab') as Tab) || 'users';
+    const [tab, setTab] = useState<Tab>(initialTab);
 
     if (user?.role !== 'super_admin') {
         return (

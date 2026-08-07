@@ -2,6 +2,7 @@
 
 import { PageContainer } from '@/components/PageContainer'
 import ImageLightbox from '@/components/ImageLightbox'
+import { normalizeStorageUrl } from '@/lib/storage-url'
 import { cn } from '@/lib/utils'
 import {
   ChevronRight,
@@ -129,13 +130,16 @@ function normalizeGitbookMarkdown(raw: string) {
   content = content.replace(
     /\{\%\s*hint\s+style="([^"]+)"\s*\%\}([\s\S]*?)\{\%\s*endhint\s*\%\}/g,
     (_all, style: string, body: string) => {
-      const title = style.toUpperCase()
-      const lines = body
-        .trim()
+      const trimmed = body.trim()
+      const lines = trimmed
         .split('\n')
         .map((line) => `> ${line}`)
         .join('\n')
-      return `> ${title}\n${lines}`
+      if (/^\*\*(Lưu ý|Note|Chú ý|Cảnh báo|Quan trọng|Warning|Info|Success)/i.test(trimmed)) {
+        return `\n${lines}\n`
+      }
+      const title = style.toUpperCase()
+      return `\n> **${title}:**\n${lines}\n`
     },
   )
 
@@ -319,15 +323,19 @@ function extractImagesFromMarkdown(
   let match: RegExpExecArray | null
   while ((match = markdownImageRegex.exec(content)) !== null) {
     const alt = (match[1] || '').trim() || 'image'
-    const src = (match[2] || '').trim()
-    if (!src || seen.has(src)) continue
+    const rawSrc = (match[2] || '').trim()
+    if (!rawSrc) continue
+    const src = normalizeStorageUrl(rawSrc)
+    if (seen.has(src)) continue
     seen.add(src)
     images.push({ src, alt })
   }
 
   while ((match = htmlImageRegex.exec(content)) !== null) {
-    const src = (match[1] || '').trim()
-    if (!src || seen.has(src)) continue
+    const rawSrc = (match[1] || '').trim()
+    if (!rawSrc) continue
+    const src = normalizeStorageUrl(rawSrc)
+    if (seen.has(src)) continue
     seen.add(src)
     images.push({ src, alt: 'image' })
   }
@@ -872,13 +880,15 @@ export default function K12DocsClient({
                     },
                     img: ({ src, alt }) => {
                       if (!src) return null
+                      const rawSrc = typeof src === 'string' ? src : undefined
+                      const normalizedSrc = normalizeStorageUrl(rawSrc)
                       const imageIndex = galleryImages.findIndex(
-                        (image) => image.src === src,
+                        (image) => image.src === normalizedSrc,
                       )
                       return (
                         <img
-                          src={src}
-                          alt={alt || 'image'}
+                          src={normalizedSrc}
+                          alt={typeof alt === 'string' ? alt : 'image'}
                           loading="lazy"
                           className="my-3 max-h-130 w-auto max-w-full cursor-zoom-in rounded-lg border border-gray-200 object-contain"
                           onClick={() => {
@@ -889,17 +899,66 @@ export default function K12DocsClient({
                       )
                     },
                     table: ({ children }) => (
-                      <div className="my-4 overflow-x-auto rounded-lg border border-gray-200">
-                        <table className="min-w-full w-max border-collapse text-sm">
+                      <div className="my-4 overflow-x-auto rounded-lg border border-slate-300 shadow-xs">
+                        <table className="w-full border-collapse text-sm text-slate-800 bg-white">
                           {children}
                         </table>
                       </div>
                     ),
-                    th: ({ children }) => (
-                      <th className="border border-gray-200 bg-gray-50 px-3 py-2 text-left font-semibold text-gray-800 whitespace-nowrap lg:whitespace-normal">
-                        {children}
-                      </th>
-                    ),
+                    th: ({ node, children, ...props }: any) => {
+                      const rowSpan = props.rowSpan || props.rowspan
+                      const colSpan = props.colSpan || props.colspan
+                      return (
+                        <th
+                          {...props}
+                          rowSpan={rowSpan ? Number(rowSpan) : undefined}
+                          colSpan={colSpan ? Number(colSpan) : undefined}
+                          className="border border-slate-300 bg-slate-50 px-3.5 py-2.5 text-left font-semibold text-slate-900"
+                        >
+                          {children}
+                        </th>
+                      )
+                    },
+                    td: ({ node, children, ...props }: any) => {
+                      const rowSpan = props.rowSpan || props.rowspan
+                      const colSpan = props.colSpan || props.colspan
+                      return (
+                        <td
+                          {...props}
+                          rowSpan={rowSpan ? Number(rowSpan) : undefined}
+                          colSpan={colSpan ? Number(colSpan) : undefined}
+                          className="border border-slate-300 px-3.5 py-2.5 text-slate-700 align-top"
+                        >
+                          {children}
+                        </td>
+                      )
+                    },
+                    mark: ({ children, style, ...props }: any) => {
+                      const color = (style?.color || '').toLowerCase().trim()
+                      let bgClass = 'bg-amber-100 text-amber-950 border-amber-300'
+                      if (color === 'green') {
+                        bgClass = 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                      } else if (color === 'blue') {
+                        bgClass = 'bg-blue-100 text-blue-900 border-blue-300'
+                      } else if (color === 'orange') {
+                        bgClass = 'bg-orange-100 text-orange-950 border-orange-300'
+                      } else if (color === 'yellow') {
+                        bgClass = 'bg-yellow-100 text-amber-950 border-yellow-300'
+                      } else if (color === 'red') {
+                        bgClass = 'bg-rose-100 text-rose-950 border-rose-300'
+                      } else if (color === 'purple') {
+                        bgClass = 'bg-purple-100 text-purple-950 border-purple-300'
+                      }
+                      return (
+                        <mark
+                          {...props}
+                          style={style}
+                          className={cn('inline px-1.5 py-0.5 rounded font-medium border text-[0.93em] mx-0.5', bgClass)}
+                        >
+                          {children}
+                        </mark>
+                      )
+                    },
                     li: ({ children }) => {
                       const childNodes = Children.toArray(children as any)
                       let firstAnchor: { href: string; label: string } | null =
@@ -962,11 +1021,6 @@ export default function K12DocsClient({
 
                       return <li>{children}</li>
                     },
-                    td: ({ children }) => (
-                      <td className="border border-gray-200 px-3 py-2 align-top whitespace-nowrap lg:whitespace-normal">
-                        {children}
-                      </td>
-                    ),
                     details: ({ children }) => (
                       <details className="my-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
                         {children}

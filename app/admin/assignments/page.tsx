@@ -57,7 +57,7 @@ export default function AssignmentManagementPage() {
     }
   }, [fromVideoId, videos]);
 
-  const fetchVideos = async () => {
+  async function fetchVideos() {
     try {
       const response = await fetch('/api/training-videos');
       const data = await response.json();
@@ -67,12 +67,12 @@ export default function AssignmentManagementPage() {
     } catch (err) {
       console.error('Error fetching videos:', err);
     }
-  };
+  }
 
-  const fetchAssignments = async () => {
+  async function fetchAssignments() {
     try {
       setLoading(true);
-      const response = await fetch('/api/training-assignments');
+      const response = await fetch('/api/training-assignments?assignment_context=advanced_training');
       const data = await response.json();
       if (data.success) {
         setAssignments(data.data);
@@ -83,7 +83,7 @@ export default function AssignmentManagementPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,9 +93,14 @@ export default function AssignmentManagementPage() {
         : '/api/training-assignments';
       
       const method = editingId ? 'PUT' : 'POST';
+      const advancedAssignment = {
+        ...formData,
+        assignment_context: 'advanced_training',
+        training_stage: 'advanced_video',
+      };
       const body = editingId 
-        ? { id: editingId, ...formData }
-        : formData;
+        ? { id: editingId, ...advancedAssignment }
+        : advancedAssignment;
 
       const response = await fetch(url, {
         method,

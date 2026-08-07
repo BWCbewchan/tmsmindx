@@ -1,5 +1,5 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import HrCandidateRow from './HrCandidateRow';
 import { HrCandidateRow as HrCandidateRowType, HrPagination } from '../types';
 
@@ -17,6 +17,42 @@ interface HrCandidatesTableProps {
   onToggleSelectAll: () => void;
 }
 
+function CandidateTableSkeletonRows() {
+  return (
+    <>
+      {Array.from({ length: 8 }).map((_, index) => (
+        <TableRow key={index} className="animate-pulse">
+          <TableCell className="pl-4">
+            <div className="h-4 w-4 rounded bg-gray-200" />
+          </TableCell>
+          <TableCell>
+            <div className="h-4 w-8 rounded bg-gray-200" />
+          </TableCell>
+          <TableCell>
+            <div className="h-4 w-44 rounded bg-gray-200" />
+            <div className="mt-2 h-3 w-60 rounded bg-gray-100" />
+          </TableCell>
+          <TableCell>
+            <div className="h-4 w-36 rounded bg-gray-100" />
+          </TableCell>
+          <TableCell>
+            <div className="h-6 w-20 rounded-full bg-gray-100" />
+          </TableCell>
+          <TableCell>
+            <div className="h-4 w-16 rounded bg-gray-100" />
+          </TableCell>
+          <TableCell>
+            <div className="h-6 w-20 rounded-full bg-gray-100" />
+          </TableCell>
+          <TableCell>
+            <div className="h-4 w-28 rounded bg-gray-100" />
+          </TableCell>
+        </TableRow>
+      ))}
+    </>
+  );
+}
+
 export default function HrCandidatesTable({
   rows, loading, page, pageSize, pagination,
   onOpenDetails, onPageChange, onClearFilters,
@@ -26,13 +62,6 @@ export default function HrCandidatesTable({
 
   return (
     <div className="relative min-h-[400px]">
-      {loading && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm">
-          <Loader2 className="h-10 w-10 animate-spin text-[#a1001f] mb-4" />
-          <p className="text-sm font-semibold text-gray-600 animate-pulse">Đang tải danh sách ứng viên...</p>
-        </div>
-      )}
-
       <div className="overflow-x-auto overflow-y-visible">
         <Table className="w-full text-left text-sm">
           <TableHeader className="bg-gray-50 border-b border-gray-200">
@@ -52,6 +81,7 @@ export default function HrCandidatesTable({
             </TableRow>
           </TableHeader>
           <TableBody className="divide-y divide-gray-100">
+            {loading && <CandidateTableSkeletonRows />}
             {rows.length === 0 && !loading && (
               <TableRow>
                 <TableCell colSpan={8} className="h-64 text-center">

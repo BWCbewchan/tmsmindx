@@ -15,6 +15,9 @@ function Layout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [mounted, setMounted] = useState(false);
   const isCandidatePortal = pathname.startsWith('/candidate-portal');
+  const isStandaloneLesson =
+    pathname.startsWith('/admin/hr-onboarding/videos/lesson') ||
+    pathname.startsWith('/candidate-portal/videos/lesson');
 
   useEffect(() => {
     setMounted(true);
@@ -26,7 +29,9 @@ function Layout({ children }: { children: React.ReactNode }) {
     pathname === '/' ||
     pathname.startsWith('/checkdatasource') ||
     pathname.startsWith('/bao-tri') ||
-    isCandidatePortal
+    pathname.startsWith('/hr-candidate-application') ||
+    isCandidatePortal ||
+    isStandaloneLesson
   let shouldShowSidebar = !noSidebarPaths
 
   // Hide sidebar if admin user has no permissions
@@ -88,21 +93,25 @@ function Layout({ children }: { children: React.ReactNode }) {
         `}
       >
         <div className="w-full min-h-screen lg:h-screen">
-          <div className="min-h-screen lg:h-full lg:overflow-y-auto custom-scrollbar">
+          <div className={`min-h-screen lg:h-full custom-scrollbar ${isStandaloneLesson ? 'overflow-y-auto' : 'lg:overflow-y-auto'}`}>
             <div
-              className={`w-full px-0 py-1.25 sm:px-[1.5%] sm:py-2 lg:px-[2%] lg:py-3 xl:px-[2.5%] xl:py-3 ${
-                mounted && shouldShowSidebar && !isDockMode && !isOpen ? 'pt-14 sm:pt-16 lg:pt-3' : ''
-              } ${
-                // Add bottom padding in dock mode so content isn't hidden behind the dock
-                mounted && shouldShowSidebar && isDockMode ? 'pb-24' : ''
-              }`}
+              className={
+                isStandaloneLesson
+                  ? 'w-full p-0'
+                  : `w-full px-0 py-1.25 sm:px-[1.5%] sm:py-2 lg:px-[2%] lg:py-3 xl:px-[2.5%] xl:py-3 ${
+                      mounted && shouldShowSidebar && !isDockMode && !isOpen ? 'pt-14 sm:pt-16 lg:pt-3' : ''
+                    } ${
+                      // Add bottom padding in dock mode so content isn't hidden behind the dock
+                      mounted && shouldShowSidebar && isDockMode ? 'pb-24' : ''
+                    }`
+              }
             >
               {children}
             </div>
           </div>
         </div>
       </main>
-      {!pathname.startsWith('/bao-tri') && !isCandidatePortal && <UserFirstLoginOnboarding />}
+      {!pathname.startsWith('/bao-tri') && !isCandidatePortal && !isStandaloneLesson && <UserFirstLoginOnboarding />}
     </div>
   );
 }
