@@ -97,6 +97,7 @@ export const GET = withApiProtection(async (request: NextRequest) => {
         status
       FROM training_videos
       WHERE status = 'active'
+        AND COALESCE(video_category, 'advanced') <> 'onboarding'
       ORDER BY lesson_number ASC
     `;
     const quizEvidenceByVideoQuery = `

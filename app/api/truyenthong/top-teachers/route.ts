@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 
+export const dynamic = 'force-dynamic'
+
+function jsonNoStore(body: unknown, init?: ResponseInit) {
+    const response = NextResponse.json(body, init)
+    response.headers.set('Cache-Control', 'no-store, max-age=0')
+    return response
+}
+
 export async function GET() {
     try {
         const client = await pool.connect();
@@ -54,14 +62,14 @@ export async function GET() {
                     LIMIT 3
                 `, [latestMonth]);
 
-                return NextResponse.json({
+                return jsonNoStore({
                     success: true,
                     data: result.rows,
                     month: latestMonth,
                 });
             }
 
-            return NextResponse.json({
+            return jsonNoStore({
                 success: true,
                 data: [],
             });
@@ -70,7 +78,7 @@ export async function GET() {
         }
     } catch (error) {
         console.error('Error fetching top teachers:', error);
-        return NextResponse.json({
+        return jsonNoStore({
             success: false,
             data: [],
         }, { status: 500 });

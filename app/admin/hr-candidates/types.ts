@@ -8,6 +8,7 @@ export interface HrCandidateRow {
   desired_campus: string;
   work_block: string;
   subject_code: string;
+  pedagogy_certificate_url: string;
   gen_id: number | null;
   gen_name: string;       // join từ hr_gen_catalog
   candidate_code: string;
@@ -34,6 +35,20 @@ export interface HrPagination {
   totalPages: number;
 }
 
+export type GenTrainingProgressStatus =
+  | 'not_open'
+  | 'in_progress'
+  | 'completed';
+
+export interface GenTrainingProgress {
+  status: GenTrainingProgressStatus;
+  label: string;
+  helper: string;
+  sessionCount: number;
+  firstStartAt: string | null;
+  lastEndAt: string | null;
+}
+
 export interface GenEntry {
   key: string;
   id?: number;
@@ -43,4 +58,6 @@ export interface GenEntry {
   regionLabel: string;
   isTeacher4Plus: boolean;
   note: string;
+  trainingProgress?: GenTrainingProgress;
+  latestTrainingAt?: string | null;
 }

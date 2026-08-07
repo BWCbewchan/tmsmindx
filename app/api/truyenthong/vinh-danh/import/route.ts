@@ -9,6 +9,14 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 // Prefix đặc biệt để nhận diện ảnh vinh danh — KHÔNG dùng cho avatar thường
 const HONORS_KEY_PREFIX = 'honors-monthly/'
 
+export const dynamic = 'force-dynamic'
+
+function jsonNoStore(body: unknown, init?: ResponseInit) {
+  const response = NextResponse.json(body, init)
+  response.headers.set('Cache-Control', 'no-store, max-age=0')
+  return response
+}
+
 async function ensureBucket() {
   const client = createSupabaseS3Client()
   try {
@@ -28,8 +36,8 @@ async function deleteHonorsAvatarIfOwned(avatarUrl: string | null): Promise<void
   try {
     const parsed = parsePublicUrl(avatarUrl)
     if (!parsed) return
-    // Chỉ xóa nếu là ảnh vinh danh (có prefix riêng), không đụng avatar cá nhân
-    if (!parsed.key.startsWith(HONORS_KEY_PREFIX)) return
+    // Chỉ xóa nếu là ảnh vinh danh trong bucket avatar, không đụng thumbnail bài viết/avatar cá nhân
+    if (parsed.bucket !== BUCKET_NAME || !parsed.key.startsWith(HONORS_KEY_PREFIX)) return
     await deleteObject(parsed.bucket, parsed.key)
   } catch (e) {
     console.warn('⚠️ Không xóa được ảnh vinh danh cũ:', e)
@@ -67,11 +75,15 @@ const HEADER_MAP: Record<string, string> = {
   // Số học sinh
   'số học sinh': 'so_hoc_sinh',
   'so hoc sinh': 'so_hoc_sinh',
-  // Tỉ lệ
+  // Tỉ lệ / CR45
   'tỉ lệ': 'ti_le',
   'ti le': 'ti_le',
   'tỷ lệ': 'ti_le',
   'tyle': 'ti_le',
+  'cr45': 'ti_le',
+  'cr 45': 'ti_le',
+  'chỉ số cr45': 'ti_le',
+  'chi so cr45': 'ti_le',
   // Loại
   'loại': 'loai',
   'loai': 'loai',
@@ -156,7 +168,7 @@ export async function POST(request: NextRequest) {
     const importedBy = (formData.get('imported_by') as string) || 'admin'
 
     if (!file) {
-      return NextResponse.json({ success: false, error: 'Thiếu file CSV' }, { status: 400 })
+      return jsonNoStore({ success: false, error: 'Thiếu file CSV' }, { status: 400 })
     }
 
     const text = await file.text()
@@ -164,7 +176,7 @@ export async function POST(request: NextRequest) {
     const lines = normalized.split('\n').filter(l => l.trim().length > 0)
 
     if (lines.length < 2) {
-      return NextResponse.json({ success: false, error: 'File cần có ít nhất 1 dòng tiêu đề và 1 dòng dữ liệu.' }, { status: 400 })
+      return jsonNoStore({ success: false, error: 'File cần có ít nhất 1 dòng tiêu đề và 1 dòng dữ liệu.' }, { status: 400 })
     }
 
     // Tự phát hiện dòng header
@@ -191,7 +203,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!rows.length) {
-      return NextResponse.json({
+      return jsonNoStore({
         success: false,
         error: 'Không tìm thấy dữ liệu hợp lệ. Kiểm tra lại tên cột CSV (cần có cột "Giảng viên" hoặc "Tên").'
       }, { status: 400 })
@@ -251,116 +263,155 @@ export async function POST(request: NextRequest) {
         ALTER TABLE teacher_monthly_honors ADD COLUMN IF NOT EXISTS slogan VARCHAR(255);
       `)
 
+      const selectedRows = new Map<number, {
+        row: Record<string, string>
+        sourceIndex: number
+        rankIndex: number
+      }>()
+
+      rows.forEach((row, sourceIndex) => {
+        const explicitRank = parseInt(row.stt || '0', 10)
+        if (explicitRank >= 1 && explicitRank <= 3 && !selectedRows.has(explicitRank)) {
+          selectedRows.set(explicitRank, { row, sourceIndex, rankIndex: explicitRank })
+        }
+      })
+
+      const usedSourceIndexes = new Set([...selectedRows.values()].map(item => item.sourceIndex))
+      const missingRanks = [1, 2, 3].filter(rank => !selectedRows.has(rank))
+      for (let sourceIndex = 0; sourceIndex < rows.length && missingRanks.length > 0; sourceIndex++) {
+        if (usedSourceIndexes.has(sourceIndex)) continue
+        const rankIndex = missingRanks.shift()
+        if (!rankIndex) break
+        selectedRows.set(rankIndex, { row: rows[sourceIndex], sourceIndex, rankIndex })
+      }
+
+      const importRows = [1, 2, 3]
+        .map(rank => selectedRows.get(rank))
+        .filter((item): item is { row: Record<string, string>; sourceIndex: number; rankIndex: number } => Boolean(item))
+
+      if (importRows.length < 3) {
+        await Promise.allSettled(Object.values(topImages).map(url => deleteHonorsAvatarIfOwned(url)))
+        return jsonNoStore({
+          success: false,
+          error: `File cần có đủ 3 giáo viên Top 1/2/3. Hiện chỉ tìm thấy ${importRows.length} dòng hợp lệ.`,
+        }, { status: 400 })
+      }
+
+      const targetMonth = (thangFromForm || importRows[0].row.thang || '').trim()
+      if (!targetMonth) {
+        await Promise.allSettled(Object.values(topImages).map(url => deleteHonorsAvatarIfOwned(url)))
+        return jsonNoStore({
+          success: false,
+          error: 'Thiếu tháng. Vui lòng nhập tháng trong popup hoặc thêm cột Tháng trong CSV.',
+        }, { status: 400 })
+      }
+
+      if (!thangFromForm) {
+        const mixedMonth = importRows.find(({ row }) => (row.thang || '').trim() !== targetMonth)
+        if (mixedMonth) {
+          await Promise.allSettled(Object.values(topImages).map(url => deleteHonorsAvatarIfOwned(url)))
+          return jsonNoStore({
+            success: false,
+            error: '3 giáo viên Top 1/2/3 cần cùng một tháng. Vui lòng kiểm tra lại cột Tháng trong CSV.',
+          }, { status: 400 })
+        }
+      }
+
       let insertedCount = 0
-      const errors: string[] = []
       const preview: Record<string, unknown>[] = []
-      let rowIndex = 0
+      let deletedCount = 0
+      const oldHonorsAvatarRows = await client.query(
+        `SELECT honors_avatar_url
+         FROM teacher_monthly_honors
+         WHERE thang = $1 AND honors_avatar_url IS NOT NULL`,
+        [targetMonth]
+      )
+      const oldHonorsAvatarUrls = oldHonorsAvatarRows.rows
+        .map((row: { honors_avatar_url: string | null }) => row.honors_avatar_url)
+        .filter((url: string | null): url is string => Boolean(url))
 
-      for (const row of rows) {
-        const rankIndex = rowIndex + 1  // 1-based
-        rowIndex++
+      await client.query('BEGIN')
+      try {
+        const deleteRes = await client.query(
+          `DELETE FROM teacher_monthly_honors WHERE thang = $1`,
+          [targetMonth]
+        )
+        deletedCount = deleteRes.rowCount || 0
 
-        const thang = (row.thang || thangFromForm || '').trim()
-        if (!thang) {
-          errors.push(`Bỏ qua "${row.full_name}": thiếu tháng`)
-          continue
-        }
+        for (const { row, rankIndex } of importRows) {
+          const email = (row.email || '').trim().toLowerCase()
 
-        const email = (row.email || '').trim().toLowerCase()
-        const stt = parseInt(row.stt || '0') || null
+          // ── honors_avatar_url: chỉ lưu ảnh do admin upload riêng cho vinh danh ──
+          const honorsAvatarUrl: string | null = topImages[rankIndex] || null
 
-        // ── honors_avatar_url: chỉ lưu ảnh do admin upload riêng cho vinh danh ──
-        const honorsAvatarUrl: string | null = topImages[rankIndex] || null
+          // ── avatar_url hiển thị: ưu tiên ảnh vinh danh mới upload, fallback avatar cá nhân ──
+          let displayAvatarUrl: string | null = honorsAvatarUrl
 
-        // Nếu import đè lên record cũ → xóa ảnh honors cũ trên S3 (nếu có và khác ảnh mới)
-        if (email && thang) {
-          try {
-            const existing = await client.query(
-              `SELECT honors_avatar_url FROM teacher_monthly_honors WHERE LOWER(email) = $1 AND thang = $2 LIMIT 1`,
-              [email, thang]
-            )
-            const oldHonorsUrl = existing.rows[0]?.honors_avatar_url || null
-            if (oldHonorsUrl && oldHonorsUrl !== honorsAvatarUrl) {
-              await deleteHonorsAvatarIfOwned(oldHonorsUrl)
-            }
-          } catch { /* skip */ }
-        }
-
-        // ── avatar_url hiển thị: ưu tiên ảnh vinh danh mới upload, fallback avatar cá nhân ──
-        let displayAvatarUrl: string | null = honorsAvatarUrl
-
-        if (!displayAvatarUrl && email) {
-          try {
-            const avatarRes = await client.query(
-              `SELECT avatar_url FROM teacher_avatars WHERE LOWER(teacher_email) = $1 LIMIT 1`,
-              [email]
-            )
-            displayAvatarUrl = avatarRes.rows[0]?.avatar_url || null
-          } catch { /* skip */ }
-
-          if (!displayAvatarUrl) {
+          if (!displayAvatarUrl && email) {
             try {
-              await client.query(`ALTER TABLE app_users ADD COLUMN IF NOT EXISTS avatar_url TEXT`)
-              const userRes = await client.query(
-                `SELECT avatar_url FROM app_users WHERE LOWER(email) = $1 LIMIT 1`,
+              const avatarRes = await client.query(
+                `SELECT avatar_url FROM teacher_avatars WHERE LOWER(teacher_email) = $1 LIMIT 1`,
                 [email]
               )
-              displayAvatarUrl = userRes.rows[0]?.avatar_url || null
+              displayAvatarUrl = avatarRes.rows[0]?.avatar_url || null
             } catch { /* skip */ }
+
+            if (!displayAvatarUrl) {
+              try {
+                await client.query(`ALTER TABLE app_users ADD COLUMN IF NOT EXISTS avatar_url TEXT`)
+                const userRes = await client.query(
+                  `SELECT avatar_url FROM app_users WHERE LOWER(email) = $1 LIMIT 1`,
+                  [email]
+                )
+                displayAvatarUrl = userRes.rows[0]?.avatar_url || null
+              } catch { /* skip */ }
+            }
           }
-        }
 
-        // KHÔNG ghi đè teacher_avatars — ảnh vinh danh chỉ thuộc về teacher_monthly_honors
+          // KHÔNG ghi đè teacher_avatars — ảnh vinh danh chỉ thuộc về teacher_monthly_honors
 
-        // Parse số liệu với format VN
-        const tiLe = parsePercent(row.ti_le)
-        const thuongCr = parseMoney(row.thuong_cr)
-        const soCase = parseNum(row.so_case)
-        const soHocSinh = parseNum(row.so_hoc_sinh)
+          // Parse số liệu với format VN
+          const tiLe = parsePercent(row.ti_le)
+          const thuongCr = parseMoney(row.thuong_cr)
+          const soCase = parseNum(row.so_case)
+          const soHocSinh = parseNum(row.so_hoc_sinh)
 
-        try {
           await client.query(
             `INSERT INTO teacher_monthly_honors
               (stt, full_name, email, khoi_day, co_so, thang, so_case, so_hoc_sinh, ti_le, loai, thuong_cr,
                avatar_url, honors_avatar_url, imported_by)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-             ON CONFLICT (email, thang) DO UPDATE SET
-               stt = EXCLUDED.stt,
-               full_name = EXCLUDED.full_name,
-               khoi_day = EXCLUDED.khoi_day,
-               co_so = EXCLUDED.co_so,
-               so_case = EXCLUDED.so_case,
-               so_hoc_sinh = EXCLUDED.so_hoc_sinh,
-               ti_le = EXCLUDED.ti_le,
-               loai = EXCLUDED.loai,
-               thuong_cr = EXCLUDED.thuong_cr,
-               avatar_url = EXCLUDED.avatar_url,
-               honors_avatar_url = EXCLUDED.honors_avatar_url,
-               imported_at = NOW(),
-               imported_by = EXCLUDED.imported_by`,
-            [stt, row.full_name, email || null, row.khoi_day || null, row.co_so || null,
-             thang, soCase, soHocSinh, tiLe, row.loai || null, thuongCr,
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+            [rankIndex, row.full_name, email || null, row.khoi_day || null, row.co_so || null,
+             targetMonth, soCase, soHocSinh, tiLe, row.loai || null, thuongCr,
              displayAvatarUrl, honorsAvatarUrl, importedBy]
           )
+
           insertedCount++
-          if (preview.length < 10) {
-            preview.push({
-              stt, full_name: row.full_name, co_so: row.co_so,
-              thang, ti_le: tiLe,
-              avatar_url: displayAvatarUrl,
-              honors_avatar_url: honorsAvatarUrl,
-            })
-          }
-        } catch (err) {
-          errors.push(`Lỗi dòng "${row.full_name}": ${err instanceof Error ? err.message : String(err)}`)
+          preview.push({
+            stt: rankIndex, full_name: row.full_name, co_so: row.co_so,
+            thang: targetMonth, ti_le: tiLe, rank_index: rankIndex,
+            avatar_url: displayAvatarUrl,
+            honors_avatar_url: honorsAvatarUrl,
+          })
         }
+
+        await client.query('COMMIT')
+      } catch (err) {
+        await client.query('ROLLBACK')
+        await Promise.allSettled(Object.values(topImages).map(url => deleteHonorsAvatarIfOwned(url)))
+        throw err
       }
 
-      return NextResponse.json({
+      await Promise.allSettled(oldHonorsAvatarUrls.map(url => deleteHonorsAvatarIfOwned(url)))
+
+      return jsonNoStore({
         success: true,
         inserted: insertedCount,
-        total: rows.length,
-        errors: errors.slice(0, 20),
+        total: importRows.length,
+        source_total: rows.length,
+        deleted: deletedCount,
+        current_month: targetMonth,
+        errors: [],
         preview,
       })
     } finally {
@@ -368,7 +419,7 @@ export async function POST(request: NextRequest) {
     }
   } catch (err) {
     console.error('Import honors error:', err)
-    return NextResponse.json({
+    return jsonNoStore({
       success: false,
       error: err instanceof Error ? err.message : 'Lỗi server'
     }, { status: 500 })

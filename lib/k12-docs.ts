@@ -621,12 +621,16 @@ async function loadK12DocsFromDatabase(includeDraft = false): Promise<K12DocsPay
 	}
 }
 
+export function clearK12DocsCache() {
+	k12DocsMemCache.clear();
+}
+
 /** In-memory cache — tránh gọi DB/filesystem lặp lại trong cùng 1 process/worker */
 const k12DocsMemCache = new Map<
 	string,
 	{ payload: K12DocsPayload; expiresAt: number }
 >();
-const MEM_CACHE_TTL_MS = 5 * 60 * 1000; // 5 phút
+const MEM_CACHE_TTL_MS = process.env.NODE_ENV === 'production' ? 5 * 60 * 1000 : 1000; // 1s in dev, 5m in prod
 
 /** Phiên bản được cache bởi Next.js (persist qua requests, revalidate 5 phút) */
 const loadK12DocsCached = unstable_cache(
@@ -643,7 +647,7 @@ const loadK12DocsCached = unstable_cache(
 		};
 	},
 	['k12-docs-published'],
-	{ revalidate: 300 }, // 5 phút cho published
+	{ revalidate: process.env.NODE_ENV === 'production' ? 300 : 1 }, // 1s in dev
 );
 
 /** Cache riêng cho draft (admin) — revalidate 60s */
@@ -661,12 +665,19 @@ const loadK12DocsDraftCached = unstable_cache(
 		};
 	},
 	['k12-docs-draft'],
-	{ revalidate: 60 }, // 60 giây cho draft (admin page)
+	{ revalidate: process.env.NODE_ENV === 'production' ? 60 : 1 }, // 1s in dev
 );
 
 export async function loadK12Docs(options?: { includeDraft?: boolean }): Promise<K12DocsPayload> {
 	const includeDraft = options?.includeDraft ?? false;
 	const cacheKey = includeDraft ? 'draft' : 'published';
+
+	// In development, always fetch fresh data from DB
+	if (process.env.NODE_ENV !== 'production') {
+		k12DocsMemCache.clear();
+		const dbDocs = await loadK12DocsFromDatabase(includeDraft);
+		if (dbDocs) return dbDocs;
+	}
 
 	// Lớp 1: in-memory (instant — cùng worker/process)
 	const mem = k12DocsMemCache.get(cacheKey);

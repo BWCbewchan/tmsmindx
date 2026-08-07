@@ -33,10 +33,25 @@ export default function LeadersPanel() {
     const [editLeader, setEditLeader] = useState<Leader | null>(null);
     const [isNew, setIsNew] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [tpsAccounts, setTpsAccounts] = useState<{ email: string; full_name: string; code: string; centers?: string[] }[]>([]);
+    const [loadingAccounts, setLoadingAccounts] = useState(false);
     const [confirmDlg, setConfirmDlg] = useState<{ open: boolean; code: string; name: string }>({ open: false, code: "", name: "" });
     const [statusDlg, setStatusDlg] = useState<{ open: boolean; leader: Leader | null; newStatus: string }>({ open: false, leader: null, newStatus: '' });
 
     useEffect(() => { load(); }, [fStatus, fArea, fRole]);
+
+    useEffect(() => {
+        if (editLeader && isNew && tpsAccounts.length === 0) {
+            setLoadingAccounts(true);
+            fetch('/api/app-auth/data?table=tps_accounts', { headers: authHeaders(token) })
+                .then(r => r.json())
+                .then(d => { if (d.rows) setTpsAccounts(d.rows); })
+                .catch(() => {})
+                .finally(() => setLoadingAccounts(false));
+        }
+    }, [editLeader, isNew, token, tpsAccounts.length]);
+
+    const [centers, setCenters] = useState<{ id: string; display_name: string; full_name: string }[]>([]);
 
     const load = async () => {
         setLoading(true);
@@ -45,10 +60,15 @@ export default function LeadersPanel() {
             if (fStatus) params.set('status', fStatus);
             if (fArea) params.set('area', fArea);
             if (fRole) params.set('roleCode', fRole);
-            const r = await fetch(`/api/app-auth/data?${params}`, { headers: authHeaders(token) });
+            const [r, cR] = await Promise.all([
+                fetch(`/api/app-auth/data?${params}`, { headers: authHeaders(token) }),
+                fetch('/api/app-auth/data?table=centers', { headers: authHeaders(token) }),
+            ]);
             const d = await r.json();
+            const cD = await cR.json();
             if (d.rows) setData(d.rows);
             if (d.filters) setFilters(d.filters);
+            if (cD.rows) setCenters(cD.rows);
         } catch { toast.error("Lỗi") } finally { setLoading(false) }
     };
 
@@ -135,6 +155,18 @@ export default function LeadersPanel() {
         setEditLeader({ ...l, areas, area: areas[0] || l.area || '' });
     };
 
+    const getLeaderCenters = (l: Leader | null): string[] => {
+        if (!l || !l.center) return [];
+        return l.center.split(',').map((s) => s.trim()).filter(Boolean);
+    };
+
+    const toggleLeaderCenter = (c: string) => {
+        if (!editLeader) return;
+        const cur = getLeaderCenters(editLeader);
+        const next = cur.includes(c) ? cur.filter((x) => x !== c) : [...cur, c];
+        setEditLeader({ ...editLeader, center: next.join(', ') || 'Không có center (Nhóm quản lý)' });
+    };
+
     const toggleLeaderArea = (a: string) => {
         if (!editLeader) return;
         const cur = editLeader.areas || getLeaderAreas(editLeader);
@@ -214,6 +246,49 @@ export default function LeadersPanel() {
                     </h3>
                     <form onSubmit={handleSave} className="space-y-3">
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            {isNew && (
+                                <div className="col-span-2 md:col-span-4 rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50/50 p-3 space-y-1.5 shadow-sm">
+                                    <label className="block text-xs font-bold text-blue-950 flex items-center justify-between">
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="inline-block h-2 w-2 rounded-full bg-blue-600 animate-ping" />
+                                            ✨ Chọn từ tài khoản hệ thống (Mục Quản lý tài khoản)
+                                        </span>
+                                        {loadingAccounts && (
+                                            <span className="text-[11px] font-normal text-blue-600 animate-pulse">Đang tải danh sách...</span>
+                                        )}
+                                    </label>
+                                    <select
+                                        onChange={(e) => {
+                                            const selected = tpsAccounts.find((a) => a.email === e.target.value);
+                                            if (selected) {
+                                                const mappedCenters = Array.isArray(selected.centers) && selected.centers.length > 0
+                                                    ? selected.centers.join(', ')
+                                                    : (editLeader?.center || '');
+                                                setEditLeader({
+                                                    ...editLeader,
+                                                    full_name: selected.full_name,
+                                                    code: selected.code || editLeader?.code || '',
+                                                    center: mappedCenters,
+                                                });
+                                            }
+                                        }}
+                                        defaultValue=""
+                                        className="h-9 w-full rounded-lg border border-blue-300 bg-white px-3 text-sm font-medium text-gray-800 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                    >
+                                        <option value="" disabled>
+                                            -- Chọn tài khoản từ Quản lý tài khoản ({tpsAccounts.length} tài khoản) --
+                                        </option>
+                                        {tpsAccounts.map((acc, idx) => (
+                                            <option key={`${acc.email}-${idx}`} value={acc.email}>
+                                                {acc.full_name} ({acc.email})
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <p className="text-[11px] text-blue-700">
+                                        Tự động điền từ danh sách tài khoản đã tạo ở mục Quản lý tài khoản (không lấy danh sách giáo viên).
+                                    </p>
+                                </div>
+                            )}
                             <div><label className="block text-xs font-semibold text-gray-700 mb-1">Code</label>
                                 <input value={editLeader.code} onChange={e => setEditLeader({ ...editLeader, code: e.target.value })} required disabled={!isNew}
                                     className="w-full border rounded-lg px-3 py-1.5 text-sm disabled:bg-gray-100 focus:outline-none focus:border-blue-500" /></div>
@@ -226,9 +301,24 @@ export default function LeadersPanel() {
                                     <option value="">Chọn role</option>
                                     {filters.roleCodes.map(r => <option key={r.role_code} value={r.role_code}>{r.role_code} - {r.role_name}</option>)}
                                 </select></div>
-                            <div><label className="block text-xs font-semibold text-gray-700 mb-1">Center</label>
-                                <input value={editLeader.center} onChange={e => setEditLeader({ ...editLeader, center: e.target.value })} required
-                                    className="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500" /></div>
+                            <div className="md:col-span-4">
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">Cơ sở trực thuộc <span className="font-normal text-gray-500">(nhiều cơ sở)</span></label>
+                                <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto rounded-lg border p-2 bg-gray-50">
+                                    {centers.length === 0 ? (
+                                        <span className="text-xs text-gray-500">Chưa có cơ sở.</span>
+                                    ) : (
+                                        centers.map((c) => {
+                                            const checked = getLeaderCenters(editLeader).includes(c.full_name);
+                                            return (
+                                                <label key={c.id} className={`flex items-center gap-1.5 px-2 py-1 rounded border text-xs cursor-pointer ${checked ? 'border-blue-500 bg-blue-50 text-blue-800 font-semibold' : 'border-gray-200 bg-white'}`}>
+                                                    <input type="checkbox" checked={checked} onChange={() => toggleLeaderCenter(c.full_name)} className="rounded text-[#a1001f]" />
+                                                    {c.display_name}
+                                                </label>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
                             <div><label className="block text-xs font-semibold text-gray-700 mb-1">Courses</label>
                                 <input value={editLeader.courses || ''} onChange={e => setEditLeader({ ...editLeader, courses: e.target.value })}
                                     className="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500" /></div>

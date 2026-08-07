@@ -35,7 +35,11 @@ export function checkHrefPermission(href: string, user: any): boolean {
   const hasTrainingInputRole = roleCodes.some(
     (code: string) => code === 'hr' || code === 'te' || code === 'tf',
   )
-  if (targetPath === '/admin/hr-candidates' && hasTrainingInputRole) {
+  const isTrainingInputRoute =
+    targetPath === '/admin/hr-candidates' ||
+    targetPath.startsWith('/admin/hr-candidates/') ||
+    targetPath === '/admin/hr-onboarding/videos'
+  if (isTrainingInputRoute && hasTrainingInputRole) {
     return true
   }
 

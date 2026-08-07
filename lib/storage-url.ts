@@ -8,6 +8,11 @@
 const SUPABASE_STORAGE_PATTERN =
   /https?:\/\/[^/]+\.supabase\.co\/storage\/v1\/object\/(?:public|sign)\/([^/]+)\/(.+)/;
 
+const STABLE_STREAM_IMAGE_BUCKETS = new Set([
+  'mindx-posts-content',
+  'mindx-thumbnails',
+]);
+
 function decodeStorageKey(key: string): string {
   const pathOnly = key.split(/[?#]/, 1)[0]
   try {
@@ -17,8 +22,26 @@ function decodeStorageKey(key: string): string {
   }
 }
 
+function isImageStorageKey(key: string): boolean {
+  return /\.(avif|gif|jpe?g|png|svg|webp)$/i.test(key)
+}
+
+function shouldUseStableImageStream(bucket: string, key: string): boolean {
+  if (!isImageStorageKey(key)) return false
+  if (STABLE_STREAM_IMAGE_BUCKETS.has(bucket)) return true
+
+  return (
+    bucket === 'mindx-avatars' &&
+    (key.startsWith('avatars/honors-top') || key.startsWith('honors-monthly/'))
+  )
+}
+
 function makeStorageProxyUrl(bucket: string, key: string): string {
-  const params = new URLSearchParams({ bucket, key: decodeStorageKey(key) });
+  const decodedKey = decodeStorageKey(key)
+  const params = new URLSearchParams({ bucket, key: decodedKey });
+  if (shouldUseStableImageStream(bucket, decodedKey)) {
+    params.set('stream', '1')
+  }
   return `/api/storage-image?${params.toString()}`;
 }
 
@@ -28,6 +51,16 @@ function normalizeLegacyProxyUrl(url: string): string {
     if (parsed.pathname !== '/api/storage-image') return url;
 
     parsed.searchParams.delete('proxy');
+    const bucket = parsed.searchParams.get('bucket')
+    const key = parsed.searchParams.get('key')
+    if (
+      bucket &&
+      key &&
+      parsed.searchParams.get('redirect') !== '1' &&
+      shouldUseStableImageStream(bucket, decodeStorageKey(key))
+    ) {
+      parsed.searchParams.set('stream', '1')
+    }
     const normalized = `${parsed.pathname}?${parsed.searchParams.toString()}`;
     return url.startsWith('/') ? normalized : parsed.toString();
   } catch {

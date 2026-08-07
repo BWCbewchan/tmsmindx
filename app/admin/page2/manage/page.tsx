@@ -209,6 +209,11 @@ function convertEditorHtmlToMarkdown(input: string) {
 
     const el = node as HTMLElement;
     const tag = el.tagName.toLowerCase();
+
+    if (tag === "table" || tag === "iframe" || tag === "figure" || tag === "figcaption" || tag === "mark") {
+      return `\n\n${el.outerHTML}\n\n`;
+    }
+
     const children = Array.from(el.childNodes).map(toMarkdown).join("");
 
     if (tag === "strong" || tag === "b") return `**${children.trim()}**`;

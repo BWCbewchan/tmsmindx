@@ -1,11 +1,11 @@
-STT,Tên,Email,Khối dạy,Cơ sở,Tháng,Số case,Số học sinh,Tỉ lệ,Loại/Chọn,Thưởng CR
-1,Nguyễn Thị Lan Anh,lan.anh@mindx.edu.vn,Scratch,MindX Cầu Giấy,06/2025,42,38,90.5,Xuất sắc,2000000
-2,Trần Văn Minh,van.minh@mindx.edu.vn,Python,MindX Đống Đa,06/2025,38,33,86.8,Tốt,1500000
-3,Lê Thị Thu Hà,thu.ha@mindx.edu.vn,Web,MindX Hoàn Kiếm,06/2025,35,30,85.7,Tốt,1500000
-4,Phạm Đức Hùng,duc.hung@mindx.edu.vn,App,MindX Thanh Xuân,06/2025,40,33,82.5,Khá,1000000
-5,Hoàng Thị Mai,thi.mai@mindx.edu.vn,Scratch,MindX Cầu Giấy,06/2025,30,24,80.0,Khá,1000000
-6,Vũ Quang Huy,quang.huy@mindx.edu.vn,Python,MindX Hà Đông,06/2025,28,22,78.6,Đạt,500000
-7,Đặng Thị Ngọc,thi.ngoc@mindx.edu.vn,Web,MindX Long Biên,06/2025,25,19,76.0,Đạt,500000
-8,Bùi Văn Thắng,van.thang@mindx.edu.vn,App,MindX Bắc Từ Liêm,06/2025,22,16,72.7,Đạt,500000
-9,Ngô Thị Hương,thi.huong@mindx.edu.vn,Scratch,MindX Nam Từ Liêm,06/2025,20,14,70.0,Đạt,500000
-10,Đinh Minh Tuấn,minh.tuan@mindx.edu.vn,Python,MindX Tây Hồ,06/2025,18,12,66.7,,0
+STT,Tên,Email,Khối dạy,Cơ sở,Tháng,Số case,Số học sinh,CR45,Loại/Chọn,Thưởng CR
+1,Phạm Thị Ngọc Anh,ngocanh.pham@mindx.edu.vn,Web,Hải Phòng - 268 Trần Nguyên Hãn,06/2026,52,44,85.0,Xuất sắc,2000000
+2,Nguyễn Hải Dương,haiduong.nguyen@mindx.edu.vn,Python,Bắc Ninh - 09 Lê Thái Tổ,06/2026,41,33,55.0,Tốt,1500000
+3,Trần Anh Khôi,anhkhoi.tran@mindx.edu.vn,Scratch,HCM - 618 Đường 3/2,06/2026,39,31,53.6,Tốt,1500000
+4,Lê Thị Thu Hà,thuha.le@mindx.edu.vn,App,Hà Nội - 22C Thành Công,06/2026,36,28,51.2,Khá,1000000
+5,Hoàng Minh Quân,minhquan.hoang@mindx.edu.vn,Robotics,HCM - 204 Nguyễn Xí,06/2026,34,27,49.8,Khá,1000000
+6,Vũ Thị Mai Anh,maianh.vu@mindx.edu.vn,Web,Đà Nẵng - 12 Nguyễn Văn Linh,06/2026,31,24,47.5,Đạt,500000
+7,Bùi Đức Thắng,ducthang.bui@mindx.edu.vn,Python,Hà Nội - 29T1 Hoàng Đạo Thúy,06/2026,28,21,45.0,Đạt,500000
+8,Đặng Hương Giang,huonggiang.dang@mindx.edu.vn,Scratch,HCM - 67 Nguyễn Thị Minh Khai,06/2026,25,19,42.8,Đạt,500000
+9,Ngô Minh Tuấn,minhtuan.ngo@mindx.edu.vn,App,Hải Phòng - 268 Trần Nguyên Hãn,06/2026,22,16,40.3,Đạt,500000
+10,Đinh Quang Huy,quanghuy.dinh@mindx.edu.vn,Robotics,Bắc Ninh - 09 Lê Thái Tổ,06/2026,20,14,38.9,,0

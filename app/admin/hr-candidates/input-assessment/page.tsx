@@ -148,11 +148,11 @@ export default function InputAssessmentSetupPage() {
       <div className="space-y-5 pb-20">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Link
-            href="/admin/hr-candidates"
+            href="/admin/hr-candidates/gen-planner"
             className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-50"
           >
             <ArrowLeft className="h-4 w-4" />
-            Quay lại danh sách
+            Quay lại GEN Planner
           </Link>
 
           <div className="flex flex-wrap items-center gap-2">

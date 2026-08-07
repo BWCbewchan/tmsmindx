@@ -15,7 +15,12 @@ const ANONYMOUS_READ_BUCKETS = new Set([
   'mindx-thumbnails',
 ]);
 const ANONYMOUS_READ_PREFIXES = new Map<string, string[]>([
-  ['mindx-avatars', ['avatars/honors-top']],
+  ['mindx-avatars', ['avatars/honors-top', 'honors-monthly/']],
+]);
+const STREAM_BY_DEFAULT_IMAGE_BUCKETS = new Set([
+  'mindx-posts-content',
+  'mindx-thumbnails',
+  'mindx-avatars',
 ]);
 const SIGNED_REDIRECT_BUCKET_TTLS = new Map<string, number>([
   ['mindx-posts-content', 12 * 60 * 60],
@@ -48,6 +53,18 @@ function parseStorageUrl(rawUrl: string): { bucket: string; key: string } | null
 
 function isSafeObjectKey(key: string): boolean {
   return Boolean(key) && !key.includes('..') && !key.startsWith('/');
+}
+
+function isImageObjectKey(key: string): boolean {
+  return /\.(avif|gif|jpe?g|png|svg|webp)$/i.test(key);
+}
+
+function shouldStreamObjectByDefault(bucket: string, key: string): boolean {
+  return (
+    STREAM_BY_DEFAULT_IMAGE_BUCKETS.has(bucket) &&
+    isAnonymousReadObject(bucket, key) &&
+    isImageObjectKey(key)
+  );
 }
 
 function redirectToObjectUrl(url: string, bucket: string, key: string, ttlSeconds?: number) {
@@ -123,10 +140,14 @@ export async function GET(request: NextRequest) {
     }
 
     const isVideo = /\.(mp4|webm|ogg|mov|avi|mkv)$/i.test(key);
-    // Keep legacy proxy=1 URLs working, but prefer direct storage delivery.
-    // stream=1 is reserved for diagnostics when signed URLs are unavailable.
+    // Keep legacy proxy=1 URLs working, but stream public images by default.
+    // This avoids browsers caching old signed redirects while still keeping a
+    // redirect escape hatch via redirect=1 for diagnostics.
     // Force proxy streaming for videos to avoid Range request/seeking issues over 307 redirects.
-    const forceStream = searchParams.get('stream') === '1' || isVideo;
+    const forceStream =
+      searchParams.get('stream') === '1' ||
+      isVideo ||
+      (searchParams.get('redirect') !== '1' && shouldStreamObjectByDefault(bucket, key));
     if (!forceStream) {
       const signedRedirectTtl =
         SIGNED_REDIRECT_BUCKET_TTLS.get(bucket) ?? DEFAULT_SIGNED_REDIRECT_TTL;

@@ -333,7 +333,9 @@ export default function AppLayout({
     )
     const isTrainingInputRoute =
       pathname === '/admin/hr-candidates' ||
-      pathname.startsWith('/admin/hr-candidates/')
+      pathname.startsWith('/admin/hr-candidates/') ||
+      pathname === '/admin/hr-onboarding/videos' ||
+      pathname.startsWith('/admin/hr-onboarding/videos/')
 
     // Redirect to login if authentication required but not authenticated
     if (requireAuth && !user && !hasRedirected.current) {

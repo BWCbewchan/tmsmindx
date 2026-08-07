@@ -4,11 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from '@/lib/app-toast'
 import {
   INPUT_ASSESSMENT_CRITERIA,
+  INPUT_ASSESSMENT_PROFILES,
+  type AssessmentCriterion,
+  type AssessmentProfile,
   getAssessmentProfile,
   normalizeAssessmentProfileId,
 } from '@/lib/hr-input-assessment'
 import {
-  BarChart2,
   CheckSquare2,
   Loader2,
   RefreshCw,
@@ -57,13 +59,14 @@ interface DbCandidate {
     session_number: number
     attendance: boolean | null
     score: number | null
+    absence_note?: string | null
   }>
   attendance_score: number
   avg_test_score: number | null
 }
 
-// Draft: candidate_id → session_id → { attendance, score }
-type SessionDraft = { attendance: boolean; score: string }
+// Draft: candidate_id → session_id → { attendance, absence note }
+type SessionDraft = { attendance: boolean; absenceNote: string }
 type CandidateDraft = Record<number, SessionDraft>
 type DraftMap = Record<number, CandidateDraft>
 
@@ -76,22 +79,20 @@ interface GenTrackingTabProps {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-function scoreClass(score: string): string {
-  if (!score) return 'border-gray-200 bg-gray-50 text-gray-400'
-  const n = Number(score)
-  if (n >= 8) return 'border-emerald-300 bg-emerald-50 text-emerald-700'
-  if (n >= 6) return 'border-amber-300 bg-amber-50 text-amber-700'
-  return 'border-red-300 bg-red-50 text-red-700'
-}
-
 function attendanceBadgeClass(count: number, total: number) {
   if (count === 0) return 'bg-gray-100 text-gray-400 border-gray-200'
   if (count < total) return 'bg-amber-100 text-amber-700 border-amber-200'
   return 'bg-emerald-100 text-emerald-700 border-emerald-200'
 }
 
+function attendanceScoreClass(score: number, total: number) {
+  if (total === 0 || score === 0) return 'text-gray-400'
+  if (score < 10) return 'text-amber-600'
+  return 'text-emerald-700'
+}
+
 function initDraft(): SessionDraft {
-  return { attendance: false, score: '' }
+  return { attendance: false, absenceNote: '' }
 }
 
 function assessmentLabel(type: string) {
@@ -120,7 +121,43 @@ function criteriaScore(candidate: DbCandidate, key: string) {
 }
 
 const BASE_ASSESSMENT_KEYS = new Set(['attendance', 'lesson_1', 'lesson_2', 'lesson_3'])
-const campusCriteria = INPUT_ASSESSMENT_CRITERIA.filter((criterion) => !BASE_ASSESSMENT_KEYS.has(criterion.key))
+const INPUT_ASSESSMENT_STORAGE_KEY = 'hr-input-assessment-rubric-v2'
+
+function weightEntries(criterion: AssessmentCriterion, profiles: AssessmentProfile[]) {
+  return profiles
+    .map((profile) => ({
+      profileId: profile.id,
+      label: profile.label,
+      weight: Number(criterion.weights[profile.id]) || 0,
+    }))
+    .filter((entry) => entry.weight > 0)
+}
+
+function WeightBadges({
+  criterion,
+  profiles,
+}: {
+  criterion: AssessmentCriterion | undefined
+  profiles: AssessmentProfile[]
+}) {
+  if (!criterion) return null
+  const entries = weightEntries(criterion, profiles)
+  if (entries.length === 0) return null
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center justify-center gap-1 normal-case tracking-normal">
+      {entries.map((entry) => (
+        <span
+          key={entry.profileId}
+          className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black leading-none text-emerald-700"
+          title={`Tỷ trọng ${entry.label}: ${entry.weight}%`}
+        >
+          {entries.length === 1 ? `${entry.weight}%` : `${entry.label} ${entry.weight}%`}
+        </span>
+      ))}
+    </div>
+  )
+}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function GenTrackingTab({
@@ -135,13 +172,39 @@ export default function GenTrackingTab({
   const [loading, setLoading] = useState(false)
   const [currentGenId, setCurrentGenId] = useState<number | null>(null)
 
-  // Draft state: candidate_id → session_id → { attendance, score }
+  // Draft state: candidate_id → session_id → { attendance, absence note }
   const [drafts, setDrafts] = useState<DraftMap>({})
   const [originalData, setOriginalData] = useState<DraftMap>({})
   const [dirtyIds, setDirtyIds] = useState<Set<number>>(new Set())
   const [saving, setSaving] = useState(false)
+  const [assessmentCriteria, setAssessmentCriteria] = useState<AssessmentCriterion[]>(INPUT_ASSESSMENT_CRITERIA)
+  const [assessmentProfiles, setAssessmentProfiles] = useState<AssessmentProfile[]>(INPUT_ASSESSMENT_PROFILES)
 
   const [candidateSearch, setCandidateSearch] = useState('')
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(INPUT_ASSESSMENT_STORAGE_KEY)
+      if (!raw) return
+
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed.criteria)) setAssessmentCriteria(parsed.criteria)
+      if (Array.isArray(parsed.profiles)) setAssessmentProfiles(parsed.profiles)
+    } catch {
+      setAssessmentCriteria(INPUT_ASSESSMENT_CRITERIA)
+      setAssessmentProfiles(INPUT_ASSESSMENT_PROFILES)
+    }
+  }, [])
+
+  const campusCriteria = useMemo(
+    () => assessmentCriteria.filter((criterion) => !BASE_ASSESSMENT_KEYS.has(criterion.key)),
+    [assessmentCriteria],
+  )
+
+  const attendanceCriterion = useMemo(
+    () => assessmentCriteria.find((criterion) => criterion.key === 'attendance'),
+    [assessmentCriteria],
+  )
 
   // Reset khi đổi region
   useEffect(() => {
@@ -194,7 +257,7 @@ export default function GenTrackingTab({
           const record = c.sessions.find(r => r.session_id === s.id)
           initialDrafts[c.candidate_id][s.id] = {
             attendance: record?.attendance ?? false,
-            score: record?.score != null ? String(record.score) : '',
+            absenceNote: record?.absence_note || '',
           }
         }
       }
@@ -217,13 +280,17 @@ export default function GenTrackingTab({
   const handleChange = (
     candidateId: number,
     sessionId: number,
-    field: 'attendance' | 'score',
+    field: 'attendance' | 'absenceNote',
     value: boolean | string,
   ) => {
     const currentDraft = { ...(drafts[candidateId] ?? {}) }
     const currentSession = { ...(currentDraft[sessionId] ?? initDraft()) }
-    if (field === 'attendance') currentSession.attendance = value as boolean
-    else currentSession.score = value as string
+    if (field === 'attendance') {
+      currentSession.attendance = value as boolean
+      if (value === true) currentSession.absenceNote = ''
+    } else {
+      currentSession.absenceNote = value as string
+    }
     currentDraft[sessionId] = currentSession
 
     // Dirty check
@@ -232,7 +299,7 @@ export default function GenTrackingTab({
     for (const s of sessions) {
       const d = currentDraft[s.id] || initDraft()
       const o = original[s.id] || initDraft()
-      if (d.attendance !== o.attendance || d.score !== o.score) {
+      if (d.attendance !== o.attendance || d.absenceNote !== o.absenceNote) {
         isDifferent = true
         break
       }
@@ -252,7 +319,13 @@ export default function GenTrackingTab({
     if (dirtyIds.size === 0) return
     setSaving(true)
     try {
-      const records: Array<{ candidate_id: number; session_id: number; attendance: boolean; score: number | null }> = []
+      const records: Array<{
+        candidate_id: number
+        session_id: number
+        attendance: boolean
+        score: number | null
+        absence_note: string | null
+      }> = []
       for (const candidateId of dirtyIds) {
         const draft = drafts[candidateId]
         if (!draft) continue
@@ -262,7 +335,8 @@ export default function GenTrackingTab({
             candidate_id: candidateId,
             session_id: s.id,
             attendance: d.attendance,
-            score: d.score === '' ? null : Number(d.score),
+            score: null,
+            absence_note: d.attendance ? null : d.absenceNote.trim() || null,
           })
         }
       }
@@ -287,7 +361,7 @@ export default function GenTrackingTab({
       })
       setDirtyIds(new Set())
 
-      // Reload để cập nhật attendance_score, avg_test_score
+      // Reload để cập nhật attendance_score
       if (activeGenInfo) await fetchData(activeGenInfo.genCode)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Lỗi không xác định')
@@ -307,22 +381,17 @@ export default function GenTrackingTab({
 
   // Stats header
   const stats = useMemo(() => {
-    if (candidates.length === 0 || sessions.length === 0) return { avgAttendance: 0, avgScore: null }
+    if (candidates.length === 0 || sessions.length === 0) return { avgAttendance: 0 }
     let totalAttended = 0
-    let scoreSum = 0
-    let scoredCount = 0
     for (const c of candidates) {
       const draft = drafts[c.candidate_id]
       if (!draft) continue
       for (const s of sessions) {
         if (draft[s.id]?.attendance) totalAttended++
-        const sc = draft[s.id]?.score
-        if (sc && sc !== '') { scoreSum += Number(sc); scoredCount++ }
       }
     }
     return {
       avgAttendance: totalAttended / (candidates.length * sessions.length),
-      avgScore: scoredCount > 0 ? scoreSum / scoredCount : null,
     }
   }, [candidates, sessions, drafts])
 
@@ -357,12 +426,6 @@ export default function GenTrackingTab({
                         <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">
                           <CheckSquare2 className="h-3 w-3" />
                           Điểm danh: {Math.round(stats.avgAttendance * 100)}%
-                        </span>
-                      )}
-                      {stats.avgScore !== null && (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700">
-                          <BarChart2 className="h-3 w-3" />
-                          Điểm TB: {stats.avgScore.toFixed(1)}
                         </span>
                       )}
                     </div>
@@ -434,21 +497,28 @@ export default function GenTrackingTab({
                       ))}
                       {campusCriteria.map((criterion) => (
                         <th key={criterion.key} className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[130px] text-center">
-                          {criterion.label}
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span>{criterion.label}</span>
+                            <WeightBadges criterion={criterion} profiles={assessmentProfiles} />
+                          </div>
                         </th>
                       ))}
                       <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[140px] text-center">
                         Kết quả đánh giá
                       </th>
-                      <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[80px] text-center">Điểm TB</th>
-                      <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[90px] text-center">Chuyên cần</th>
+                      <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[90px] text-center">
+                        <div className="flex flex-col items-center gap-0.5">
+                          <span>Chuyên cần</span>
+                          <WeightBadges criterion={attendanceCriterion} profiles={assessmentProfiles} />
+                        </div>
+                      </th>
                       <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider text-gray-500 min-w-[90px] text-center">Trạng thái</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {loading ? (
                       <tr>
-                        <td colSpan={sessions.length + campusCriteria.length + 8} className="py-20 text-center">
+                        <td colSpan={sessions.length + campusCriteria.length + 7} className="py-20 text-center">
                           <div className="inline-flex items-center gap-2 text-sm text-gray-500">
                             <Loader2 className="h-5 w-5 animate-spin text-[#a1001f]" />
                             Đang tải dữ liệu từ database...
@@ -457,7 +527,7 @@ export default function GenTrackingTab({
                       </tr>
                     ) : filteredCandidates.length === 0 ? (
                       <tr>
-                        <td colSpan={sessions.length + campusCriteria.length + 8} className="py-20 text-center">
+                        <td colSpan={sessions.length + campusCriteria.length + 7} className="py-20 text-center">
                           <div className="flex flex-col items-center gap-2 text-gray-400">
                             <Users className="h-8 w-8 opacity-40" />
                             <p className="text-sm font-medium">Không có ứng viên nào trong GEN này.</p>
@@ -471,10 +541,9 @@ export default function GenTrackingTab({
                       const assessment = latestAssessment(candidate)
 
                       const attendCount = sessions.filter(s => draft[s.id]?.attendance).length
-                      const scores = sessions.map(s => draft[s.id]?.score).filter(sc => sc !== undefined && sc !== '')
-                      const avgScore = scores.length > 0
-                        ? scores.reduce((sum, sc) => sum + Number(sc), 0) / scores.length
-                        : null
+                      const liveAttendanceScore = sessions.length > 0
+                        ? Math.round((attendCount / sessions.length) * 10 * 100) / 100
+                        : 0
 
                       return (
                         <tr
@@ -546,14 +615,18 @@ export default function GenTrackingTab({
                                     </span>
                                   </label>
                                   <input
-                                    type="number"
-                                    min={0}
-                                    max={10}
-                                    step={0.5}
-                                    value={d.score}
-                                    placeholder="Điểm (0–10)"
-                                    onChange={e => handleChange(candidate.candidate_id, session.id, 'score', e.target.value)}
-                                    className={`w-full rounded-lg border px-2 py-1 text-xs font-bold outline-none transition-all focus:ring-2 ${scoreClass(d.score)} focus:ring-blue-100`}
+                                    type="text"
+                                    value={d.absenceNote}
+                                    placeholder={d.attendance ? 'Đã có mặt' : 'Lý do vắng'}
+                                    disabled={d.attendance}
+                                    onChange={e => handleChange(candidate.candidate_id, session.id, 'absenceNote', e.target.value)}
+                                    className={`w-full rounded-lg border px-2 py-1 text-xs font-semibold outline-none transition-all focus:ring-2 ${
+                                      d.attendance
+                                        ? 'border-emerald-100 bg-emerald-50/60 text-emerald-700 placeholder:text-emerald-600/70'
+                                        : d.absenceNote.trim()
+                                          ? 'border-amber-300 bg-amber-50 text-amber-800 focus:ring-amber-100'
+                                          : 'border-gray-200 bg-gray-50 text-gray-500 focus:border-amber-300 focus:ring-amber-100'
+                                    }`}
                                   />
                                 </div>
                               </td>
@@ -590,18 +663,11 @@ export default function GenTrackingTab({
                             )}
                           </td>
 
-                          {/* Avg score */}
-                          <td className="px-3 py-2.5 align-middle text-center">
-                            {avgScore !== null ? (
-                              <span className={`text-sm font-extrabold ${avgScore >= 8 ? 'text-emerald-700' : avgScore >= 6 ? 'text-amber-600' : 'text-red-600'}`}>
-                                {avgScore.toFixed(1)}
-                              </span>
-                            ) : <span className="text-xs text-gray-400">—</span>}
-                          </td>
-
                           {/* Attendance score */}
                           <td className="px-3 py-2.5 align-middle text-center">
-                            <span className="text-sm font-bold text-gray-700">{candidate.attendance_score.toFixed(2)}</span>
+                            <span className={`text-sm font-bold ${attendanceScoreClass(liveAttendanceScore, sessions.length)}`}>
+                              {liveAttendanceScore.toFixed(2)}
+                            </span>
                           </td>
 
                           {/* Status */}
