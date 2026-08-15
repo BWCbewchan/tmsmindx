@@ -17,6 +17,9 @@ const ASSIGNMENT_UPDATE_COLUMNS: Record<string, string> = {
   assignment_title: 'assignment_title',
   assignment_type: 'assignment_type',
   description: 'description',
+  assignment_context: 'assignment_context',
+  training_stage: 'training_stage',
+  target_ref: 'target_ref',
 };
 
 /** XÃ³a áº£nh S3 an toÃ n, khÃ´ng throw */
@@ -38,8 +41,14 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const video_id = searchParams.get('video_id');
-    // Normalize teacher_code: lowercase + trim để tránh case mismatch
-    const teacher_code = (searchParams.get('teacher_code') || '').toLowerCase().trim() || null;
+    const assignment_context = searchParams.get('assignment_context');
+    // Normalize teacher_code/candidate_code: lowercase + trim to avoid case mismatch
+    const teacher_code = (
+      searchParams.get('candidate_code') ||
+      searchParams.get('learner_code') ||
+      searchParams.get('teacher_code') ||
+      ''
+    ).toLowerCase().trim() || null;
     // status column đã bị xóa (migration V42) — không dùng nữa
 
     let allTeacherCodes: string[] = [];
@@ -87,6 +96,30 @@ export async function GET(request: NextRequest) {
     if (video_id) {
       params.push(video_id);
       conditions.push(`a.video_id = $${params.length}`);
+    }
+    if (assignment_context) {
+      if (assignment_context === 'input_training') {
+        conditions.push(`(
+          a.assignment_context = 'input_training'
+          OR v.video_category = 'onboarding'
+          OR (a.video_id IS NULL AND a.assignment_type = 'exam')
+        )`);
+      } else if (assignment_context === 'all') {
+        // Used by candidate portal, which filters onboarding videos client-side.
+      } else {
+        params.push(assignment_context);
+        conditions.push(`(
+          a.assignment_context = $${params.length}
+          AND COALESCE(v.video_category, 'advanced') <> 'onboarding'
+          AND NOT (a.video_id IS NULL AND a.assignment_type = 'exam')
+        )`);
+      }
+    } else {
+      conditions.push(`(
+        COALESCE(a.assignment_context, 'advanced_training') <> 'input_training'
+        AND COALESCE(v.video_category, 'advanced') <> 'onboarding'
+        AND NOT (a.video_id IS NULL AND a.assignment_type = 'exam')
+      )`);
     }
 
     if (conditions.length > 0) {
@@ -324,6 +357,9 @@ export async function POST(request: NextRequest) {
       assignment_title,
       assignment_type = 'quiz',
       description,
+      assignment_context = 'advanced_training',
+      training_stage = 'advanced_video',
+      target_ref = null,
     } = body;
 
     if (!assignment_title) {
@@ -335,10 +371,18 @@ export async function POST(request: NextRequest) {
 
     const result = await pool.query(
       `INSERT INTO training_video_assignments
-       (video_id, assignment_title, assignment_type, description)
-       VALUES ($1, $2, $3, $4)
+       (video_id, assignment_title, assignment_type, description, assignment_context, training_stage, target_ref)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [video_id ? parseInt(video_id, 10) : null, assignment_title, assignment_type, description || null]
+      [
+        video_id ? parseInt(video_id, 10) : null,
+        assignment_title,
+        assignment_type,
+        description || null,
+        assignment_context,
+        training_stage,
+        target_ref || null,
+      ]
     );
 
     return NextResponse.json({

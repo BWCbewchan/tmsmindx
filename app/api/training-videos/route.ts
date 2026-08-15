@@ -58,7 +58,11 @@ export async function GET(request: NextRequest) {
           { status: 403 },
         );
       }
-      const r = await pool.query('SELECT COALESCE(MAX(lesson_number), 0) AS max FROM training_videos');
+      const r = await pool.query(
+        `SELECT COALESCE(MAX(lesson_number), 0) AS max
+         FROM training_videos
+         WHERE COALESCE(video_category, 'advanced') <> 'onboarding'`,
+      );
       return NextResponse.json({ success: true, max: r.rows[0].max });
     }
 
@@ -72,6 +76,8 @@ export async function GET(request: NextRequest) {
     `;
     const params: any[] = [];
     const conditions: string[] = [];
+
+    conditions.push(`COALESCE(tv.video_category, 'advanced') <> 'onboarding'`);
 
     if (!canManageVideos) {
       conditions.push(`tv.status = 'active'`);

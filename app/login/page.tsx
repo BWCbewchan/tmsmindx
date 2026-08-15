@@ -22,6 +22,10 @@ const SAVED_LOGIN_KEY = 'tps_saved_login_account';
 type LandingRole = 'teacher' | 'manager' | 'candidate';
 type AppRole = 'teacher' | 'manager' | 'super_admin' | 'admin' | 'hr';
 
+function isCandidateSessionEmail(email: string | undefined) {
+  return /^candidate-\d+@candidate\.local$/i.test((email || '').trim());
+}
+
 function resolvePostLoginPath(options: {
   selectedRole: LandingRole;
   userRole: string;
@@ -121,6 +125,10 @@ export default function LoginPage() {
     if (!isLoading && loginPreferenceReady && !hasCheckedAuth.current) {
       hasCheckedAuth.current = true;
       if (user) {
+        if (role === 'candidate' && !isCandidateSessionEmail(user.email)) {
+          return;
+        }
+
         const { redirectPath } = resolvePostLoginPath({
           selectedRole: role,
           userRole: user.role,
@@ -191,6 +199,7 @@ export default function LoginPage() {
           'candidatePortalProfile',
           JSON.stringify(candidateAuthData.data),
         );
+        window.localStorage.removeItem('user');
         persistRememberedAccount(trimmedEmail, role);
         toast.success(`Chào mừng ${candidateAuthData.data?.full_name || 'ứng viên'}!`);
         router.replace('/candidate-portal');

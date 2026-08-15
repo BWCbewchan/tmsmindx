@@ -244,6 +244,14 @@ export default function GenOverviewTab({
     };
   }, [regionFilter, schedules, selectedGen, token]);
 
+  useEffect(() => {
+    if (!schedules) return;
+    const firstDatedSchedule = schedules.find((item) => Boolean(item.date));
+    if (firstDatedSchedule?.date) {
+      setFocusDate(parseDateKey(firstDatedSchedule.date));
+    }
+  }, [schedules]);
+
   return (
     <div className="w-full animate-in fade-in duration-500">
       

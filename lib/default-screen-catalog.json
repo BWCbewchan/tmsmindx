@@ -80,6 +80,22 @@
     "is_active": true
   },
   {
+    "route_path": "/admin/hr-candidates/input-training-tests",
+    "label": "Thư viện bài kiểm tra đầu vào",
+    "group_name": "Đào tạo đầu vào",
+    "sort_order": 10,
+    "description": "Quản lý bài kiểm tra cho đào tạo tập trung và tập huấn sư phạm",
+    "is_active": true
+  },
+  {
+    "route_path": "/admin/hr-onboarding/videos",
+    "label": "Quản lý video đào tạo đầu vào",
+    "group_name": "Đào tạo đầu vào",
+    "sort_order": 11,
+    "description": "Quản lý video onboarding, bài kiểm tra sau video và trạng thái xuất bản",
+    "is_active": true
+  },
+  {
     "route_path": "/admin/page4/quan-ly-lich-lam-viec",
     "label": "Quản lý lịch làm việc",
     "group_name": "Sự kiện",

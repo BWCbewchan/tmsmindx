@@ -98,6 +98,7 @@ export const GET = withApiProtection(async (req: NextRequest) => {
         session_number: s.session_number,
         attendance: rec?.attendance ?? null,
         score: rec?.score != null ? parseFloat(rec.score) : null,
+        absence_note: rec?.absence_note ?? '',
       }
     })
     const attended = sessionDetails.filter(s => s.attendance === true).length
@@ -133,7 +134,13 @@ export const PATCH = withApiProtection(async (req: NextRequest) => {
 
   const body = await req.json()
   const { records } = body as {
-    records: Array<{ candidate_id: number; session_id: number; attendance: boolean; score?: number | null }>
+    records: Array<{
+      candidate_id: number
+      session_id: number
+      attendance: boolean
+      score?: number | null
+      absence_note?: string | null
+    }>
   }
 
   if (!Array.isArray(records) || records.length === 0) {
@@ -147,17 +154,19 @@ export const PATCH = withApiProtection(async (req: NextRequest) => {
     const upserted: number[] = []
     for (const rec of records) {
       const clampedScore = rec.score != null ? clampScore(rec.score) : null
+      const absenceNote = rec.attendance ? null : String(rec.absence_note || '').trim() || null
       const result = await client.query(
         `INSERT INTO hr_candidate_training_records
-           (candidate_id, session_id, attendance, score, recorded_by_email)
-         VALUES ($1, $2, $3, $4, $5)
+           (candidate_id, session_id, attendance, score, absence_note, recorded_by_email)
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (candidate_id, session_id) DO UPDATE SET
            attendance = EXCLUDED.attendance,
            score = EXCLUDED.score,
+           absence_note = EXCLUDED.absence_note,
            recorded_by_email = EXCLUDED.recorded_by_email,
            updated_at = CURRENT_TIMESTAMP
          RETURNING id`,
-        [rec.candidate_id, rec.session_id, rec.attendance, clampedScore, auth.sessionEmail]
+        [rec.candidate_id, rec.session_id, rec.attendance, clampedScore, absenceNote, auth.sessionEmail]
       )
       upserted.push(result.rows[0].id)
 

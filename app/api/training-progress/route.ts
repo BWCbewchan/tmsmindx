@@ -31,21 +31,21 @@ export const POST = withApiProtection(async (request: NextRequest) => {
         : isCompleted === true
           ? 'ended'
           : 'heartbeat';
-    // Normalize teacher_code: lowercase + trim để tránh case mismatch với các API khác
-    const teacherCode: string = (body.teacherCode || '').toString().toLowerCase().trim();
+    // Normalize learner code: lowercase + trim to avoid case mismatch
+    const learnerCode: string = (body.learnerCode || body.candidateCode || body.teacherCode || '').toString().toLowerCase().trim();
 
-    if (!teacherCode || !videoId) {
+    if (!learnerCode || !videoId) {
       return NextResponse.json({ error: 'Missing parameters' }, { status: 400 });
     }
 
     const { canonicalCode, aliases: allTeacherCodes } =
-      await resolveTrainingTeacherCode(pool, teacherCode);
+      await resolveTrainingTeacherCode(pool, learnerCode);
 
     const denied = await rejectIfDatasourceLookupForbidden(
       auth.sessionEmail,
       Boolean(auth.resolvedAccess.isAdmin),
       '',
-      teacherCode,
+      learnerCode,
     );
     if (denied) return denied;
 
@@ -215,11 +215,16 @@ export const POST = withApiProtection(async (request: NextRequest) => {
 });
 
 export const GET = withApiProtection(async (request: NextRequest) => {
-  const teacherCode = (request.nextUrl.searchParams.get('teacherCode') || '').toLowerCase().trim();
+  const learnerCode = (
+    request.nextUrl.searchParams.get('learnerCode') ||
+    request.nextUrl.searchParams.get('candidateCode') ||
+    request.nextUrl.searchParams.get('teacherCode') ||
+    ''
+  ).toLowerCase().trim();
   const videoId     = request.nextUrl.searchParams.get('videoId');
 
-  if (!teacherCode || !videoId) {
-    return NextResponse.json({ error: 'Missing teacherCode or videoId' }, { status: 400 });
+  if (!learnerCode || !videoId) {
+    return NextResponse.json({ error: 'Missing learnerCode or videoId' }, { status: 400 });
   }
 
   try {
@@ -230,12 +235,12 @@ export const GET = withApiProtection(async (request: NextRequest) => {
       auth.sessionEmail,
       Boolean(auth.resolvedAccess.isAdmin),
       '',
-      teacherCode,
+      learnerCode,
     );
     if (denied) return denied;
 
     const { aliases: allTeacherCodes } =
-      await resolveTrainingTeacherCode(pool, teacherCode);
+      await resolveTrainingTeacherCode(pool, learnerCode);
 
     const result = await pool.query(
       `SELECT time_spent_seconds, server_time_seconds, completion_status, last_heartbeat_at
