@@ -1,4 +1,5 @@
-import { RefreshCw, RotateCw, Search } from 'lucide-react'
+import Link from 'next/link'
+import { ExternalLink, RefreshCw, Search } from 'lucide-react'
 
 interface HrCandidatesFilterProps {
   searchInput: string
@@ -12,8 +13,7 @@ interface HrCandidatesFilterProps {
   availableGens: string[]
   refreshing: boolean
   onRefresh: () => void
-  syncing: boolean
-  onSync: () => void
+  publicFormHref: string
 }
 
 export default function HrCandidatesFilter({
@@ -21,7 +21,7 @@ export default function HrCandidatesFilter({
   statusFilter, setStatusFilter,
   genFilter, setGenFilter,
   genSort, setGenSort,
-  availableGens, refreshing, onRefresh, syncing, onSync,
+  availableGens, refreshing, onRefresh, publicFormHref,
 }: HrCandidatesFilterProps) {
   return (
     <div className="border-b border-gray-200 bg-gray-50/30 p-4 sm:p-5">
@@ -77,11 +77,11 @@ export default function HrCandidatesFilter({
             <span className="hidden sm:inline">Làm mới</span>
           </button>
 
-          <button onClick={onSync} disabled={syncing}
+          <Link href={publicFormHref} target="_blank"
             className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#a1001f] px-4 text-sm font-semibold text-white shadow-sm hover:bg-[#880019] active:scale-95 disabled:opacity-50">
-            <RotateCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">{syncing ? 'Đang đồng bộ' : 'Đồng bộ sheet'}</span>
-          </button>
+            <ExternalLink className="h-4 w-4" />
+            <span className="hidden sm:inline">Form ứng viên</span>
+          </Link>
         </div>
       </div>
     </div>
