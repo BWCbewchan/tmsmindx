@@ -315,6 +315,11 @@ export function Sidebar() {
       ],
     },
     {
+      href: '/admin/portfolio-qc',
+      label: 'Kiểm Soát Portfolio (QC)',
+      icon: Sparkles,
+    },
+    {
       label: 'Cấu Hình Hệ Thống',
       icon: Settings,
       submenu: [
