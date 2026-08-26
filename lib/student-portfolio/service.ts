@@ -202,11 +202,39 @@ const GET_STUDENT_CLASSES_QUERY = /* graphql */ `
 `;
 
 const FIND_ONE_REWARD_POINT_QUERY = /* graphql */ `
-  query findOneRewardPoint($studentId: String!) {
-    findOneRewardPoint(payload: { productUserId_eq: $studentId }) {
+  query FindOneRewardPoint($payload: FindOneRewardPointPayload) {
+    findOneRewardPoint(payload: $payload) {
       id
       currentPoint
       productUserId
+      productUserType
+    }
+  }
+`;
+
+const FIND_ALL_STUDENT_WORKS_WITH_IMAGE_URLS_QUERY = FIND_ALL_STUDENT_WORKS_QUERY.replace(
+  '          imageUrl\n',
+  '          imageUrl\n          imageUrls\n',
+);
+
+const FIND_PAGINATE_REWARD_TRANSACTION_QUERY = /* graphql */ `
+  query FindPaginateRewardTransaction($payload: FindPaginateRewardTransactionPayload) {
+    findPaginateRewardTransaction(payload: $payload) {
+      data {
+        id
+        type
+        amount
+        currentPoint
+        productUserId
+        productUserType
+        actionTriggerType
+        createdAt
+        createdBy
+        lastModifiedAt
+        additionalData
+        isDeleted
+      }
+      pagination { total }
     }
   }
 `;
@@ -380,7 +408,8 @@ type StudentWorkItem = {
   latestData?: {
     title?: string;
     thumbnail?: string;
-    imageUrl?: string;
+    imageUrl?: string | string[];
+    imageUrls?: string[];
     videoUrls?: string[];
     attachmentUrls?: string[];
     comment?: string;
@@ -390,11 +419,19 @@ type StudentWorkItem = {
 
 type RewardTransactionItem = {
   id?: string;
-  point?: number;
+  type?: string;
+  amount?: number;
+  currentPoint?: number;
+  productUserId?: string;
+  productUserType?: string;
+  actionTriggerType?: string;
   description?: string;
   reason?: string;
-  type?: string;
   createdAt?: string;
+  createdBy?: string;
+  lastModifiedAt?: string;
+  additionalData?: unknown;
+  isDeleted?: boolean;
 };
 
 type LmsStudentAttendance = NonNullable<
@@ -495,18 +532,43 @@ function preferredCheckpointSessions(cls: LmsPortfolioClass): [number, number] {
   return courseCategory(cls) === 'Robotics' ? [4, 8] : [5, 9];
 }
 
+function isImageFileUrl(url?: string) {
+  const text = cleanText(url);
+  return /\/uploads\/images\//i.test(text) || /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#]|$)/i.test(text);
+}
+
+function workUploadedImageUrls(work: StudentWorkItem) {
+  const latest = work.latestData;
+  const imageUrlValues = Array.isArray(latest?.imageUrl) ? latest?.imageUrl : [];
+  return cleanUrlList([imageUrlValues, latest?.imageUrls]).filter(isImageFileUrl);
+}
+
 function firstWorkLink(work: StudentWorkItem) {
-  const related = (work.latestData?.relatedUrls || []).find((url) => cleanText(url.url));
+  const related = (work.latestData?.relatedUrls || []).find((url) => cleanText(url.url) && !isImageFileUrl(url.url));
   if (related) return related;
-  const attachment = (work.latestData?.attachmentUrls || []).find(cleanText);
+  const attachment = (work.latestData?.attachmentUrls || []).find((url) => cleanText(url) && !isImageFileUrl(url));
   if (attachment) {
     return {
       name: attachment.split('/').pop()?.split('?')[0] || 'Tải file sản phẩm',
       url: attachment,
     };
   }
-  const image = cleanText(work.latestData?.imageUrl);
+  const image = workUploadedImageUrls(work)[0];
   return image ? { name: 'Xem sản phẩm', url: image } : undefined;
+}
+
+function cleanUrlList(values?: unknown[]) {
+  const urls: string[] = [];
+  const visit = (value: unknown) => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    const url = cleanText(value);
+    if (url) urls.push(url);
+  };
+  (values || []).forEach(visit);
+  return Array.from(new Set(urls));
 }
 
 function isGenericProjectTitle(title: string) {
@@ -525,7 +587,7 @@ function workRank(work: StudentWorkItem, cls?: LmsPortfolioClass) {
   if (workSessionId && finalSessionIds.has(workSessionId)) score += 1000;
   if (workSessionId && fallbackSessionIds.has(workSessionId)) score += 900;
   if (!isGenericProjectTitle(title)) score += 100;
-  if (cleanText(work.latestData?.thumbnail) || cleanText(work.latestData?.imageUrl)) score += 20;
+  if (cleanText(work.latestData?.thumbnail) || workUploadedImageUrls(work).length) score += 20;
   if (cleanText(link?.url)) score += 10;
   if (normalizeKey(work.status).includes('complete')) score += 5;
   if (typeof work.displayOrder === 'number') score += Math.max(0, 10 - work.displayOrder);
@@ -562,10 +624,28 @@ function buildProjectsFromWorks(
       if (!bestWork) return null;
 
       const link = firstWorkLink(bestWork);
+      const attachmentUrls = cleanUrlList(bestWork.latestData?.attachmentUrls);
+      const attachmentImageUrls = attachmentUrls.filter(isImageFileUrl);
+      const downloadableAttachmentUrls = attachmentUrls.filter((url) => !isImageFileUrl(url));
+      const relatedUrls = (bestWork.latestData?.relatedUrls || [])
+        .map((item) => ({ name: cleanText(item.name), url: cleanText(item.url) }))
+        .filter((item) => item.url);
+      const relatedImageUrls = relatedUrls.map((item) => item.url).filter(isImageFileUrl);
+      const uploadedImageUrls = workUploadedImageUrls(bestWork);
+      const imageUrls = cleanUrlList([
+        ...uploadedImageUrls,
+        ...attachmentImageUrls,
+        ...relatedImageUrls,
+        bestWork.latestData?.thumbnail,
+      ]);
       return {
         title: cleanText(bestWork.latestData?.title) || 'Sản phẩm cuối khóa',
         course: cleanText(cls.course?.name) || cleanText(cls.course?.shortName) || cleanText(cls.name),
-        imageUrl: cleanText(bestWork.latestData?.thumbnail) || cleanText(bestWork.latestData?.imageUrl),
+        imageUrl: imageUrls[0] || '',
+        imageUrls,
+        videoUrls: cleanUrlList(bestWork.latestData?.videoUrls),
+        attachmentUrls: downloadableAttachmentUrls,
+        relatedUrls: relatedUrls.filter((item) => !isImageFileUrl(item.url)),
         description: cleanText(bestWork.latestData?.comment),
         link: cleanText(link?.url),
         attachmentName: cleanText(link?.name),
@@ -1026,16 +1106,14 @@ async function fetchStudentClasses(studentId: string, authHeader?: string) {
 
 async function fetchStudentWorks(classIds: string[], studentId?: string, authHeader?: string) {
   if (classIds.length === 0) return [];
-  const response = await callLmsApi<{
+  const payload = {
+    operationName: 'findAllStudentWorks',
+    variables: { classIds, studentId: cleanText(studentId) || undefined },
+  };
+  const callWorks = (query: string) => callLmsApi<{
     data?: { findAllStudentWorks?: { data?: StudentWorkItem[] } };
-  }>(
-    {
-      query: FIND_ALL_STUDENT_WORKS_QUERY,
-      operationName: 'findAllStudentWorks',
-      variables: { classIds, studentId: cleanText(studentId) || undefined },
-    },
-    authHeader,
-  );
+  }>({ ...payload, query }, authHeader);
+  const response = await callWorks(FIND_ALL_STUDENT_WORKS_WITH_IMAGE_URLS_QUERY).catch(() => callWorks(FIND_ALL_STUDENT_WORKS_QUERY));
   return response.data?.findAllStudentWorks?.data || [];
 }
 
@@ -1046,16 +1124,73 @@ async function fetchRewardPoints(studentId: string, authHeader?: string) {
   }>(
     {
       query: FIND_ONE_REWARD_POINT_QUERY,
-      operationName: 'findOneRewardPoint',
-      variables: { studentId },
+      operationName: 'FindOneRewardPoint',
+      variables: { payload: { productUserId_eq: studentId } },
     },
     authHeader,
   );
   return Number(response.data?.findOneRewardPoint?.currentPoint || 0);
 }
 
-async function fetchRewardTransactions(_studentId: string, _authHeader?: string) {
-  return [];
+async function fetchRewardTransactions(studentId: string, authHeader?: string) {
+  if (!cleanText(studentId)) return [];
+  const response = await callLmsApi<{
+    data?: { findPaginateRewardTransaction?: { data?: RewardTransactionItem[] } };
+  }>(
+    {
+      query: FIND_PAGINATE_REWARD_TRANSACTION_QUERY,
+      operationName: 'FindPaginateRewardTransaction',
+      variables: {
+        payload: {
+          filter: { productUserId_eq: studentId },
+          pagination: { limit: 50, page: 0 },
+        },
+      },
+    },
+    authHeader,
+  );
+  return response.data?.findPaginateRewardTransaction?.data || [];
+}
+
+function rewardTransactionDescription(item: RewardTransactionItem) {
+  const additional = item.additionalData;
+  let parsed: Record<string, unknown> | null = null;
+  if (typeof additional === 'string' && additional.trim()) {
+    try {
+      parsed = JSON.parse(additional) as Record<string, unknown>;
+    } catch {
+      return additional;
+    }
+  } else if (additional && typeof additional === 'object') {
+    parsed = additional as Record<string, unknown>;
+  }
+
+  if (parsed) {
+    const data = (parsed.data && typeof parsed.data === 'object' ? parsed.data : parsed) as Record<string, unknown>;
+    if (item.actionTriggerType === 'OPERATION_RECORD_FINAL_SCORE') {
+      const prizeMap: Record<string, string> = {
+        FIRST_PRIZE: 'giải nhất',
+        SECOND_PRIZE: 'giải nhì',
+        THIRD_PRIZE: 'giải ba',
+        CONSOLATION_PRIZE: 'giải khuyến khích',
+      };
+      const valueCalculation = cleanText(data.valueCalculation);
+      const classData = (data.class && typeof data.class === 'object' ? data.class : {}) as Record<string, unknown>;
+      const className = cleanText(classData.name) || cleanText(data.className);
+      return `Đạt ${prizeMap[valueCalculation] || valueCalculation || 'giải thưởng'} Demo/SPCK${className ? ` lớp ${className}` : ''}`;
+    }
+    if (item.actionTriggerType === 'OPERATION_ATTEND') {
+      const classData = (data.classData && typeof data.classData === 'object' ? data.classData : {}) as Record<string, unknown>;
+      const className = cleanText(classData.name) || cleanText(data.className);
+      const count = Number(data.attendanceInSession || 0);
+      return `Điểm danh${count ? ` ${count} buổi` : ''}${className ? ` lớp ${className}` : ''}`;
+    }
+    return cleanText(data.reason) || cleanText(data.description) || cleanText(data.comment) || cleanText(data.message);
+  }
+
+  if (item.actionTriggerType === 'OPERATION_RECORD_FINAL_SCORE') return 'Đạt giải Demo/SPCK cuối khóa';
+  if (item.actionTriggerType === 'OPERATION_ATTEND') return 'Điểm danh lớp học';
+  return cleanText(item.reason) || cleanText(item.description) || cleanText(item.actionTriggerType) || 'Giao dịch điểm thưởng';
 }
 
 export async function buildPortfolioDataFromLms(
@@ -1136,10 +1271,9 @@ export async function buildPortfolioDataFromLms(
         ? `Ngày bắt đầu: ${formatLmsDate(cls.startDate)}`
         : '',
       status: completed ? 'Đã hoàn thành' : 'Đang diễn ra',
-      description: [
-        cleanText(cls.centre?.name),
-        teacherName(cls),
-      ].filter(Boolean).join(' · '),
+      description: cleanText(cls.course?.shortName)
+        ? `Hoàn thiện các mốc học tập và sản phẩm thực hành trong khóa ${cleanText(cls.course?.shortName)}.`
+        : 'Hoàn thiện các mốc học tập và sản phẩm thực hành trong lộ trình MindX.',
     };
   });
 
@@ -1203,7 +1337,17 @@ export async function buildPortfolioDataFromLms(
     achievements: [],
     rewards: {
       points: rewardPoints,
-      history: [],
+      history: rewardTransactions
+        .filter((item) => !item.isDeleted)
+        .map((item) => {
+          const isPlus = ['plus', 'push', 'add'].includes(normalizeKey(item.type));
+          const amount = Number(item.amount || 0);
+          return {
+            title: rewardTransactionDescription(item),
+            subtitle: `${isPlus ? '+' : '-'}${amount} điểm${typeof item.currentPoint === 'number' ? ` · Số dư ${item.currentPoint}` : ''}`,
+            date: formatLmsDate(item.createdAt),
+          };
+        }),
     },
     academicSummary: scoreData.academicSummary,
     customSections: scoreData.customSections,

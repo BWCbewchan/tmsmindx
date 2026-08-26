@@ -22,6 +22,10 @@ export interface PortfolioProject {
   title: string;
   course?: string;
   imageUrl?: string;
+  imageUrls?: string[];
+  videoUrls?: string[];
+  attachmentUrls?: string[];
+  relatedUrls?: Array<{ name?: string; url: string }>;
   description?: string;
   link?: string;
   attachmentName?: string;
