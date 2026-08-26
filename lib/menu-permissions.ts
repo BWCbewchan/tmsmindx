@@ -43,12 +43,14 @@ export function checkHrefPermission(href: string, user: any): boolean {
     return true
   }
 
-  // Base permissions and deal-luong
-  const DEAL_LUONG_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong']
+  if (targetPath === '/admin/portfolio-qc') {
+    return true
+  }
+
+  // Base permissions, deal-luong and portfolio-qc
+  const MANAGER_DEFAULT_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong', '/admin/portfolio-qc']
   const basePermissions = filterManagementPermissions(user.permissions || [])
-  const permissions = ['manager', 'admin'].includes(normalizedRole)
-    ? Array.from(new Set([...basePermissions, ...DEAL_LUONG_ROUTES]))
-    : basePermissions
+  const permissions = Array.from(new Set([...basePermissions, ...MANAGER_DEFAULT_ROUTES]))
 
   const hasPermissionForHref = (h: string) => {
     const t = h.split('?')[0]
@@ -75,11 +77,9 @@ export function getFilteredAdminMenuItems(adminMenuItems: any[], user: any, path
 
   if (isSuperAdmin) return adminMenuItems
 
-  const DEAL_LUONG_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong']
+  const MANAGER_DEFAULT_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong', '/admin/portfolio-qc']
   const basePermissions = filterManagementPermissions(user.permissions || [])
-  const permissions = ['manager', 'admin'].includes(normalizedRole)
-    ? Array.from(new Set([...basePermissions, ...DEAL_LUONG_ROUTES]))
-    : basePermissions
+  const permissions = Array.from(new Set([...basePermissions, ...MANAGER_DEFAULT_ROUTES]))
 
   const hasAnyK12Access = permissions.some((p) => {
     const normalizedPath = p.split('?')[0]
