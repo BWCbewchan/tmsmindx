@@ -78,6 +78,21 @@ function formatContentText(text: string): string {
   return formatted;
 }
 
+function resolveNotificationLink(item: Notification): string | null {
+  if (item.type?.toLowerCase().includes('check_cong_feedback')) {
+    if (item.link?.startsWith('/admin/check-cong')) {
+      return '/admin/check-cong?tab=feedback';
+    }
+    return '/user/thong-tin-giao-vien?tab=checkCongFeedback';
+  }
+
+  if (item.link === '/user/lich-cua-toi') {
+    return '/user/lich-cua-toi?tab=xin-nghi';
+  }
+
+  return item.link;
+}
+
 export default function NotificationBell({ className = '' }: { className?: string } = {}) {
   const { user, token } = useAuth();
   const router = useRouter();
@@ -163,11 +178,8 @@ export default function NotificationBell({ className = '' }: { className?: strin
         console.error('Error marking notification as read:', err);
       }
     }
-    if (item.link) {
-      let finalLink = item.link;
-      if (item.link === '/user/lich-cua-toi') {
-        finalLink = '/user/lich-cua-toi?tab=xin-nghi';
-      }
+    const finalLink = resolveNotificationLink(item);
+    if (finalLink) {
       router.push(finalLink);
     }
   };

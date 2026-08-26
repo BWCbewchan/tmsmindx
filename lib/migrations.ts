@@ -2570,8 +2570,76 @@ const migrations: Migration[] = [
     `,
   },
   {
-    name: 'V104_portfolios',
+    name: 'V104_check_cong_feedback_workflow',
     version: 104,
+    sql: `
+      CREATE TABLE IF NOT EXISTS check_cong_feedback_settings (
+        id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        is_open BOOLEAN NOT NULL DEFAULT FALSE,
+        opens_at TIMESTAMP WITH TIME ZONE,
+        closes_at TIMESTAMP WITH TIME ZONE,
+        updated_by_email VARCHAR(255),
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      INSERT INTO check_cong_feedback_settings (id)
+      VALUES (1)
+      ON CONFLICT (id) DO NOTHING;
+
+      CREATE TABLE IF NOT EXISTS check_cong_feedbacks (
+        id BIGSERIAL PRIMARY KEY,
+        check_key VARCHAR(80) NOT NULL,
+        teacher_email VARCHAR(255) NOT NULL,
+        teacher_name VARCHAR(255),
+        username VARCHAR(100),
+        centre VARCHAR(100),
+        work_type VARCHAR(50),
+        class_name TEXT,
+        course TEXT,
+        course_line TEXT,
+        role_type VARCHAR(100),
+        slot_time TEXT,
+        status_snapshot VARCHAR(50),
+        student_count INTEGER,
+        slot_duration NUMERIC(8,2),
+        effective_duration NUMERIC(8,2),
+        feedback_content TEXT NOT NULL,
+        feedback_status VARCHAR(20) NOT NULL DEFAULT 'pending'
+          CHECK (feedback_status IN ('pending', 'approved', 'rejected')),
+        reviewer_email VARCHAR(255),
+        reviewer_note TEXT,
+        reviewed_at TIMESTAMP WITH TIME ZONE,
+        exported_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(check_key, teacher_email)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_check_cong_feedbacks_status_created
+        ON check_cong_feedbacks(feedback_status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_check_cong_feedbacks_teacher
+        ON check_cong_feedbacks(LOWER(teacher_email), created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_check_cong_feedbacks_check_key
+        ON check_cong_feedbacks(check_key);
+
+      DROP TRIGGER IF EXISTS trg_check_cong_feedback_settings_updated_at
+        ON check_cong_feedback_settings;
+      CREATE TRIGGER trg_check_cong_feedback_settings_updated_at
+      BEFORE UPDATE ON check_cong_feedback_settings
+      FOR EACH ROW
+      EXECUTE FUNCTION update_updated_at_column();
+
+      DROP TRIGGER IF EXISTS trg_check_cong_feedbacks_updated_at
+        ON check_cong_feedbacks;
+      CREATE TRIGGER trg_check_cong_feedbacks_updated_at
+      BEFORE UPDATE ON check_cong_feedbacks
+      FOR EACH ROW
+      EXECUTE FUNCTION update_updated_at_column();
+    `,
+  },
+  {
+    name: 'V105_portfolios',
+    version: 105,
     sql: `
       CREATE TABLE IF NOT EXISTS portfolios (
         id SERIAL PRIMARY KEY,

@@ -1,4 +1,4 @@
-import { requireBearerSuperAdmin } from '@/lib/auth-server'
+import { requireBearerDbRoles, requireBearerSuperAdmin } from '@/lib/auth-server'
 import { getAdminCheckCong, saveCheckCongCsv } from '@/lib/check-cong-service'
 import { clientIpFromRequest, rateLimitOr429 } from '@/lib/rate-limit-memory'
 import { NextRequest, NextResponse } from 'next/server'
@@ -6,7 +6,11 @@ import { NextRequest, NextResponse } from 'next/server'
 const MAX_CSV_BYTES = 25 * 1024 * 1024
 
 export async function GET(request: NextRequest) {
-  const gate = await requireBearerSuperAdmin(request)
+  const gate = await requireBearerDbRoles(request, [
+    'super_admin',
+    'admin',
+    'manager',
+  ])
   if (!gate.ok) return gate.response
 
   try {

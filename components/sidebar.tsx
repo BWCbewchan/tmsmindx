@@ -228,7 +228,7 @@ export function Sidebar() {
       icon: Users,
       submenu: [
         { href: '/admin/page1', label: 'Hồ sơ Giáo viên' },
-        { href: '/admin/check-cong', label: 'Check công' },
+        { href: '/admin/check-cong', label: 'Kiểm tra công' },
         {
           href: '/admin/page4/quan-ly-lich-lam-viec',
           label: 'Quản lý lịch làm việc',

@@ -32,8 +32,10 @@ import {
     Hash,
     Mail,
     MapPin,
+    MessageSquare,
     Phone,
     Search,
+    Send,
     Shield,
     Star,
     TrendingUp,
@@ -42,7 +44,7 @@ import {
     Users,
     X,
 } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import useSWR, { useSWRConfig } from 'swr'
 
@@ -145,10 +147,11 @@ interface TrainingAssignmentsResponse {
 type TeacherDbRow = Record<string, unknown>
 
 type AvailabilityPeriod = 'week' | 'month' | 'year'
-type TeacherInfoTab = 'profile' | 'checkCong'
+type TeacherInfoTab = 'profile' | 'checkCong' | 'checkCongFeedback'
 type CheckCongStatusFilter = 'all' | 'CHECKED' | 'UNCHECKED'
 
 interface CheckCongRecord {
+  checkKey: string
   centre: string
   type: string
   className: string
@@ -171,6 +174,16 @@ interface CheckCongRecord {
   salaryAmount: number | null
   salaryRule: string
   payHours: number
+  feedback?: CheckCongFeedback | null
+}
+
+interface CheckCongFeedback {
+  id: number
+  feedbackContent: string
+  feedbackStatus: 'pending' | 'approved' | 'rejected'
+  reviewerNote?: string | null
+  reviewedAt?: string | null
+  createdAt?: string
 }
 
 interface CheckCongSummary {
@@ -182,6 +195,8 @@ interface CheckCongSummary {
   totalSlotDuration: number
   totalEffectiveDuration: number
   estimatedSalary: number | null
+  grossEstimatedSalary: number | null
+  salaryTaxAmount: number | null
   checkRate: number
   monthLabel: string
 }
@@ -192,6 +207,14 @@ interface CheckCongResponse {
   records: CheckCongRecord[]
   totalMatchedRecords: number
   estimatedSalary: number | null
+  grossEstimatedSalary: number | null
+  salaryTaxAmount: number | null
+  feedbackSetting?: {
+    isOpen: boolean
+    opensAt: string | null
+    closesAt: string | null
+    canSubmit: boolean
+  }
   teacher: {
     rate: number | null
     rank?: string | null
@@ -489,6 +512,20 @@ function getCheckCongStatusLabel(status: string): 'Checked' | 'Unchecked' {
   return status === 'CHECKED' ? 'Checked' : 'Unchecked'
 }
 
+function getFeedbackStatusLabel(status?: string): string {
+  if (status === 'approved') return 'Đã duyệt'
+  if (status === 'rejected') return 'Từ chối'
+  if (status === 'pending') return 'Chờ duyệt'
+  return 'Chưa phản hồi'
+}
+
+function getFeedbackStatusClass(status?: string): string {
+  if (status === 'approved') return 'bg-green-100 text-green-700'
+  if (status === 'rejected') return 'bg-red-100 text-red-700'
+  if (status === 'pending') return 'bg-amber-100 text-amber-700'
+  return 'bg-gray-100 text-gray-600'
+}
+
 function getCheckCongTitle(record: CheckCongRecord): string {
   const className = normalizeCheckCongText(record.className)
   if (className) return className
@@ -634,6 +671,7 @@ export default function Page1() {
   const { user, token } = useAuth()
   const { mutate: globalMutate } = useSWRConfig()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const dispatch = useAppDispatch()
   const [searchCode, setSearchCode] = useState('')
   const [submitCode, setSubmitCode] = useState('')
@@ -655,6 +693,11 @@ export default function Page1() {
     useState<CheckCongStatusFilter>('all')
   const [selectedCheckCongRecord, setSelectedCheckCongRecord] =
     useState<CheckCongRecord | null>(null)
+  const [selectedCheckCongFeedbackRecord, setSelectedCheckCongFeedbackRecord] =
+    useState<CheckCongRecord | null>(null)
+  const [checkCongFeedbackText, setCheckCongFeedbackText] = useState('')
+  const [isSubmittingCheckCongFeedback, setIsSubmittingCheckCongFeedback] =
+    useState(false)
 
   // Debounce refs
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -928,7 +971,11 @@ export default function Page1() {
       ? `/api/user/check-cong?month=${encodeURIComponent(checkCongMonth)}`
       : null
 
-  const { data: checkCongData, isLoading: isLoadingCheckCong } =
+  const {
+    data: checkCongData,
+    isLoading: isLoadingCheckCong,
+    mutate: mutateCheckCong,
+  } =
     useSWR<CheckCongResponse>(checkCongUrl, secureFetcher, {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
@@ -941,6 +988,22 @@ export default function Page1() {
     if (checkCongStatusFilter === 'all') return records
     return records.filter((record) => record.status === checkCongStatusFilter)
   }, [checkCongData?.records, checkCongStatusFilter])
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab')
+    if (
+      tabParam === 'profile' ||
+      tabParam === 'checkCong' ||
+      tabParam === 'checkCongFeedback'
+    ) {
+      setTeacherInfoTab(tabParam)
+    }
+  }, [searchParams])
+
+  const uncheckedCheckCongRecords = useMemo(
+    () => (checkCongData?.records ?? []).filter((record) => record.status === 'UNCHECKED'),
+    [checkCongData?.records],
+  )
 
   const {
     trainingData,
@@ -1177,6 +1240,12 @@ export default function Page1() {
       document.removeEventListener('keydown', handleEscKey)
     }
   }, [modalOpen])
+
+  useEffect(() => {
+    setCheckCongFeedbackText(
+      selectedCheckCongFeedbackRecord?.feedback?.feedbackContent || '',
+    )
+  }, [selectedCheckCongFeedbackRecord])
 
   // Handle teacher data errors
   useEffect(() => {
@@ -1418,6 +1487,43 @@ export default function Page1() {
       toast.error('Lỗi kết nối. Vui lòng thử lại.')
     } finally {
       setFeedbackSubmitting(false)
+    }
+  }
+
+  const handleCheckCongFeedbackSubmit = async () => {
+    if (!selectedCheckCongFeedbackRecord) return
+
+    setIsSubmittingCheckCongFeedback(true)
+    try {
+      const response = await fetch('/api/user/check-cong', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(token),
+        },
+        body: JSON.stringify({
+          checkKey: selectedCheckCongFeedbackRecord.checkKey,
+          content: checkCongFeedbackText.trim(),
+          month: checkCongMonth,
+        }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || result.success === false) {
+        throw new Error(result.error || 'Gửi phản hồi công thất bại')
+      }
+
+      toast.success('Đã gửi phản hồi công', {
+        message: 'Bộ phận phụ trách sẽ kiểm tra và phản hồi lại trên hệ thống.',
+      })
+      setCheckCongFeedbackText('')
+      setSelectedCheckCongFeedbackRecord(null)
+      await mutateCheckCong()
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Gửi phản hồi công thất bại',
+      )
+    } finally {
+      setIsSubmittingCheckCongFeedback(false)
     }
   }
 
@@ -1782,8 +1888,13 @@ export default function Page1() {
                   { value: 'profile' as const, label: 'Hồ sơ', icon: User },
                   {
                     value: 'checkCong' as const,
-                    label: 'Check công & lương',
+                    label: 'Kiểm tra công & lương',
                     icon: ClipboardCheck,
+                  },
+                  {
+                    value: 'checkCongFeedback' as const,
+                    label: 'Phản hồi công',
+                    icon: MessageSquare,
                   },
                 ].map((tab) => {
                   const ActiveIcon = tab.icon
@@ -1835,7 +1946,7 @@ export default function Page1() {
                   )}
                 </div>
               </div>
-            ) : (
+            ) : teacherInfoTab === 'checkCong' ? (
               <div className="space-y-4 p-3 sm:p-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -1966,7 +2077,9 @@ export default function Page1() {
                       <div className="rounded-lg border border-[#a1001f]/20 bg-red-50 p-3">
                         <div className="flex items-center gap-1 text-xs text-[#a1001f]">
                           <DollarSign className="h-3.5 w-3.5" />
-                          Lương dự tính
+                          {Number(checkCongData.salaryTaxAmount || 0) > 0
+                            ? 'Lương dự tính (đã trừ thuế)'
+                            : 'Lương dự tính'}
                         </div>
                         <div className="mt-1">
                           <SensitiveInlineValue
@@ -2002,7 +2115,7 @@ export default function Page1() {
                     </div>
 
                     <div className="max-h-[560px] overflow-auto rounded-lg border border-gray-200">
-                      <Table className="min-w-[1120px] text-xs">
+                      <Table className="min-w-[1100px] text-xs">
                         <TableHeader className="sticky top-0 z-10 bg-gray-50">
                           <TableRow>
                             <TableHead>Thời gian</TableHead>
@@ -2085,6 +2198,204 @@ export default function Page1() {
                       </Table>
                     </div>
                   </>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4 p-3 sm:p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-900">
+                      Phản hồi công Unchecked
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      Chỉ hiển thị những ca chưa check để bạn gửi yêu cầu kiểm tra lại.
+                    </p>
+                  </div>
+                  <select
+                    value={checkCongMonth}
+                    onChange={(e) => setCheckCongMonth(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-[#a1001f] focus:outline-none focus:ring-2 focus:ring-[#a1001f]/20 sm:w-48"
+                  >
+                    <option value="all">Tất cả dữ liệu</option>
+                    {Array.from({ length: 18 }, (_, index) => {
+                      const date = new Date()
+                      date.setMonth(date.getMonth() - index)
+                      const value = `${date.getFullYear()}-${String(
+                        date.getMonth() + 1,
+                      ).padStart(2, '0')}`
+                      return (
+                        <option key={value} value={value}>
+                          Tháng {date.getMonth() + 1}/{date.getFullYear()}
+                        </option>
+                      )
+                    })}
+                  </select>
+                </div>
+
+                {isLoadingCheckCong ? (
+                  <div className="grid gap-3 lg:grid-cols-[1fr_380px]">
+                    <div className="space-y-3">
+                      {Array.from({ length: 3 }).map((_, index) => (
+                        <div
+                          key={index}
+                          className="h-24 animate-pulse rounded-lg bg-gray-100"
+                        />
+                      ))}
+                    </div>
+                    <div className="h-56 animate-pulse rounded-lg bg-gray-100" />
+                  </div>
+                ) : uncheckedCheckCongRecords.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-8 text-center">
+                    <MessageSquare className="mx-auto mb-2 h-10 w-10 text-gray-400" />
+                    <p className="text-sm font-semibold text-gray-800">
+                      Không có công Unchecked cần phản hồi
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Khi có ca chưa check, bạn sẽ thấy danh sách ở tab này.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
+                    <div className="max-h-[560px] space-y-3 overflow-y-auto pr-1">
+                      {uncheckedCheckCongRecords.map((record, index) => {
+                        const active =
+                          selectedCheckCongFeedbackRecord?.checkKey ===
+                          record.checkKey
+                        return (
+                          <button
+                            key={`${record.checkKey}-${index}`}
+                            type="button"
+                            onClick={() => setSelectedCheckCongFeedbackRecord(record)}
+                            className={`w-full rounded-lg border bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-[#a1001f]/40 hover:shadow-md ${
+                              active
+                                ? 'border-[#a1001f] ring-2 ring-[#a1001f]/10'
+                                : 'border-gray-200'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="rounded-full bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700">
+                                    Unchecked
+                                  </span>
+                                  <span
+                                    className={`rounded-full px-2 py-1 text-[10px] font-bold ${getFeedbackStatusClass(
+                                      record.feedback?.feedbackStatus,
+                                    )}`}
+                                  >
+                                    {getFeedbackStatusLabel(
+                                      record.feedback?.feedbackStatus,
+                                    )}
+                                  </span>
+                                </div>
+                                <p className="mt-2 truncate text-sm font-bold text-gray-950">
+                                  {getCheckCongTitle(record)}
+                                </p>
+                                <p className="mt-1 text-xs text-gray-500">
+                                  {formatSlotTime(record.slotTime)} · {record.centre || 'Chưa có cơ sở'}
+                                </p>
+                              </div>
+                              <div className="shrink-0 rounded-lg bg-gray-50 px-3 py-2 text-center">
+                                <div className="text-[10px] font-semibold uppercase text-gray-500">
+                                  Công
+                                </div>
+                                <div className="text-sm font-bold text-gray-950">
+                                  {record.payHours ||
+                                    record.effectiveDuration ||
+                                    record.slotDuration}
+                                </div>
+                              </div>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                      {selectedCheckCongFeedbackRecord ? (
+                        <div className="space-y-4">
+                          <div>
+                            <div className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                              Công cần phản hồi
+                            </div>
+                            <h4 className="mt-1 text-base font-bold text-gray-950">
+                              {getCheckCongTitle(selectedCheckCongFeedbackRecord)}
+                            </h4>
+                            <p className="mt-1 text-xs text-gray-500">
+                              {formatSlotTime(selectedCheckCongFeedbackRecord.slotTime)}
+                            </p>
+                            <p className="mt-1 text-xs text-gray-500">
+                              {selectedCheckCongFeedbackRecord.centre || '-'} ·{' '}
+                              {selectedCheckCongFeedbackRecord.type || '-'}
+                            </p>
+                          </div>
+
+                          <span
+                            className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${getFeedbackStatusClass(
+                              selectedCheckCongFeedbackRecord.feedback
+                                ?.feedbackStatus,
+                            )}`}
+                          >
+                            {getFeedbackStatusLabel(
+                              selectedCheckCongFeedbackRecord.feedback
+                                ?.feedbackStatus,
+                            )}
+                          </span>
+
+                          {selectedCheckCongFeedbackRecord.feedback?.reviewerNote ? (
+                            <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-700">
+                              <span className="font-semibold text-gray-900">
+                                Ghi chú duyệt:
+                              </span>{' '}
+                              {selectedCheckCongFeedbackRecord.feedback.reviewerNote}
+                            </div>
+                          ) : null}
+
+                          {!checkCongData?.feedbackSetting?.canSubmit ? (
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                              Hiện chưa trong thời gian mở phản hồi công.
+                            </div>
+                          ) : (
+                            <>
+                              <textarea
+                                value={checkCongFeedbackText}
+                                onChange={(event) =>
+                                  setCheckCongFeedbackText(event.target.value)
+                                }
+                                rows={5}
+                                placeholder="Nhập lý do hoặc ghi chú nếu có..."
+                                className="w-full resize-none rounded-lg border border-gray-300 bg-white p-3 text-sm text-gray-900 focus:border-[#a1001f] focus:outline-none focus:ring-2 focus:ring-[#a1001f]/15"
+                              />
+                              <Button
+                                type="button"
+                                variant="mindx"
+                                className="w-full"
+                                onClick={handleCheckCongFeedbackSubmit}
+                                disabled={isSubmittingCheckCongFeedback}
+                              >
+                                <Send className="h-4 w-4" />
+                                {isSubmittingCheckCongFeedback
+                                  ? 'Đang gửi...'
+                                  : selectedCheckCongFeedbackRecord.feedback
+                                    ? 'Gửi lại phản hồi'
+                                    : 'Gửi phản hồi'}
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex min-h-56 flex-col items-center justify-center rounded-lg border border-dashed border-gray-300 bg-white px-4 text-center">
+                          <MessageSquare className="mb-2 h-9 w-9 text-gray-400" />
+                          <p className="text-sm font-semibold text-gray-800">
+                            Chọn một ca Unchecked
+                          </p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            Thông tin phản hồi sẽ hiện ở đây.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             )}
@@ -2254,6 +2565,7 @@ export default function Page1() {
                     </span>
                   </div>
                 </div>
+
               </div>
             </div>
           </div>
