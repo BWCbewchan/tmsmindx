@@ -479,10 +479,10 @@ export async function fetchClassesForQC(
   if (classIds.length > 0) {
     try {
       const dbResult = await pool.query(
-        `SELECT class_lms_id, COUNT(*)::int as count 
+        `SELECT class_lms_id::text as class_lms_id, COUNT(*)::int as count 
          FROM portfolios 
-         WHERE class_lms_id = ANY($1)
-         GROUP BY class_lms_id`,
+         WHERE class_lms_id::text = ANY($1::text[])
+         GROUP BY class_lms_id::text`,
         [classIds],
       );
       portfolioCounts = Object.fromEntries(
@@ -680,19 +680,19 @@ export async function getClassStudentDetails(
   // Get portfolio status from DB
   let portfolioMap: Record<
     string,
-    { id: number; status: string; slug: string | null }
+    { id: string | number; status: string; slug: string | null }
   > = {};
   try {
     const dbResult = await pool.query(
-      `SELECT id, student_lms_id, status, public_slug
+      `SELECT id::text as id, student_lms_id::text as student_lms_id, status, public_slug
        FROM portfolios
-       WHERE class_lms_id = $1`,
+       WHERE class_lms_id::text = $1`,
       [classId],
     );
     portfolioMap = Object.fromEntries(
       dbResult.rows.map(
         (r: {
-          id: number;
+          id: string | number;
           student_lms_id: string;
           status: string;
           public_slug: string | null;

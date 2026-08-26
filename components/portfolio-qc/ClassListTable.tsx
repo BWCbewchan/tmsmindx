@@ -208,6 +208,10 @@ export default function ClassListTable({
                 <StudentDetailPanel
                   classId={cls.id}
                   className={cls.name}
+                  centreName={cls.centreName}
+                  courseLine={cls.courseLineTag}
+                  courseName={cls.courseName}
+                  teacherName={cls.teacherName}
                 />
               )}
             </div>

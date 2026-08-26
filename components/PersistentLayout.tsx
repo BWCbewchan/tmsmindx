@@ -28,6 +28,7 @@ function Layout({ children }: { children: React.ReactNode }) {
     pathname.startsWith('/login') ||
     pathname === '/' ||
     pathname.startsWith('/checkdatasource') ||
+    pathname.startsWith('/public/portfolio') ||
     pathname.startsWith('/bao-tri') ||
     pathname.startsWith('/hr-candidate-application') ||
     isCandidatePortal ||

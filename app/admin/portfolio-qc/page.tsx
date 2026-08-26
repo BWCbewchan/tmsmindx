@@ -66,7 +66,20 @@ export default function PortfolioQCPage() {
         const res = await fetch(
           `/api/admin/portfolio-qc/classes?${params.toString()}`,
         );
-        const data = await res.json();
+        const responseText = await res.text();
+        let data: {
+          success?: boolean;
+          error?: string;
+          data?: PortfolioQCClass[];
+          pagination?: { total?: number; pageIndex?: number; itemsPerPage?: number };
+          accessibleCenters?: CentreOption[];
+        };
+
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          throw new Error(responseText || `HTTP ${res.status}`);
+        }
 
         if (data.success) {
           const rawClasses: PortfolioQCClass[] = data.data || [];
@@ -120,7 +133,8 @@ export default function PortfolioQCPage() {
 
         setHasSearched(true);
       } catch (err) {
-        setError('Lỗi kết nối tới server');
+        const message = err instanceof Error ? err.message : 'Lỗi kết nối tới server';
+        setError(message || 'Lỗi kết nối tới server');
         setClasses([]);
         setHasSearched(true);
       } finally {

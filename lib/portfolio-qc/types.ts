@@ -61,7 +61,7 @@ export interface PortfolioQCStudent {
   /** Portfolio status from DB */
   portfolioStatus: 'none' | 'draft' | 'published';
   /** Portfolio ID in DB if exists */
-  portfolioId: number | null;
+  portfolioId: string | number | null;
   /** Portfolio public slug if exists */
   portfolioSlug: string | null;
 }

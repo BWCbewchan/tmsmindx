@@ -1,18 +1,26 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ChevronDown, Loader2 } from 'lucide-react';
+import { Edit3, Eye, Loader2, Plus } from 'lucide-react';
+import Link from 'next/link';
 import type { PortfolioQCStudent } from '@/lib/portfolio-qc/types';
-import SubmissionProgressBar from './SubmissionProgressBar';
 
 interface StudentDetailPanelProps {
   classId: string;
   className: string;
+  centreName?: string;
+  courseLine?: string;
+  courseName?: string;
+  teacherName?: string;
 }
 
 export default function StudentDetailPanel({
   classId,
   className,
+  centreName = '',
+  courseLine = '',
+  courseName = '',
+  teacherName = '',
 }: StudentDetailPanelProps) {
   const [students, setStudents] = useState<PortfolioQCStudent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -103,6 +111,25 @@ export default function StudentDetailPanel({
                 colors.length;
               const avatarColor = colors[colorIdx];
               const initials = student.studentName.charAt(0).toUpperCase();
+              const builderParams = new URLSearchParams({
+                studentId: student.studentId,
+                studentName: student.studentName,
+                classId,
+                className,
+                centreName,
+                courseLine,
+                courseName,
+                teacherName,
+              });
+              if (student.submissionTitle) {
+                builderParams.set('submissionTitle', student.submissionTitle);
+              }
+              if (student.submissionLink) {
+                builderParams.set('submissionLink', student.submissionLink);
+              }
+              const builderHref = student.portfolioId
+                ? `/admin/portfolio-qc/builder/${student.portfolioId}?${builderParams.toString()}`
+                : `/admin/portfolio-qc/builder/new?${builderParams.toString()}`;
 
               return (
                 <tr
@@ -172,32 +199,41 @@ export default function StudentDetailPanel({
                   {/* Actions */}
                   <td className="px-3 py-3 text-right">
                     {student.portfolioStatus === 'none' ? (
-                      <button
+                      <Link
+                        href={builderHref}
                         className="inline-flex items-center gap-1 px-3 py-1.5 bg-mindx-red text-white text-xs 
                                    font-medium rounded-lg hover:bg-mindx-red-dark active:scale-[0.97]
                                    transition-all shadow-sm"
-                        title="Tạo Portfolio — sẽ implement ở Mục 2"
+                        title="Tạo Portfolio"
                       >
-                        + Tạo Portfolio
-                      </button>
+                        <Plus className="h-3.5 w-3.5" />
+                        Tạo Portfolio
+                      </Link>
                     ) : (
                       <div className="flex items-center justify-end gap-2">
-                        <button
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium
-                                     text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg 
-                                     hover:bg-emerald-100 transition-all"
-                          title="Xem Portfolio"
-                        >
-                          👁 Xem
-                        </button>
-                        <button
+                        {student.portfolioSlug ? (
+                          <Link
+                            href={`/public/portfolio/${student.portfolioSlug}`}
+                            target="_blank"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium
+                                       text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg 
+                                       hover:bg-emerald-100 transition-all"
+                            title="Xem Portfolio"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            Xem
+                          </Link>
+                        ) : null}
+                        <Link
+                          href={builderHref}
                           className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium
                                      text-amber-700 bg-amber-50 border border-amber-200 rounded-lg 
                                      hover:bg-amber-100 transition-all"
                           title="Sửa Portfolio"
                         >
-                          ✏ Sửa
-                        </button>
+                          <Edit3 className="h-3.5 w-3.5" />
+                          Sửa
+                        </Link>
                       </div>
                     )}
                   </td>
