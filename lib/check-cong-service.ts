@@ -1,7 +1,9 @@
 import { promises as fs } from 'fs'
+import { createHash } from 'crypto'
 import path from 'path'
 
 export type CheckCongRecord = {
+  checkKey: string
   centre: string
   type: string
   className: string
@@ -35,6 +37,8 @@ export type CheckCongSummary = {
   totalSlotDuration: number
   totalEffectiveDuration: number
   estimatedSalary: number | null
+  grossEstimatedSalary: number | null
+  salaryTaxAmount: number | null
   checkRate: number
   monthLabel: string
 }
@@ -282,6 +286,37 @@ function calculateSalary(
   return { salaryAmount: 0, salaryRule: 'Không xác định loại công', payHours: 0 }
 }
 
+function makeCheckCongKey(record: {
+  centre: string
+  type: string
+  className: string
+  course: string
+  courseLine: string
+  teacherName: string
+  workEmail: string
+  personalEmail: string
+  username: string
+  roleType: string
+  slotTime: string
+}): string {
+  const raw = [
+    record.workEmail,
+    record.personalEmail,
+    record.username,
+    record.teacherName,
+    record.slotTime,
+    record.type,
+    record.roleType,
+    record.className,
+    record.course,
+    record.courseLine,
+    record.centre,
+  ]
+    .map(normalizeSearchText)
+    .join('|')
+  return createHash('sha1').update(raw).digest('hex')
+}
+
 function rowToRecord(row: Record<string, string>): CheckCongRecord {
   const base = {
     centre: row['Centre shortname'] || '',
@@ -306,6 +341,7 @@ function rowToRecord(row: Record<string, string>): CheckCongRecord {
   }
 
   return {
+    checkKey: makeCheckCongKey(base),
     ...base,
     salaryAmount: 0,
     salaryRule: '',
@@ -374,9 +410,19 @@ function buildSummary(records: CheckCongRecord[], month: string): CheckCongSumma
     0,
   )
   const salaryValues = checked.map((record) => record.salaryAmount)
-  const estimatedSalary: number | null = salaryValues.some((value) => value == null)
+  const grossEstimatedSalary: number | null = salaryValues.some((value) => value == null)
     ? null
     : salaryValues.reduce<number>((sum, value) => sum + (value ?? 0), 0)
+  const salaryTaxAmount =
+    grossEstimatedSalary != null && grossEstimatedSalary > 5000000
+      ? Math.round(grossEstimatedSalary * 0.1)
+      : grossEstimatedSalary == null
+        ? null
+        : 0
+  const estimatedSalary =
+    grossEstimatedSalary == null || salaryTaxAmount == null
+      ? null
+      : grossEstimatedSalary - salaryTaxAmount
 
   return {
     totalRecords: records.length,
@@ -387,6 +433,8 @@ function buildSummary(records: CheckCongRecord[], month: string): CheckCongSumma
     totalSlotDuration,
     totalEffectiveDuration,
     estimatedSalary,
+    grossEstimatedSalary,
+    salaryTaxAmount,
     checkRate: records.length > 0 ? (checked.length / records.length) * 100 : 0,
     monthLabel: /^\d{4}-\d{2}$/.test(month) ? month : 'all',
   }
@@ -446,6 +494,41 @@ export async function saveCheckCongCsv(csvText: string): Promise<{
     savedPath: CSV_PATH,
     recordCount: Math.max(0, rows.length - 1),
   }
+}
+
+export async function exportOriginalCheckCongRowsByKeys(
+  checkKeys: string[],
+): Promise<{ csv: string; count: number }> {
+  const keys = new Set(checkKeys.filter(Boolean))
+  if (keys.size === 0) return { csv: '', count: 0 }
+
+  const csvText = await fs.readFile(CSV_PATH, 'utf8')
+  const rows = parseCSVRows(csvText)
+  const headers = rows[0] ?? []
+  const matchedRows: string[][] = []
+
+  for (const values of rows.slice(1)) {
+    const row: Record<string, string> = {}
+    headers.forEach((header, index) => {
+      row[header] = values[index] || ''
+    })
+    const record = rowToRecord(row)
+    if (keys.has(record.checkKey)) {
+      matchedRows.push(headers.map((_, index) => values[index] || ''))
+    }
+  }
+
+  const csvRows = [headers, ...matchedRows].map((row) =>
+    row
+      .map((value) => {
+        const text = String(value ?? '')
+        return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+      })
+      .join(','),
+  )
+
+  const csv = csvRows.join('\r\n')
+  return { csv: csv ? `\uFEFF${csv}` : csv, count: matchedRows.length }
 }
 
 function matchesAdminQuery(record: CheckCongRecord, query: string): boolean {

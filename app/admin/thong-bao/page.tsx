@@ -73,6 +73,7 @@ function getNotificationCategory(item: Notification): keyof typeof categoriesMap
   
   if (
     typeLower.includes('exam') || 
+    typeLower.includes('check_cong_feedback') ||
     typeLower.includes('explanation') || 
     titleLower.includes('giám khảo') || 
     titleLower.includes('phúc khảo') ||
@@ -232,7 +233,14 @@ export default function AdminNotificationCenterPage() {
     void mutateUnread();
   };
 
-  const resolveNotificationLink = (link: string | null) => {
+  const resolveNotificationLink = (item: Pick<Notification, 'link' | 'type'>) => {
+    const link = item.link;
+    if (item.type?.toLowerCase().includes('check_cong_feedback')) {
+      if (link?.startsWith('/admin/check-cong')) {
+        return '/admin/check-cong?tab=feedback';
+      }
+      return '/user/thong-tin-giao-vien?tab=checkCongFeedback';
+    }
     if (!link) return null;
     if (link === '/user/lich-cua-toi') {
       return '/user/lich-cua-toi?tab=xin-nghi';
@@ -261,7 +269,7 @@ export default function AdminNotificationCenterPage() {
       await assertMutationSuccess(response);
       refreshNotificationData();
 
-      const finalLink = resolveNotificationLink(link);
+      const finalLink = link;
       if (finalLink) {
         router.push(finalLink);
       }
@@ -339,7 +347,7 @@ export default function AdminNotificationCenterPage() {
       void handleMarkAsRead(item.id, null);
     }
 
-    const finalLink = resolveNotificationLink(item.link);
+    const finalLink = resolveNotificationLink(item);
     if (finalLink) {
       router.push(finalLink);
     }
