@@ -28,6 +28,8 @@ fileAccount.txt
 temp_*.csv
 *_secrets.txt
 *_pii.txt
+/data/check-cong-feedback-store.json
+/data/check-cong-feedback-store.json.tmp
 
 # reference projects (not part of main codebase)
 /mindx-kpi-control

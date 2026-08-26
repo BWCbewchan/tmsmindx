@@ -2,6 +2,11 @@ import { withApiProtection } from '@/lib/api-protection'
 import { requireBearerOrSessionCookie } from '@/lib/datasource-api-auth'
 import pool from '@/lib/db'
 import { getTeacherCheckCong } from '@/lib/check-cong-service'
+import {
+  getCheckCongFeedbackSetting,
+  getFeedbacksForKeys,
+  submitCheckCongFeedback,
+} from '@/lib/check-cong-feedback'
 import { NextRequest, NextResponse } from 'next/server'
 
 const RATE_TABLE = new Map(
@@ -85,6 +90,15 @@ export const GET = withApiProtection(async (request: NextRequest) => {
       hourlyRate: rate,
     })
 
+    const feedbacks = await getFeedbacksForKeys(
+      checkCong.records.map((record) => record.checkKey),
+    )
+    const records = checkCong.records.map((record) => ({
+      ...record,
+      feedback: feedbacks.get(record.checkKey) ?? null,
+    }))
+    const feedbackSetting = await getCheckCongFeedbackSetting()
+
     return NextResponse.json({
       success: true,
       teacher: {
@@ -95,11 +109,84 @@ export const GET = withApiProtection(async (request: NextRequest) => {
         rank: teacher.rank_k12_check,
       },
       ...checkCong,
+      records,
+      feedbackSetting,
       estimatedSalary: checkCong.summary.estimatedSalary,
+      grossEstimatedSalary: checkCong.summary.grossEstimatedSalary,
+      salaryTaxAmount: checkCong.summary.salaryTaxAmount,
     })
   } catch (error: unknown) {
     const message =
       error instanceof Error ? error.message : 'Không thể tải dữ liệu check công'
+    return NextResponse.json({ success: false, error: message }, { status: 500 })
+  }
+})
+
+export const POST = withApiProtection(async (request: NextRequest) => {
+  try {
+    const auth = await requireBearerOrSessionCookie(request)
+    if (!auth.ok) return auth.response
+
+    const body = (await request.json().catch(() => ({}))) as {
+      checkKey?: string
+      content?: string
+      month?: string
+    }
+    const checkKey = String(body.checkKey || '').trim()
+    const content = String(body.content || '').trim()
+    if (!checkKey) {
+      return NextResponse.json(
+        { success: false, error: 'Thiếu mã dòng công cần phản hồi' },
+        { status: 400 },
+      )
+    }
+
+    const teacherRes = await pool.query(
+      `
+      SELECT code, user_name, work_email, personal_email, full_name,
+             rate_k12_check, rank_k12_check
+      FROM teachers
+      WHERE LOWER(TRIM(work_email)) = LOWER(TRIM($1))
+         OR LOWER(TRIM("Work email")) = LOWER(TRIM($1))
+      LIMIT 1
+    `,
+      [auth.sessionEmail],
+    )
+
+    if (teacherRes.rows.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Không tìm thấy hồ sơ giáo viên' },
+        { status: 404 },
+      )
+    }
+
+    const teacher = teacherRes.rows[0] as Record<string, unknown>
+    const checkCong = await getTeacherCheckCong({
+      email: auth.sessionEmail,
+      personalEmail: String(teacher.personal_email ?? ''),
+      username: String(teacher.user_name ?? ''),
+      code: String(teacher.code ?? ''),
+      month: String(body.month || 'all'),
+      hourlyRate: parseRate(teacher.rate_k12_check),
+    })
+    const record = checkCong.records.find((item) => item.checkKey === checkKey)
+    if (!record) {
+      return NextResponse.json(
+        { success: false, error: 'Không tìm thấy dòng công thuộc tài khoản này' },
+        { status: 404 },
+      )
+    }
+
+    const feedback = await submitCheckCongFeedback({
+      record,
+      teacherEmail: auth.sessionEmail,
+      content,
+    })
+
+    return NextResponse.json({ success: true, feedback })
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : 'Không thể gửi phản hồi công'
     return NextResponse.json({ success: false, error: message }, { status: 500 })
   }
 })

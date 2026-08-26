@@ -17,20 +17,25 @@ import {
   BarChart3,
   CheckCircle2,
   ClipboardCheck,
+  Download,
   FileUp,
   Medal,
+  MessageSquare,
   Search,
   Star,
   Trophy,
   Users,
   XCircle,
 } from 'lucide-react'
+import { useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-type AdminCheckCongTab = 'records' | 'analytics'
+type AdminCheckCongTab = 'records' | 'feedback' | 'analytics'
 type StatusFilter = 'all' | 'CHECKED' | 'UNCHECKED'
+type FeedbackFilter = 'all' | 'pending' | 'approved' | 'rejected'
 
 interface AdminCheckCongRecord {
+  checkKey: string
   centre: string
   type: string
   className: string
@@ -46,6 +51,35 @@ interface AdminCheckCongRecord {
   slotDuration: number
   effectiveDuration: number
   studentCount: number | null
+}
+
+interface CheckCongFeedbackSetting {
+  isOpen: boolean
+  opensAt: string | null
+  closesAt: string | null
+  canSubmit: boolean
+}
+
+interface CheckCongFeedbackItem {
+  id: number
+  teacherEmail: string
+  teacherName: string
+  username: string
+  centre: string
+  workType: string
+  className: string
+  course: string
+  courseLine: string
+  roleType: string
+  slotTime: string
+  statusSnapshot: string
+  studentCount: number | null
+  feedbackContent: string
+  feedbackStatus: 'pending' | 'approved' | 'rejected'
+  reviewerEmail: string | null
+  reviewerNote: string | null
+  reviewedAt: string | null
+  createdAt: string
 }
 
 interface TeacherRankingItem {
@@ -105,6 +139,14 @@ function formatSlotTime(raw: string): string {
   }).format(date)
 }
 
+function toDateTimeLocalInputValue(raw: string | null | undefined): string {
+  if (!raw) return ''
+  const date = new Date(raw)
+  if (Number.isNaN(date.getTime())) return ''
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+
 function cleanText(value: string | null | undefined): string {
   const text = String(value ?? '').trim()
   if (!text || ['undefined', 'null'].includes(text.toLowerCase())) return ''
@@ -127,6 +169,18 @@ function getSessionType(record: AdminCheckCongRecord): string {
 
 function checkedStatusLabel(status: string): 'Checked' | 'Unchecked' {
   return status === 'CHECKED' ? 'Checked' : 'Unchecked'
+}
+
+function feedbackStatusLabel(status: string): string {
+  if (status === 'approved') return 'Approved'
+  if (status === 'rejected') return 'Rejected'
+  return 'Pending'
+}
+
+function feedbackStatusClass(status: string): string {
+  if (status === 'approved') return 'bg-green-100 text-green-700'
+  if (status === 'rejected') return 'bg-red-100 text-red-700'
+  return 'bg-amber-100 text-amber-700'
 }
 
 function RankAdornment({ index }: { index: number }) {
@@ -177,6 +231,7 @@ function StatCard({
 
 export default function AdminCheckCongPage() {
   const { token } = useAuth()
+  const searchParams = useSearchParams()
   const fileRef = useRef<HTMLInputElement | null>(null)
   const tableScrollRef = useRef<HTMLDivElement | null>(null)
   const requestSeqRef = useRef(0)
@@ -193,6 +248,29 @@ export default function AdminCheckCongPage() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
+  const [feedbackSetting, setFeedbackSetting] =
+    useState<CheckCongFeedbackSetting | null>(null)
+  const [feedbacks, setFeedbacks] = useState<CheckCongFeedbackItem[]>([])
+  const [feedbackFilter, setFeedbackFilter] = useState<FeedbackFilter>('pending')
+  const [isLoadingFeedbacks, setIsLoadingFeedbacks] = useState(false)
+  const [isSavingFeedbackSetting, setIsSavingFeedbackSetting] = useState(false)
+  const [feedbackOpId, setFeedbackOpId] = useState<number | null>(null)
+  const [feedbackOpNote, setFeedbackOpNote] = useState('')
+  const [feedbackOpStatus, setFeedbackOpStatus] =
+    useState<'approved' | 'rejected'>('approved')
+  const [feedbackOpSubmitting, setFeedbackOpSubmitting] = useState(false)
+  const [feedbackSchedule, setFeedbackSchedule] = useState({
+    isOpen: false,
+    opensAt: '',
+    closesAt: '',
+  })
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab')
+    if (tabParam === 'records' || tabParam === 'feedback' || tabParam === 'analytics') {
+      setTab(tabParam)
+    }
+  }, [searchParams])
 
   const fetchPage = useCallback(
     async (targetPage: number, mode: 'reset' | 'append') => {
@@ -266,6 +344,40 @@ export default function AdminCheckCongPage() {
     void fetchPage(1, 'reset')
   }, [fetchPage])
 
+  const loadFeedbacks = useCallback(async () => {
+    setIsLoadingFeedbacks(true)
+    try {
+      const params = new URLSearchParams({
+        status: feedbackFilter,
+        month,
+      })
+      const response = await fetch(`/api/admin/check-cong/feedback?${params}`, {
+        headers: authHeaders(token),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || result.success === false) {
+        throw new Error(result.error || 'Không thể tải phản hồi công')
+      }
+      setFeedbacks(result.feedbacks || [])
+      setFeedbackSetting(result.setting || null)
+      setFeedbackSchedule({
+        isOpen: Boolean(result.setting?.isOpen),
+        opensAt: toDateTimeLocalInputValue(result.setting?.opensAt),
+        closesAt: toDateTimeLocalInputValue(result.setting?.closesAt),
+      })
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Không thể tải phản hồi công',
+      )
+    } finally {
+      setIsLoadingFeedbacks(false)
+    }
+  }, [feedbackFilter, month, token])
+
+  useEffect(() => {
+    if (tab === 'feedback') void loadFeedbacks()
+  }, [loadFeedbacks, tab])
+
   const maxTypeCount = Math.max(
     1,
     ...Object.values(data?.analytics.checkedByType ?? {}),
@@ -316,9 +428,123 @@ export default function AdminCheckCongPage() {
     }
   }
 
+  async function handleSaveFeedbackSchedule(nextIsOpen: boolean) {
+    if (nextIsOpen) {
+      if (!feedbackSchedule.opensAt || !feedbackSchedule.closesAt) {
+        toast.error('Vui lòng chọn đủ thời gian mở và thời gian đóng')
+        return
+      }
+      if (new Date(feedbackSchedule.closesAt) <= new Date(feedbackSchedule.opensAt)) {
+        toast.error('Thời gian đóng phải sau thời gian mở')
+        return
+      }
+    }
+
+    setIsSavingFeedbackSetting(true)
+    try {
+      const response = await fetch('/api/admin/check-cong/feedback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(token),
+        },
+        body: JSON.stringify({
+          isOpen: nextIsOpen,
+          opensAt: nextIsOpen && feedbackSchedule.opensAt
+            ? new Date(feedbackSchedule.opensAt).toISOString()
+            : null,
+          closesAt: nextIsOpen && feedbackSchedule.closesAt
+            ? new Date(feedbackSchedule.closesAt).toISOString()
+            : null,
+        }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || result.success === false) {
+        throw new Error(result.error || 'Không thể lưu lịch phản hồi')
+      }
+      setFeedbackSetting(result.setting)
+      setFeedbackSchedule({
+        isOpen: Boolean(result.setting?.isOpen),
+        opensAt: toDateTimeLocalInputValue(result.setting?.opensAt),
+        closesAt: toDateTimeLocalInputValue(result.setting?.closesAt),
+      })
+      toast.success(nextIsOpen ? 'Đã mở lịch phản hồi công' : 'Đã đóng phản hồi công')
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Không thể lưu lịch phản hồi',
+      )
+    } finally {
+      setIsSavingFeedbackSetting(false)
+    }
+  }
+
+  async function handleReviewFeedback() {
+    if (!feedbackOpId) return
+    setFeedbackOpSubmitting(true)
+    try {
+      const response = await fetch('/api/admin/check-cong/feedback', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(token),
+        },
+        body: JSON.stringify({
+          id: feedbackOpId,
+          status: feedbackOpStatus,
+          reviewerNote: feedbackOpNote,
+        }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || result.success === false) {
+        throw new Error(result.error || 'Không thể duyệt phản hồi')
+      }
+      toast.success(
+        feedbackOpStatus === 'approved'
+          ? 'Đã duyệt phản hồi công'
+          : 'Đã từ chối phản hồi công',
+      )
+      setFeedbackOpId(null)
+      setFeedbackOpNote('')
+      await loadFeedbacks()
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Không thể duyệt phản hồi',
+      )
+    } finally {
+      setFeedbackOpSubmitting(false)
+    }
+  }
+
+  async function handleExportFeedbackCsv() {
+    try {
+      const response = await fetch('/api/admin/check-cong/feedback/export', {
+        headers: authHeaders(token),
+      })
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}))
+        throw new Error(result.error || 'Không thể export CSV')
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `check-cong-feedback-approved-${new Date()
+        .toISOString()
+        .slice(0, 10)}.csv`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      toast.success('Đã export CSV phản hồi đã duyệt')
+      await loadFeedbacks()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Không thể export CSV')
+    }
+  }
+
   return (
     <PageContainer
-      title="Check công giáo viên"
+      title="Kiểm tra công giáo viên"
       description="Quản lý dữ liệu công từ file CSV cuối tháng và phân tích số ca checked của toàn bộ giáo viên."
       headerActions={
         <div className="flex flex-wrap items-center gap-2">
@@ -346,7 +572,8 @@ export default function AdminCheckCongPage() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap gap-2">
               {[
-                { value: 'records' as const, label: 'Check công', icon: ClipboardCheck },
+                { value: 'records' as const, label: 'Kiểm tra công', icon: ClipboardCheck },
+                { value: 'feedback' as const, label: 'Phản hồi công', icon: MessageSquare },
                 { value: 'analytics' as const, label: 'Vinh danh & phân tích', icon: Trophy },
               ].map((item) => {
                 const ActiveIcon = item.icon
@@ -579,6 +806,215 @@ export default function AdminCheckCongPage() {
                   </Table>
                 </div>
               </div>
+            ) : tab === 'feedback' ? (
+              <div className="space-y-5">
+                <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.8fr_0.8fr_auto] xl:items-end">
+                    <div>
+                      <h3 className="text-base font-bold text-gray-950">
+                        Lịch mở phản hồi
+                      </h3>
+                      <p className="mt-1 text-sm text-gray-500">
+                        TeachingHO mở thời hạn để giáo viên phản hồi các ca Unchecked.
+                      </p>
+                      <div
+                        className={`mt-3 inline-flex rounded-full border px-3 py-1 text-xs font-bold ${
+                          feedbackSetting?.canSubmit
+                            ? 'border-green-200 bg-green-50 text-green-700'
+                            : 'border-gray-200 bg-gray-50 text-gray-600'
+                        }`}
+                      >
+                        {feedbackSetting?.canSubmit
+                          ? 'Đang nhận phản hồi'
+                          : feedbackSetting?.isOpen
+                            ? 'Đã lên lịch, chưa đến giờ'
+                            : 'Đang đóng phản hồi'}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                        Bắt đầu
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={feedbackSchedule.opensAt}
+                        onChange={(event) =>
+                          setFeedbackSchedule((current) => ({
+                            ...current,
+                            opensAt: event.target.value,
+                          }))
+                        }
+                        className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm disabled:bg-gray-100 disabled:text-gray-400 focus:border-[#a1001f] focus:outline-none focus:ring-2 focus:ring-[#a1001f]/15"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                        Kết thúc
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={feedbackSchedule.closesAt}
+                        onChange={(event) =>
+                          setFeedbackSchedule((current) => ({
+                            ...current,
+                            closesAt: event.target.value,
+                          }))
+                        }
+                        className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm disabled:bg-gray-100 disabled:text-gray-400 focus:border-[#a1001f] focus:outline-none focus:ring-2 focus:ring-[#a1001f]/15"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row xl:justify-end">
+                      <Button
+                        type="button"
+                        variant="mindx"
+                        onClick={() => handleSaveFeedbackSchedule(true)}
+                        disabled={isSavingFeedbackSetting}
+                        className="h-11"
+                      >
+                        {isSavingFeedbackSetting ? 'Đang lưu...' : 'Mở lịch'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => handleSaveFeedbackSchedule(false)}
+                        disabled={isSavingFeedbackSetting}
+                        className="h-11 border-[#a1001f]/30 text-[#a1001f] hover:bg-red-50"
+                      >
+                        Đóng phản hồi
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                  <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <h3 className="text-base font-bold text-gray-950">
+                        Phản hồi chờ xử lý
+                      </h3>
+                      <p className="mt-1 text-sm text-gray-500">
+                        TC/Leader duyệt xong thì TeachingHO export CSV báo Tech.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <div className="flex rounded-lg border border-gray-200 bg-white p-1">
+                        {[
+                          { value: 'pending' as const, label: 'Pending' },
+                          { value: 'approved' as const, label: 'Approved' },
+                          { value: 'rejected' as const, label: 'Rejected' },
+                          { value: 'all' as const, label: 'All' },
+                        ].map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setFeedbackFilter(option.value)}
+                            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                              feedbackFilter === option.value
+                                ? 'bg-[#a1001f] text-white shadow-sm'
+                                : 'text-gray-600 hover:bg-gray-50 hover:text-[#a1001f]'
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="mindx"
+                        onClick={handleExportFeedbackCsv}
+                      >
+                        <Download className="h-4 w-4" />
+                        Export approved
+                      </Button>
+                    </div>
+                  </div>
+
+                  {isLoadingFeedbacks ? (
+                    <div className="space-y-3">
+                      {Array.from({ length: 4 }).map((_, index) => (
+                        <div
+                          key={index}
+                          className="h-24 animate-pulse rounded-lg bg-gray-100"
+                        />
+                      ))}
+                    </div>
+                  ) : feedbacks.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
+                      Chưa có phản hồi công theo bộ lọc hiện tại.
+                    </div>
+                  ) : (
+                    <div className="max-h-[620px] space-y-3 overflow-auto pr-1">
+                      {feedbacks.map((feedback) => (
+                        <div
+                          key={feedback.id}
+                          className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition-colors hover:border-[#a1001f]/25 hover:bg-red-50/20"
+                        >
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span
+                                  className={`rounded-full px-2 py-1 text-[11px] font-bold ${feedbackStatusClass(
+                                    feedback.feedbackStatus,
+                                  )}`}
+                                >
+                                  {feedbackStatusLabel(feedback.feedbackStatus)}
+                                </span>
+                                <span className="text-xs font-semibold text-gray-500">
+                                  {formatSlotTime(feedback.slotTime)}
+                                </span>
+                              </div>
+                              <h4 className="mt-2 text-sm font-bold text-gray-950">
+                                {feedback.teacherName || feedback.teacherEmail} ·{' '}
+                                {feedback.className || 'Trực trải nghiệm'}
+                              </h4>
+                              <p className="mt-1 text-xs text-gray-500">
+                                {feedback.centre || '-'} · {feedback.workType || '-'} ·{' '}
+                                {feedback.roleType || '-'} · {feedback.studentCount ?? 0} HV
+                              </p>
+                              <p className="mt-3 rounded-lg bg-gray-50 p-3 text-sm font-medium leading-relaxed text-gray-800">
+                                {feedback.feedbackContent || 'Không có ghi chú'}
+                              </p>
+                              {feedback.reviewerNote ? (
+                                <p className="mt-2 text-xs text-gray-500">
+                                  Ghi chú duyệt: {feedback.reviewerNote}
+                                </p>
+                              ) : null}
+                            </div>
+                            {feedback.feedbackStatus === 'pending' ? (
+                              <div className="flex shrink-0 gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setFeedbackOpId(feedback.id)
+                                    setFeedbackOpStatus('rejected')
+                                    setFeedbackOpNote('')
+                                  }}
+                                >
+                                  Reject
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="mindx"
+                                  onClick={() => {
+                                    setFeedbackOpId(feedback.id)
+                                    setFeedbackOpStatus('approved')
+                                    setFeedbackOpNote('')
+                                  }}
+                                >
+                                  Approve
+                                </Button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             ) : (
               <div className="grid grid-cols-1 gap-5 xl:grid-cols-[0.9fr_1.6fr]">
                 <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
@@ -693,6 +1129,51 @@ export default function AdminCheckCongPage() {
           </div>
         )}
       </div>
+
+      {feedbackOpId ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          onClick={() => setFeedbackOpId(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-xl bg-white p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold text-gray-950">
+              {feedbackOpStatus === 'approved'
+                ? 'Duyệt phản hồi công'
+                : 'Từ chối phản hồi công'}
+            </h3>
+            <p className="mt-1 text-sm text-gray-500">
+              Ghi chú sẽ được gửi thông báo lại cho giáo viên.
+            </p>
+            <textarea
+              value={feedbackOpNote}
+              onChange={(event) => setFeedbackOpNote(event.target.value)}
+              rows={4}
+              placeholder="Nhập ghi chú cho giáo viên..."
+              className="mt-4 w-full resize-none rounded-lg border border-gray-300 p-3 text-sm focus:border-[#a1001f] focus:outline-none focus:ring-2 focus:ring-[#a1001f]/15"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setFeedbackOpId(null)}
+              >
+                Hủy
+              </Button>
+              <Button
+                type="button"
+                variant="mindx"
+                onClick={handleReviewFeedback}
+                disabled={feedbackOpSubmitting}
+              >
+                {feedbackOpSubmitting ? 'Đang xử lý...' : 'Xác nhận'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </PageContainer>
   )
 }
