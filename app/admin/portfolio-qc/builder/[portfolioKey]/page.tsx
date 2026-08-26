@@ -36,24 +36,51 @@ type SectionId =
   | 'skills'
   | 'dna'
   | 'projects'
-  | 'tech'
   | 'gallery'
   | 'awards'
-  | 'rewards'
-  | 'custom';
+  | 'rewards';
 
 const sections: Array<{ id: SectionId; label: string; icon: React.ElementType }> = [
   { id: 'profile', label: 'Thông tin học viên', icon: User },
   { id: 'journey', label: 'Lộ trình học tập', icon: BookOpen },
   { id: 'skills', label: 'Kỹ năng (Cứng & Mềm)', icon: Layers },
-  { id: 'dna', label: 'DNA Năng lực & Học tập', icon: Brain },
+  { id: 'dna', label: 'DNA Năng lực & Đánh giá', icon: Brain },
   { id: 'projects', label: 'Dự án / Sản phẩm', icon: Sparkles },
-  { id: 'tech', label: 'Công nghệ sử dụng', icon: Code2 },
   { id: 'gallery', label: 'Thư viện hình ảnh', icon: Camera },
   { id: 'awards', label: 'Thành tích & Chứng nhận', icon: Award },
   { id: 'rewards', label: 'Điểm thưởng & Hoạt động', icon: Trophy },
-  { id: 'custom', label: 'Mục tuỳ chỉnh', icon: Wrench },
 ];
+
+function getRecommendedSkillsForCourse(courseLineOrName: string) {
+  const text = (courseLineOrName || '').toUpperCase();
+
+  if (text.includes('C4K') || text.includes('KID') || text.includes('SCRATCH') || text.includes('GAME')) {
+    return {
+      hardSkills: ['Lập trình Kịch bản Game', 'Tư duy Thuật toán 2D', 'Lập trình Trò chơi Điện tử', 'Thiết kế Giao diện Ứng dụng', 'Logic Cấu trúc Điều kiện'],
+      softSkills: ['Tư duy Sáng tạo', 'Thuyết trình Sản phẩm', 'Giải quyết Vấn đề', 'Kiên trì Sửa lỗi'],
+      technologies: ['Scratch', 'Construct', 'App Lab', 'Canva'],
+    };
+  }
+  if (text.includes('XART') || text.includes('DESIGN') || text.includes('VISUAL') || text.includes('ART')) {
+    return {
+      hardSkills: ['Chỉnh sửa Ảnh Chuyên nghiệp', 'Thiết kế Đồ họa Vector', 'Giao diện Người dùng', 'Phối màu và Bố cục', 'Kể chuyện bằng Hình ảnh'],
+      softSkills: ['Tư duy Thẩm mỹ', 'Tiếp nhận Lắng nghe Góp ý', 'Thuyết trình Ý tưởng Thiết kế', 'Quản lý Tiến độ Thiết kế'],
+      technologies: ['Photoshop', 'Illustrator', 'Figma', 'Procreate'],
+    };
+  }
+  if (text.includes('ROB') || text.includes('BOT') || text.includes('MAKER')) {
+    return {
+      hardSkills: ['Lập trình Mạch Điều khiển', 'Lắp ráp Cảm biến Điện tử', 'Mạch Điện Cơ bản', 'Thuật toán Điều khiển Môtơ'],
+      softSkills: ['Khéo léo Kỹ thuật', 'Tư duy Hệ thống', 'Làm việc Nhóm', 'Thử nghiệm và Tối ưu'],
+      technologies: ['Arduino', 'C/C++', 'Tinkercad', 'Sensors'],
+    };
+  }
+  return {
+    hardSkills: ['Lập trình Trang Web', 'Ngôn ngữ Lập trình Python', 'Xây dựng Ứng dụng', 'Thiết kế Cơ sở Dữ liệu', 'Quản lý Mã nguồn'],
+    softSkills: ['Tư duy Logic', 'Làm việc Nhóm', 'Tự Nghiên cứu Tài liệu', 'Phản biện Giải thuật'],
+    technologies: ['HTML/CSS', 'JavaScript', 'React', 'Node.js', 'Python', 'Git'],
+  };
+}
 
 const emptyData = (params: URLSearchParams): StudentPortfolioData => {
   const studentName = params.get('studentName') || 'Học viên MindX';
@@ -62,12 +89,17 @@ const emptyData = (params: URLSearchParams): StudentPortfolioData => {
   const courseName = params.get('courseName') || courseLine || 'Khóa học MindX';
   const submissionTitle = params.get('submissionTitle') || 'Sản phẩm cuối khóa';
   const submissionLink = params.get('submissionLink') || '';
+  const studentId = params.get('studentId') || '';
+
+  const rec = getRecommendedSkillsForCourse(courseLine || courseName);
+
   return {
     profile: {
       studentName,
       slug: generateSlug(studentName),
       className,
       classId: params.get('classId') || '',
+      studentId,
       centreName: params.get('centreName') || '',
       courseLine,
       courseName,
@@ -79,8 +111,8 @@ const emptyData = (params: URLSearchParams): StudentPortfolioData => {
     learningJourney: [
       { title: courseName, code: className, status: 'Đang diễn ra', description: 'Theo dõi tiến độ học tập và sản phẩm cuối khóa từ LMS.' },
     ],
-    hardSkills: [],
-    softSkills: [],
+    hardSkills: rec.hardSkills.map((name) => ({ name })),
+    softSkills: rec.softSkills.map((name) => ({ name })),
     dnaScores: [],
     mindsetScores: [],
     orientationScores: [],
@@ -95,7 +127,7 @@ const emptyData = (params: URLSearchParams): StudentPortfolioData => {
           },
         ]
       : [],
-    technologies: courseLine ? [courseLine] : [],
+    technologies: rec.technologies,
     gallery: [],
     achievements: [],
     rewards: { points: 0, history: [] },
@@ -237,6 +269,7 @@ export default function PortfolioBuilderPage() {
   const [hardSkillDraft, setHardSkillDraft] = useState('');
   const [softSkillDraft, setSoftSkillDraft] = useState('');
   const [internshipDraft, setInternshipDraft] = useState('');
+  const [isSyncingJourney, setIsSyncingJourney] = useState(false);
 
   const studentId = searchParams.get('studentId') || '';
   const classId = searchParams.get('classId') || '';
@@ -246,6 +279,35 @@ export default function PortfolioBuilderPage() {
     [data.lmsSyncedFields],
   );
 
+  const handleSyncLmsJourney = async () => {
+    const sId = studentId || data.profile.studentId || '';
+    if (!sId) {
+      toast.error('Không tìm thấy Student ID của học viên để tải từ LMS');
+      return;
+    }
+    setIsSyncingJourney(true);
+    try {
+      const res = await fetch(`/api/admin/portfolio-qc/students/${sId}/study-classes`, {
+        headers: authHeaders(token),
+      });
+      const resData = await res.json();
+      if (resData.success && resData.data?.length > 0) {
+        setData((prev) => ({
+          ...prev,
+          learningJourney: resData.data,
+          profile: { ...prev.profile, studentId: sId },
+        }));
+        toast.success(`Đã tự động đồng bộ ${resData.data.length} khóa học từ LMS!`);
+      } else {
+        toast.error(resData.error || 'Không tìm thấy dữ liệu khóa học trên LMS');
+      }
+    } catch {
+      toast.error('Lỗi kết nối server khi tải lộ trình học tập');
+    } finally {
+      setIsSyncingJourney(false);
+    }
+  };
+
   const updateProfile = (patch: Partial<StudentPortfolioData['profile']>) => {
     setData((prev) => ({ ...prev, profile: { ...prev.profile, ...patch } }));
   };
@@ -253,6 +315,25 @@ export default function PortfolioBuilderPage() {
   const updateData = (patch: Partial<StudentPortfolioData>) => {
     setData((prev) => ({ ...prev, ...patch }));
   };
+
+  const autoFetchLmsData = useCallback(async (sId: string) => {
+    if (!sId) return;
+    try {
+      const journeyRes = await fetch(`/api/admin/portfolio-qc/students/${sId}/study-classes`, {
+        headers: authHeaders(token),
+      }).then((r) => r.json()).catch(() => null);
+
+      if (journeyRes?.success && journeyRes.data?.length > 0) {
+        setData((prev) => ({
+          ...prev,
+          learningJourney: journeyRes.data,
+          profile: { ...prev.profile, studentId: sId },
+        }));
+      }
+    } catch {
+      // Silently continue if LMS background auto-fetch has transient network issue
+    }
+  }, [token]);
 
   const loadPortfolio = useCallback(async () => {
     setIsLoading(true);
@@ -279,15 +360,25 @@ export default function PortfolioBuilderPage() {
       if (json.success && json.portfolio) {
         setPortfolio(json.portfolio);
         setData(json.portfolio.data);
+        const sId = studentId || json.portfolio.student_lms_id || json.portfolio.data?.profile?.studentId || '';
+        if (sId) {
+          autoFetchLmsData(sId);
+        }
       } else if (json.success && json.seedData) {
         setData(json.seedData);
+        const sId = studentId || json.seedData?.profile?.studentId || '';
+        if (sId) {
+          autoFetchLmsData(sId);
+        }
+      } else if (studentId) {
+        autoFetchLmsData(studentId);
       }
     } catch {
       toast.error('Không thể tải portfolio');
     } finally {
       setIsLoading(false);
     }
-  }, [classId, params.portfolioKey, searchParams, studentId, token]);
+  }, [autoFetchLmsData, classId, params.portfolioKey, searchParams, studentId, token]);
 
   useEffect(() => {
     loadPortfolio();
@@ -342,19 +433,21 @@ export default function PortfolioBuilderPage() {
     }
   };
 
-  const previewPortfolio = async () => {
-    if (data.visibility === 'private') {
-      toast.error('Portfolio đang ở chế độ riêng tư. Chuyển sang Public bằng link để xem public.');
-      return;
-    }
+  const previewPortfolio = async (modeOverride?: 'private' | 'public') => {
     setIsSaving(true);
     try {
       const saved = await persistPortfolio();
-      const url = `/public/portfolio/${saved.public_slug}`;
+      const slugToOpen = data.profile.slug || saved?.public_slug || '';
+      const modeParam = modeOverride ? `?mode=${modeOverride}` : (data.visibility === 'private' ? '?mode=private' : '?mode=public');
+      const url = `/public/portfolio/${encodeURIComponent(slugToOpen)}${modeParam}`;
       window.open(url, '_blank', 'noopener,noreferrer');
-      toast.success('Đã lưu và mở bản public');
+      toast.success(
+        (modeOverride || data.visibility) === 'private'
+          ? 'Đã mở xem Bản thô (Dữ liệu tự động LMS)'
+          : 'Đã mở xem Bản tùy chỉnh (Hiển thị đầy đủ)',
+      );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Không thể xem trước portfolio');
+      toast.error(error instanceof Error ? error.message : 'Không thể xem portfolio');
     } finally {
       setIsSaving(false);
     }
@@ -374,7 +467,6 @@ export default function PortfolioBuilderPage() {
             <Field label="Email học viên/phụ huynh" value={data.profile.studentEmail} onChange={(v) => updateProfile({ studentEmail: v })} rightSlot={<LmsTag />} disabled={isLmsSynced('profile.studentEmail')} />
             <Field label="Số điện thoại liên hệ" value={data.profile.phone} onChange={(v) => updateProfile({ phone: v })} rightSlot={<LmsTag />} disabled={isLmsSynced('profile.phone')} />
             <Field label="Họ và tên phụ huynh" value={data.profile.parentName} onChange={(v) => updateProfile({ parentName: v })} rightSlot={isLmsSynced('profile.parentName') ? <LmsTag /> : null} disabled={isLmsSynced('profile.parentName')} />
-            <Field label="Điểm GPA học viên" value={data.profile.gpa} onChange={(v) => updateProfile({ gpa: v })} />
             <Field label="Tuổi học viên" value={data.profile.age} onChange={(v) => updateProfile({ age: v })} />
             <Field label="Lớp LMS" value={data.profile.className} onChange={(v) => updateProfile({ className: v })} rightSlot={<LmsTag />} disabled={isLmsSynced('profile.className')} />
             <Field label="Cơ sở" value={data.profile.centreName} onChange={(v) => updateProfile({ centreName: v })} rightSlot={<LmsTag />} disabled={isLmsSynced('profile.centreName')} />
@@ -435,15 +527,26 @@ export default function PortfolioBuilderPage() {
       );
     }
     if (active === 'skills') {
+      const handleLoadRecommendedSkills = () => {
+        const rec = getRecommendedSkillsForCourse(data.profile.courseLine || data.profile.courseName || '');
+        updateData({
+          hardSkills: rec.hardSkills.map((name) => ({ name })),
+          softSkills: rec.softSkills.map((name) => ({ name })),
+          technologies: Array.from(new Set([...data.technologies, ...rec.technologies])),
+        });
+        toast.success(`Đã tự động tải bộ kỹ năng gợi ý cho khóa ${data.profile.courseLine || data.profile.courseName || 'học'}!`);
+      };
+
       return (
         <SectionShell title="Kỹ năng mềm và kỹ năng chuyên môn" description="Mỗi kỹ năng hiển thị như chip/card nhỏ trên trang public.">
-          <div className="mb-2 flex justify-end">
+          <div className="mb-4 flex justify-end">
             <button
               type="button"
-              className="rounded-md bg-rose-50 px-3 py-1.5 text-xs font-bold text-mindx-red hover:bg-rose-100"
-              onClick={() => toast.success('Đã dùng bộ gợi ý kỹ năng mặc định')}
+              onClick={handleLoadRecommendedSkills}
+              className="inline-flex items-center gap-2 rounded-lg bg-rose-50 px-3.5 py-2 text-xs font-bold text-mindx-red hover:bg-rose-100 transition shadow-sm"
             >
-              Tải gợi ý kỹ năng {data.profile.courseLine || 'CAK'}
+              <Sparkles className="h-4 w-4 text-mindx-red" />
+              Tải gợi ý kỹ năng cho {data.profile.courseLine || data.profile.courseName || 'Khóa học'}
             </button>
           </div>
           <div className="space-y-7">
@@ -512,193 +615,146 @@ export default function PortfolioBuilderPage() {
     }
     if (active === 'dna') {
       const locked = false;
-      const internshipSection = data.customSections.find((section) => section.title === 'Thực tập');
-      const internshipTags = (internshipSection?.content || 'Nextgen, Project Dev, Leadership, Pro Internship, Xcareer')
-        .split(',')
-        .map((tag) => tag.trim())
-        .filter(Boolean);
-      const setCustomSection = (title: string, content: string) => {
-        const others = data.customSections.filter((section) => section.title !== title);
-        updateData({ customSections: [...others, { title, content }] });
-      };
-      const getCustomSection = (title: string) =>
-        data.customSections.find((section) => section.title === title)?.content || '';
-      const academicValue = (
-        title: string,
-        value?: number | string | null,
-      ) => getCustomSection(title) || (value == null ? '' : String(value));
       const setScoreSection = (
-        title: string,
-        key: 'checkpoint1Score' | 'checkpoint2Score' | 'demoScore' | 'tbckScore',
+        key: 'checkpoint1Score' | 'checkpoint2Score' | 'demoScore' | 'tbckScore' | 'rank',
         value: string,
       ) => {
         const numeric = value.trim() === '' ? null : Number(value);
-        const others = data.customSections.filter((section) => section.title !== title);
         updateData({
-          customSections: value.trim() ? [...others, { title, content: value }] : others,
           academicSummary: {
             ...(data.academicSummary || {}),
-            [key]: Number.isFinite(numeric) ? numeric : null,
+            [key === 'rank' ? 'rank' : key]: key === 'rank' ? value : (Number.isFinite(numeric) ? numeric : null),
           },
         });
       };
+
       const groups = [
         {
           key: 'dnaScores',
-          title: 'NHÓM A: CỐT LÕI & THÁI ĐỘ',
-          dot: 'bg-violet-500',
-          accent: 'accent-violet-600',
-          text: 'text-violet-700',
+          title: 'NHÓM 1: TƯ DUY & NĂNG LỰC CỐT LÕI',
+          dot: 'bg-emerald-500',
+          accent: 'accent-emerald-600',
+          text: 'text-emerald-700',
         },
         {
           key: 'mindsetScores',
-          title: 'NHÓM B: KỸ THUẬT NỀN TẢNG',
+          title: 'NHÓM 2: KỸ THUẬT & THỰC HÀNH DỰ ÁN',
           dot: 'bg-blue-500',
           accent: 'accent-blue-600',
           text: 'text-blue-700',
         },
-        {
-          key: 'orientationScores',
-          title: 'NHÓM C: ĐỊNH HƯỚNG DN',
-          dot: 'bg-teal-500',
-          accent: 'accent-teal-600',
-          text: 'text-teal-700',
-        },
       ] as const;
+
       return (
-        <SectionShell title="Đánh giá năng lực DNA & học tập bổ sung" description="Dùng slider để chỉnh điểm nhanh, giống bảng đánh giá trực quan trong hình mẫu.">
-          <div className="space-y-8">
-            <div>
-              <div className="mb-3 flex items-center justify-between border-b border-neutral-300 pb-2">
-                <h3 className="text-sm font-black uppercase text-neutral-800">
-                  1. Đánh giá 3 trục năng lực DNA (thang điểm 0 - 5)
+        <SectionShell title="DNA Năng lực & Kết quả Học tập" description="Theo dõi điểm số Checkpoint thực tế từ LMS và đánh giá các trục năng lực học tập cốt lõi của học viên.">
+          <div className="space-y-6">
+            <div className="rounded-xl border border-rose-200 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center justify-between border-b border-rose-100 pb-3">
+                <h3 className="text-xs font-black uppercase tracking-wider text-mindx-red flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-mindx-red" />
+                  1. Điểm kiểm tra Checkpoint & Kết quả LMS
                 </h3>
+                <span className="rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-bold text-mindx-red">Dữ liệu từ LMS</span>
               </div>
-              <div className="grid gap-5 md:grid-cols-3">
-                {groups.map((group) => {
-                  const scores = data[group.key] || [];
-                  return (
-                    <div key={group.key} className="rounded-xl bg-neutral-50/70 p-4">
-                      <div className={`mb-4 flex items-center gap-2 text-[11px] font-black uppercase ${group.text}`}>
-                        <span className={`h-2 w-2 rounded-full ${group.dot}`} />
-                        {group.title}
-                      </div>
-                      <div className="space-y-4">
-                        {scores.map((score, index) => (
-                          <div key={index} className="space-y-1">
-                            <div className="grid grid-cols-[1fr_52px_24px] items-center gap-2">
-                              <input
-                                className="h-7 rounded-md border border-transparent bg-transparent px-1 text-xs font-bold text-neutral-800 outline-none hover:border-neutral-200 hover:bg-white focus:border-mindx-red"
-                                value={score.label}
-                                disabled={locked}
-                                onChange={(event) => updateData({ [group.key]: scores.map((it, i) => i === index ? { ...it, label: event.target.value } : it) } as Partial<StudentPortfolioData>)}
-                              />
-                              <span className={`text-right text-xs font-black ${group.text}`}>{score.value}/5</span>
-                              <button type="button" disabled={locked} onClick={() => updateData({ [group.key]: scores.filter((_, i) => i !== index) } as Partial<StudentPortfolioData>)} className="text-neutral-300 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30">
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                            <input
-                              type="range"
-                              min={0}
-                              max={5}
-                              step={0.1}
-                              value={score.value}
-                              disabled={locked}
-                              onChange={(event) => updateData({ [group.key]: scores.map((it, i) => i === index ? { ...it, value: Number(event.target.value) } : it) } as Partial<StudentPortfolioData>)}
-                              className={`w-full ${group.accent}`}
-                            />
-                          </div>
-                        ))}
-                        <button
-                          type="button"
-                          disabled={locked}
-                          onClick={() => updateData({ [group.key]: [...scores, { label: 'Tiêu chí mới', value: 0 }] } as Partial<StudentPortfolioData>)}
-                          className="text-xs font-bold text-neutral-500 hover:text-mindx-red disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          + Thêm tiêu chí
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+                <Field
+                  label="Checkpoint 1"
+                  placeholder="0 - 10"
+                  value={data.academicSummary?.checkpoint1Score != null ? String(data.academicSummary.checkpoint1Score) : ''}
+                  onChange={(v) => setScoreSection('checkpoint1Score', v)}
+                />
+                <Field
+                  label="Checkpoint 2"
+                  placeholder="0 - 10"
+                  value={data.academicSummary?.checkpoint2Score != null ? String(data.academicSummary.checkpoint2Score) : ''}
+                  onChange={(v) => setScoreSection('checkpoint2Score', v)}
+                />
+                <Field
+                  label="SPCK / Demo Score"
+                  placeholder="0 - 10"
+                  value={data.academicSummary?.demoScore != null ? String(data.academicSummary.demoScore) : ''}
+                  onChange={(v) => setScoreSection('demoScore', v)}
+                />
+                <Field
+                  label="TBCK Score"
+                  placeholder="0 - 10"
+                  value={data.academicSummary?.tbckScore != null ? String(data.academicSummary.tbckScore) : ''}
+                  onChange={(v) => setScoreSection('tbckScore', v)}
+                />
+                <Field
+                  label="Xếp loại học tập"
+                  placeholder="Xuất sắc / Giỏi / Khá"
+                  value={data.academicSummary?.rank || ''}
+                  onChange={(v) => setScoreSection('rank', v)}
+                />
               </div>
             </div>
 
-            <div>
-              <div className="mb-4 flex items-center justify-between border-b border-neutral-300 pb-2">
-                <h3 className="text-sm font-black uppercase text-neutral-800">
-                  2. Bảng theo dõi học tập & sự kiện bổ sung
-                </h3>
-                <span className="text-[10px] font-semibold text-neutral-300">CÓ THỂ THAY ĐỔI TÙY Ý</span>
-              </div>
-              <div className="space-y-4 rounded-xl bg-neutral-50 p-4">
-                <div>
-                  <div className="mb-2 text-xs font-bold uppercase text-neutral-600">Thực tập (Internships)</div>
-                  <div className="mb-3 grid gap-3 md:grid-cols-[1fr_74px]">
-                    <input
-                      value={internshipDraft}
-                      onChange={(event) => setInternshipDraft(event.target.value)}
-                      placeholder="Nhập nơi thực tập (e.g Nextgen, FPT Software...)"
-                      className="h-10 rounded-lg border border-neutral-100 bg-white px-3 text-sm outline-none focus:border-mindx-red"
-                    />
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            {groups.map((group) => {
+              const scores = (data[group.key] && data[group.key].length > 0)
+                ? data[group.key]
+                : (group.key === 'dnaScores'
+                    ? [
+                        { label: 'Tư duy Thuật toán', value: 4.5 },
+                        { label: 'Tư duy Sáng tạo', value: 4.8 },
+                        { label: 'Giải quyết Vấn đề', value: 4.2 },
+                        { label: 'Khả năng Tự học', value: 4.0 },
+                      ]
+                    : [
+                        { label: 'Kỹ năng Lập trình & Thiết kế', value: 4.5 },
+                        { label: 'Hoàn thiện Sản phẩm', value: 4.6 },
+                        { label: 'Thuyết trình Dự án', value: 4.3 },
+                        { label: 'Làm việc Nhóm', value: 4.4 },
+                      ]);
+              return (
+                <div key={group.key} className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-5 shadow-sm">
+                  <div className={`mb-5 flex items-center gap-2 text-xs font-black uppercase tracking-wide ${group.text}`}>
+                    <span className={`h-2.5 w-2.5 rounded-full ${group.dot}`} />
+                    {group.title}
+                  </div>
+                  <div className="space-y-5">
+                    {scores.map((score, index) => (
+                      <div key={index} className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <input
+                            className="h-7 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1 text-xs font-bold text-neutral-800 outline-none hover:border-neutral-200 hover:bg-white focus:border-mindx-red"
+                            value={score.label}
+                            disabled={locked}
+                            onChange={(event) => updateData({ [group.key]: scores.map((it, i) => i === index ? { ...it, label: event.target.value } : it) } as Partial<StudentPortfolioData>)}
+                          />
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className={`text-xs font-black ${group.text}`}>{score.value}/5</span>
+                            <button type="button" disabled={locked} onClick={() => updateData({ [group.key]: scores.filter((_, i) => i !== index) } as Partial<StudentPortfolioData>)} className="text-neutral-300 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={5}
+                          step={0.1}
+                          value={score.value}
+                          disabled={locked}
+                          onChange={(event) => updateData({ [group.key]: scores.map((it, i) => i === index ? { ...it, value: Number(event.target.value) } : it) } as Partial<StudentPortfolioData>)}
+                          className={`w-full ${group.accent}`}
+                        />
+                      </div>
+                    ))}
                     <button
                       type="button"
-                      onClick={() => {
-                        const value = internshipDraft.trim();
-                        if (!value) return;
-                        setCustomSection('Thực tập', [...internshipTags, value].join(', '));
-                        setInternshipDraft('');
-                      }}
-                      className="h-10 rounded-lg bg-[#111827] px-4 text-sm font-bold text-white hover:bg-black"
+                      disabled={locked}
+                      onClick={() => updateData({ [group.key]: [...scores, { label: 'Tiêu chí mới', value: 4.0 }] } as Partial<StudentPortfolioData>)}
+                      className="mt-2 text-xs font-bold text-neutral-500 hover:text-mindx-red disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      Thêm
+                      + Thêm tiêu chí đánh giá
                     </button>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {internshipTags.map((tag) => (
-                      <span key={tag} className="rounded-md border border-neutral-300 bg-white px-2.5 py-1 text-xs font-semibold text-neutral-700">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
                 </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Field label="Học lại (Re-study)" value={getCustomSection('Học lại')} onChange={(v) => {
-                    setCustomSection('Học lại', v);
-                  }} />
-                  <Field label="Bảo lưu (Reservation)" value={getCustomSection('Bảo lưu')} onChange={(v) => {
-                    setCustomSection('Bảo lưu', v);
-                  }} />
-                </div>
-                <div className="rounded-lg border border-teal-200 bg-white p-3">
-                  <div className="mb-3 flex items-center justify-between">
-                    <span className="text-xs font-black uppercase text-blue-700">Điểm kiểm tra học tập</span>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-5">
-                    <Field label="Checkpoint 1 Score" value={academicValue('Checkpoint 1', data.academicSummary?.checkpoint1Score)} onChange={(v) => {
-                      setScoreSection('Checkpoint 1', 'checkpoint1Score', v);
-                    }} />
-                    <Field label="Checkpoint 2 Score" value={academicValue('Checkpoint 2', data.academicSummary?.checkpoint2Score)} onChange={(v) => {
-                      setScoreSection('Checkpoint 2', 'checkpoint2Score', v);
-                    }} />
-                    <Field label="SPCK / Demo Score" value={academicValue('Demo Score', data.academicSummary?.demoScore)} onChange={(v) => {
-                      setScoreSection('Demo Score', 'demoScore', v);
-                    }} />
-                    <Field label="TBCK" value={academicValue('TBCK', data.academicSummary?.tbckScore)} onChange={(v) => {
-                      setScoreSection('TBCK', 'tbckScore', v);
-                    }} />
-                    <Field label="Xếp loại" value={academicValue('Xếp loại', data.academicSummary?.rank ? `${data.academicSummary.rank} - ${data.academicSummary.rankLabel || ''}` : '')} onChange={(v) => {
-                      const others = data.customSections.filter((section) => section.title !== 'Xếp loại');
-                      updateData({
-                        customSections: v.trim() ? [...others, { title: 'Xếp loại', content: v }] : others,
-                        academicSummary: { ...(data.academicSummary || {}), rankLabel: v },
-                      });
-                    }} />
-                  </div>
-                </div>
-              </div>
-            </div>
+              );
+            })}
+          </div>
           </div>
         </SectionShell>
       );
@@ -815,29 +871,7 @@ export default function PortfolioBuilderPage() {
         </SectionShell>
       );
     }
-    if (active === 'tech') {
-      const locked = false;
-      return (
-        <SectionShell title="Công nghệ sử dụng" description="Nhập từng công nghệ để hiển thị thành chip trên portfolio public.">
-          <div className="flex flex-wrap gap-2">
-            {data.technologies.map((tech, index) => (
-              <div key={index} className="inline-flex items-center gap-2 rounded-full border border-rose-100 bg-rose-50 px-3 py-2">
-                <input disabled={locked} className="w-28 bg-transparent text-sm font-bold text-mindx-red outline-none disabled:cursor-not-allowed" value={tech} onChange={(event) => updateData({ technologies: data.technologies.map((it, i) => i === index ? event.target.value : it) })} />
-                {!locked ? (
-                  <button type="button" onClick={() => updateData({ technologies: data.technologies.filter((_, i) => i !== index) })} className="text-mindx-red/60 hover:text-mindx-red">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-          <ActionButton onClick={() => updateData({ technologies: [...data.technologies, ''] })}>
-            <Plus className="h-4 w-4" />
-            Thêm công nghệ
-          </ActionButton>
-        </SectionShell>
-      );
-    }
+
     if (active === 'gallery') {
       return (
         <SectionShell title="Thư viện hình ảnh" description="Mỗi ảnh là một URL, hệ thống hiển thị preview để kiểm tra nhanh.">
@@ -988,8 +1022,8 @@ export default function PortfolioBuilderPage() {
             onChange={(event) => updateData({ visibility: event.target.value === 'private' ? 'private' : 'public' })}
             className="h-9 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700"
           >
-            <option value="private">Riêng tư (Chỉ Admin/GV)</option>
-            <option value="public">Public bằng link</option>
+            <option value="private">Bản thô (Chỉ dữ liệu LMS)</option>
+            <option value="public">Bản tùy chỉnh (Đầy đủ phần chuẩn bị)</option>
           </select>
           <button className="inline-flex h-9 items-center gap-2 rounded-lg border border-neutral-200 px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50" onClick={() => {
             loadPortfolio();
@@ -1000,12 +1034,23 @@ export default function PortfolioBuilderPage() {
           </button>
           <button
             type="button"
-            onClick={previewPortfolio}
+            onClick={() => previewPortfolio('private')}
             disabled={isSaving}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+            title="Xem giao diện Bản thô (Tự động ẩn các tab nhập thủ công)"
           >
-            {publicUrl ? <Link2 className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            Xem Public
+            <Eye className="h-3.5 w-3.5" />
+            Xem bản Thô
+          </button>
+          <button
+            type="button"
+            onClick={() => previewPortfolio('public')}
+            disabled={isSaving}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 text-xs font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+            title="Xem giao diện Bản tùy chỉnh (Hiển thị đầy đủ tất cả các tab)"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Xem bản Tùy chỉnh
           </button>
           <button
             onClick={savePortfolio}

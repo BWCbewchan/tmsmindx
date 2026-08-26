@@ -113,20 +113,10 @@ export default function StudentDetailPanel({
               const initials = student.studentName.charAt(0).toUpperCase();
               const builderParams = new URLSearchParams({
                 studentId: student.studentId,
-                studentName: student.studentName,
                 classId,
+                studentName: student.studentName,
                 className,
-                centreName,
-                courseLine,
-                courseName,
-                teacherName,
               });
-              if (student.submissionTitle) {
-                builderParams.set('submissionTitle', student.submissionTitle);
-              }
-              if (student.submissionLink) {
-                builderParams.set('submissionLink', student.submissionLink);
-              }
               const builderHref = student.portfolioId
                 ? `/admin/portfolio-qc/builder/${student.portfolioId}?${builderParams.toString()}`
                 : `/admin/portfolio-qc/builder/new?${builderParams.toString()}`;

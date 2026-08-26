@@ -58,6 +58,7 @@ export interface StudentPortfolioData {
     age?: string;
     className?: string;
     classId?: string;
+    studentId?: string;
     centreName?: string;
     courseLine?: string;
     courseName?: string;

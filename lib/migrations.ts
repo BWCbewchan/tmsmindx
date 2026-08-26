@@ -2672,6 +2672,28 @@ const migrations: Migration[] = [
       EXECUTE FUNCTION update_updated_at_column();
     `,
   },
+  {
+    name: 'V106_portfolios_drop_student_id_not_null',
+    version: 106,
+    sql: `
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'portfolios' AND column_name = 'student_id'
+        ) THEN
+          ALTER TABLE portfolios ALTER COLUMN student_id DROP NOT NULL;
+        END IF;
+
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'portfolios' AND column_name = 'class_id'
+        ) THEN
+          ALTER TABLE portfolios ALTER COLUMN class_id DROP NOT NULL;
+        END IF;
+      END $$;
+    `,
+  },
 ]
 
 // ========== HÀM CHẠY MIGRATIONS ==========

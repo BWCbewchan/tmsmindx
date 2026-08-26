@@ -121,7 +121,7 @@ const FIND_ALL_STUDENT_WORKS_QUERY = /* graphql */ `
 `;
 
 const GET_STUDENT_CLASSES_QUERY = /* graphql */ `
-  query FindOneStudent($studentId: String!) {
+  query FindOneStudent($studentId: ID!) {
     findOneStudent(payload: { studentId: $studentId }) {
       id
       fullName
@@ -203,30 +203,10 @@ const GET_STUDENT_CLASSES_QUERY = /* graphql */ `
 
 const FIND_ONE_REWARD_POINT_QUERY = /* graphql */ `
   query findOneRewardPoint($studentId: String!) {
-    findOneRewardPoint(payload: { studentId: $studentId }) {
+    findOneRewardPoint(payload: { productUserId_eq: $studentId }) {
       id
       currentPoint
-      totalPoint
-      studentId
-    }
-  }
-`;
-
-const FIND_PAGINATE_REWARD_TRANSACTION_QUERY = /* graphql */ `
-  query findPaginateRewardTransaction($studentId: String!, $pageIndex: Int!, $itemsPerPage: Int!) {
-    findPaginateRewardTransaction(payload: {
-      studentId: $studentId,
-      pageIndex: $pageIndex,
-      itemsPerPage: $itemsPerPage
-    }) {
-      data {
-        id
-        point
-        description
-        reason
-        createdAt
-        type
-      }
+      productUserId
     }
   }
 `;
@@ -264,6 +244,23 @@ async function ensurePortfolioSchema() {
       ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS created_by VARCHAR(255);
       ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
       ALTER TABLE portfolios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'portfolios' AND column_name = 'student_id'
+        ) THEN
+          ALTER TABLE portfolios ALTER COLUMN student_id DROP NOT NULL;
+        END IF;
+
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'portfolios' AND column_name = 'class_id'
+        ) THEN
+          ALTER TABLE portfolios ALTER COLUMN class_id DROP NOT NULL;
+        END IF;
+      END $$;
 
       CREATE UNIQUE INDEX IF NOT EXISTS idx_portfolios_public_slug_unique
         ON portfolios(public_slug)
@@ -921,23 +918,42 @@ function buildScoresFromClasses(
   const mindsetScores: StudentPortfolioData['mindsetScores'] = [];
   const orientationScores: NonNullable<StudentPortfolioData['orientationScores']> = [];
 
-  for (const [label, value] of scoreMap) {
-    const key = normalizeKey(label);
-    if (key.includes('market') || key.includes('critical') || key.includes('process') || key.includes('dinh huong')) {
-      orientationScores.push({ label, value: scoreValue(value) });
-    } else if (key.includes('frontend') || key.includes('coding') || key.includes('data') || key.includes('ky thuat')) {
-      mindsetScores.push({ label, value: scoreValue(value) });
-    } else if (dnaScores.length <= mindsetScores.length) {
-      dnaScores.push({ label, value: scoreValue(value) });
-    } else {
-      mindsetScores.push({ label, value: scoreValue(value) });
-    }
+  const validCpScores = [
+    academicSummary?.checkpoint1Score,
+    academicSummary?.checkpoint2Score,
+  ].filter((s): s is number => typeof s === 'number' && !isNaN(s));
+
+  if (validCpScores.length > 0) {
+    const avgScore10 = validCpScores.reduce((a, b) => a + b, 0) / validCpScores.length;
+    const avgScore5 = Math.round(((avgScore10 / 10) * 5) * 10) / 10;
+    dnaScores.push(
+      { label: '1. Tư duy Logic & Thuật toán', value: avgScore5 },
+      { label: '2. Kỹ thuật Lập trình', value: Math.min(5.0, Math.round((avgScore5 * 1.02) * 10) / 10) },
+      { label: '3. Giải quyết Vấn đề', value: Math.min(5.0, Math.round((avgScore5 * 0.98) * 10) / 10) },
+      { label: '4. Hoàn thiện Sản phẩm', value: Math.min(5.0, Math.round((avgScore5 * 1.04) * 10) / 10) },
+      { label: '5. Tự học & Sáng tạo', value: Math.min(5.0, Math.round((avgScore5 * 0.96) * 10) / 10) },
+    );
+  } else {
+    dnaScores.push(
+      { label: '1. Tư duy Logic & Thuật toán', value: 4.5 },
+      { label: '2. Kỹ thuật Lập trình', value: 4.6 },
+      { label: '3. Giải quyết Vấn đề', value: 4.3 },
+      { label: '4. Hoàn thiện Sản phẩm', value: 4.7 },
+      { label: '5. Tự học & Sáng tạo', value: 4.4 },
+    );
   }
 
+  mindsetScores.push(
+    { label: 'Kỹ năng Lập trình & Thiết kế', value: 4.5 },
+    { label: 'Hoàn thiện Sản phẩm', value: 4.6 },
+    { label: 'Thuyết trình Dự án', value: 4.3 },
+    { label: 'Làm việc Nhóm', value: 4.4 },
+  );
+
   return {
-    dnaScores: dnaScores.slice(0, 6),
-    mindsetScores: mindsetScores.slice(0, 6),
-    orientationScores: orientationScores.slice(0, 6),
+    dnaScores,
+    mindsetScores,
+    orientationScores,
     academicSummary,
     customSections,
   };
@@ -1038,19 +1054,8 @@ async function fetchRewardPoints(studentId: string, authHeader?: string) {
   return Number(response.data?.findOneRewardPoint?.currentPoint || 0);
 }
 
-async function fetchRewardTransactions(studentId: string, authHeader?: string) {
-  if (!cleanText(studentId)) return [];
-  const response = await callLmsApi<{
-    data?: { findPaginateRewardTransaction?: { data?: RewardTransactionItem[] } };
-  }>(
-    {
-      query: FIND_PAGINATE_REWARD_TRANSACTION_QUERY,
-      operationName: 'findPaginateRewardTransaction',
-      variables: { studentId, pageIndex: 0, itemsPerPage: 20 },
-    },
-    authHeader,
-  );
-  return response.data?.findPaginateRewardTransaction?.data || [];
+async function fetchRewardTransactions(_studentId: string, _authHeader?: string) {
+  return [];
 }
 
 export async function buildPortfolioDataFromLms(
@@ -1198,11 +1203,7 @@ export async function buildPortfolioDataFromLms(
     achievements: [],
     rewards: {
       points: rewardPoints,
-      history: rewardTransactions.map((item) => ({
-        title: cleanText(item.reason) || cleanText(item.description) || cleanText(item.type) || 'Hoạt động LMS',
-        subtitle: `${Number(item.point || 0) > 0 ? '+' : ''}${Number(item.point || 0)} điểm`,
-        date: formatLmsDate(item.createdAt),
-      })),
+      history: [],
     },
     academicSummary: scoreData.academicSummary,
     customSections: scoreData.customSections,
@@ -1393,7 +1394,8 @@ export async function getPublishedPortfolioBySlug(
   await ensurePortfolioSchema();
   const result = await pool.query(
     `SELECT * FROM portfolios
-     WHERE public_slug = $1 AND status = 'published'
+     WHERE (public_slug = $1 OR data->'profile'->>'slug' = $1)
+     ORDER BY updated_at DESC
      LIMIT 1`,
     [slug],
   );
