@@ -8,6 +8,7 @@ import { notFound } from 'next/navigation';
 import { ProjectCardShowcase } from '@/components/student-portfolio/project-card-showcase';
 import { GalleryShowcase } from '@/components/student-portfolio/gallery-showcase';
 import { LearningJourneyRoadmap } from '@/components/student-portfolio/learning-journey-roadmap';
+import { PortfolioPdfDownloadButton } from '@/components/student-portfolio/portfolio-pdf-download-button';
 import { PortfolioSideProgressNav } from '@/components/student-portfolio/portfolio-side-progress-nav';
 import logoTechAi from '@/logo_tech_ai.jpg';
 
@@ -398,39 +399,48 @@ export default async function PublicPortfolioPage({
 
   return (
     <main className={`scroll-smooth min-h-screen ${theme.surface} text-[#171512] antialiased portfolio-theme relative bg-[#faf8f5]`}>
+      <div className="portfolio-pdf-brand hidden" style={{ display: 'none' }}>
+        <img src={logoTechAi.src} alt="MindX Tech & AI School" />
+      </div>
+
       {/* Floating Side Progress Navigation Bar (Hình 2) */}
-      <PortfolioSideProgressNav sections={sideNavSections} themeColor={theme.ink} />
+      <div className="portfolio-print-hidden print:hidden">
+        <PortfolioSideProgressNav sections={sideNavSections} themeColor={theme.ink} />
+      </div>
 
       {/* Header Bar */}
-      <header className="sticky top-0 z-50 border-b border-[#e8e2d8] bg-white/92 backdrop-blur-md transition-all duration-300">
-        <nav className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 text-xs font-bold uppercase">
-          <div className="flex items-center gap-3">
-            <img src={logoTechAi.src} alt="MindX Technology School" className="h-11 w-auto object-contain" />
+      <header className="portfolio-print-hidden sticky top-0 z-50 border-b border-[#e8e2d8] bg-white/92 backdrop-blur-md transition-all duration-300 print:hidden">
+        <nav className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-5 py-4 text-xs font-bold uppercase">
+          <div className="flex min-w-0 shrink-0 items-center gap-3">
+            <img src={logoTechAi.src} alt="MindX Technology School" className="h-10 w-auto max-w-[170px] object-contain sm:h-12" />
             <span className="h-4 w-px bg-[#d8d0c2]" />
-            <span className="font-extrabold text-[#423d37]">Hồ sơ Học viên MindX</span>
+            <span className="hidden whitespace-nowrap font-extrabold text-[#423d37] lg:inline">Hồ sơ Học viên MindX</span>
           </div>
-          <div className="hidden items-center gap-7 font-bold text-[#55504a] sm:flex">
-            {hasJourney ? <a href="#journey" className={`${theme.accent} transition-colors duration-200`}>Lộ trình</a> : null}
-            {hasDna ? <a href="#dna" className={`${theme.accent} transition-colors duration-200`}>DNA Năng lực</a> : null}
-            {hasResults ? <a href="#results" className={`${theme.accent} transition-colors duration-200`}>Kết quả</a> : null}
-            {hasGallery ? <a href="#gallery" className={`${theme.accent} transition-colors duration-200`}>Thư viện ảnh</a> : null}
-            {hasAchievements ? <a href="#awards" className={`${theme.accent} transition-colors duration-200`}>Thành tích</a> : null}
-            {hasRewards ? <a href="#rewards" className={`${theme.accent} transition-colors duration-200`}>Điểm thưởng</a> : null}
+          <div className="hidden min-w-0 flex-1 items-center justify-end gap-4 font-bold text-[#55504a] lg:flex xl:gap-6">
+            {hasJourney ? <a href="#journey" className={`${theme.accent} whitespace-nowrap transition-colors duration-200`}>Lộ trình</a> : null}
+            {hasDna ? <a href="#dna" className={`${theme.accent} whitespace-nowrap transition-colors duration-200`}>DNA Năng lực</a> : null}
+            {hasResults ? <a href="#results" className={`${theme.accent} whitespace-nowrap transition-colors duration-200`}>Kết quả</a> : null}
+            {hasGallery ? <a href="#gallery" className={`${theme.accent} whitespace-nowrap transition-colors duration-200`}>Thư viện ảnh</a> : null}
+            {hasAchievements ? <a href="#awards" className={`${theme.accent} whitespace-nowrap transition-colors duration-200`}>Thành tích</a> : null}
+            {hasRewards ? <a href="#rewards" className={`${theme.accent} whitespace-nowrap transition-colors duration-200`}>Điểm thưởng</a> : null}
           </div>
-          {hasProjects ? (
-            <a
-              href="#projects"
-              className="rounded-full px-5 py-2.5 text-xs font-bold text-white shadow-xs transition-all duration-200 hover:shadow-md"
-              style={{ backgroundColor: theme.ink }}
-            >
-              Khám phá Sản phẩm
-            </a>
-          ) : null}
+          <div className="flex shrink-0 items-center gap-2.5">
+            {hasProjects ? (
+              <a
+                href="#projects"
+                className="whitespace-nowrap rounded-full px-5 py-2.5 text-xs font-bold text-white shadow-xs transition-all duration-200 hover:shadow-md"
+                style={{ backgroundColor: theme.ink }}
+              >
+                Khám phá Sản phẩm
+              </a>
+            ) : null}
+            <PortfolioPdfDownloadButton />
+          </div>
         </nav>
       </header>
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden border-b border-[#e8e2d8]/80 bg-gradient-to-b from-white via-[#faf8f5] to-[#fff5f7]">
+      <section className="portfolio-print-section-hero relative overflow-hidden border-b border-[#e8e2d8]/80 bg-gradient-to-b from-white via-[#faf8f5] to-[#fff5f7]">
         <div className="mx-auto grid min-h-[620px] max-w-6xl items-center gap-14 px-4 py-14 sm:px-5 sm:py-16 md:grid-cols-[minmax(0,1fr)_430px] lg:grid-cols-[minmax(0,1fr)_460px]">
         <div className="min-w-0">
           <div className="mb-7 inline-flex max-w-full items-center gap-2 rounded-full border border-[#ded6c9] bg-white/80 px-4 py-1.5 text-xs font-extrabold shadow-2xs" style={{ color: theme.ink }}>
@@ -459,7 +469,7 @@ export default async function PublicPortfolioPage({
             {hasProjects ? (
               <a
                 href="#projects"
-                className="inline-flex items-center gap-2 rounded-full px-7 py-3.5 text-sm font-bold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                className="portfolio-print-hidden inline-flex items-center gap-2 rounded-full px-7 py-3.5 text-sm font-bold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg print:hidden"
                 style={{ backgroundColor: theme.ink }}
               >
                 Khám phá sản phẩm <ExternalLink className="h-4 w-4" />
@@ -523,7 +533,7 @@ export default async function PublicPortfolioPage({
 
       {/* Dark Contrast Intro & Skills Bar */}
       {hasIntroSection ? (
-      <section className="bg-[#171512] py-16 text-white">
+      <section className="portfolio-print-section-intro bg-[#171512] py-16 text-white">
         <div className="mx-auto grid max-w-6xl gap-8 px-5 md:grid-cols-[240px_1fr]">
           <div>
             <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>{sectionNo('intro')} · Giới thiệu</p>
@@ -770,7 +780,7 @@ export default async function PublicPortfolioPage({
       </section>
 
       {/* MindX Red Footer */}
-      <footer className={`bg-gradient-to-r ${theme.hero} px-5 py-12 text-white`}>
+      <footer className={`portfolio-print-footer-page bg-gradient-to-r ${theme.hero} px-5 py-12 text-white`}>
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-2xl font-black">
