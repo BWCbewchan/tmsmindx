@@ -8,6 +8,7 @@ import { notFound } from 'next/navigation';
 import { ProjectCardShowcase } from '@/components/student-portfolio/project-card-showcase';
 import { GalleryShowcase } from '@/components/student-portfolio/gallery-showcase';
 import { LearningJourneyRoadmap } from '@/components/student-portfolio/learning-journey-roadmap';
+import { PortfolioMobileMenu } from '@/components/student-portfolio/portfolio-mobile-menu';
 import { PortfolioPdfDownloadButton } from '@/components/student-portfolio/portfolio-pdf-download-button';
 import { PortfolioSideProgressNav } from '@/components/student-portfolio/portfolio-side-progress-nav';
 import logoTechAi from '@/logo_tech_ai.jpg';
@@ -171,12 +172,6 @@ function detectPortfolioTrack(value?: string): PortfolioTrack | null {
   if (/\b(c4k[a-z0-9]*|c4t[a-z0-9]*|pt[a-z0-9]*|scratch|coding|code|js[a-z0-9]*|web|cs[a-z0-9]*|computer scientist|app producer|python)\b/.test(text)) return 'coding';
   if (/\b(xart[a-z0-9]*|art|fine art|creative art|my thuat|ve thuat)\b/.test(text)) return 'art';
   return null;
-}
-
-function sameText(a?: string, b?: string) {
-  const left = normalizeTrack(a).replace(/[^a-z0-9]+/g, ' ').trim();
-  const right = normalizeTrack(b).replace(/[^a-z0-9]+/g, ' ').trim();
-  return Boolean(left && right && (left.includes(right) || right.includes(left)));
 }
 
 function scoreText(value?: number | null) {
@@ -365,13 +360,6 @@ export default async function PublicPortfolioPage({
   const nameTokens = profile.studentName.split(/\s+/).filter(Boolean);
   const heroLastName = nameTokens.length > 1 ? nameTokens.slice(-1).join(' ') : profile.studentName;
   const heroLeadName = nameTokens.length > 1 ? nameTokens.slice(0, -1).join(' ') : '';
-  const projectForJourney = (item: StudentPortfolioData['learningJourney'][number]) =>
-    (data.projects || []).find((project) =>
-      sameText(project.course, item.title) ||
-      sameText(project.course, item.code) ||
-      sameText(project.title, item.title) ||
-      sameText(project.title, item.code),
-    );
   const visibleSectionKeys = [
     hasIntroSection ? 'intro' : '',
     hasJourney ? 'journey' : '',
@@ -387,6 +375,7 @@ export default async function PublicPortfolioPage({
   const sideNavSections = [
     hasIntroSection ? { id: 'intro', label: 'Giới thiệu' } : null,
     hasJourney ? { id: 'journey', label: 'Lộ trình học tập' } : null,
+    hasProjects ? { id: 'projects', label: 'Sản phẩm' } : null,
     hasDna ? { id: 'dna', label: 'Đánh giá DNA' } : null,
     hasResults ? { id: 'results', label: 'Kết quả học tập' } : null,
     hasGallery ? { id: 'gallery', label: 'Thư viện hình ảnh' } : null,
@@ -428,20 +417,21 @@ export default async function PublicPortfolioPage({
             {hasProjects ? (
               <a
                 href="#projects"
-                className="whitespace-nowrap rounded-full px-5 py-2.5 text-xs font-bold text-white shadow-xs transition-all duration-200 hover:shadow-md"
+                className="hidden whitespace-nowrap rounded-full px-5 py-2.5 text-xs font-bold text-white shadow-xs transition-all duration-200 hover:shadow-md sm:inline-flex"
                 style={{ backgroundColor: theme.ink }}
               >
                 Khám phá Sản phẩm
               </a>
             ) : null}
             <PortfolioPdfDownloadButton />
+            <PortfolioMobileMenu sections={sideNavSections} themeColor={theme.ink} />
           </div>
         </nav>
       </header>
 
       {/* Hero Section */}
       <section className="portfolio-print-section-hero relative overflow-hidden border-b border-[#e8e2d8]/80 bg-gradient-to-b from-white via-[#faf8f5] to-[#fff5f7]">
-        <div className="mx-auto grid min-h-[620px] max-w-6xl items-center gap-14 px-4 py-14 sm:px-5 sm:py-16 md:grid-cols-[minmax(0,1fr)_430px] lg:grid-cols-[minmax(0,1fr)_460px]">
+        <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-10 sm:px-5 sm:py-16 md:min-h-[620px] md:grid-cols-[minmax(0,1fr)_430px] md:gap-14 lg:grid-cols-[minmax(0,1fr)_460px]">
         <div className="min-w-0">
           <div className="mb-7 inline-flex max-w-full items-center gap-2 rounded-full border border-[#ded6c9] bg-white/80 px-4 py-1.5 text-xs font-extrabold shadow-2xs" style={{ color: theme.ink }}>
             <TrackIcon className="h-3.5 w-3.5 shrink-0" />
@@ -533,7 +523,7 @@ export default async function PublicPortfolioPage({
 
       {/* Dark Contrast Intro & Skills Bar */}
       {hasIntroSection ? (
-      <section className="portfolio-print-section-intro bg-[#171512] py-16 text-white">
+      <section className="portfolio-print-section-intro bg-[#171512] py-10 text-white sm:py-16">
         <div className="mx-auto grid max-w-6xl gap-8 px-5 md:grid-cols-[240px_1fr]">
           <div>
             <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>{sectionNo('intro')} · Giới thiệu</p>
@@ -589,7 +579,7 @@ export default async function PublicPortfolioPage({
 
       {/* Projects Section */}
       {hasProjects ? (
-        <section id="projects" className="mx-auto max-w-6xl px-5 py-20 scroll-mt-12">
+        <section id="projects" className="mx-auto max-w-6xl px-5 py-10 scroll-mt-12 sm:py-20">
           <div className="mb-12">
             <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: theme.ink }}>{sectionNo('projects')} · DỰ ÁN NỔI BẬT</p>
             <h2 className="mt-2 text-4xl font-extrabold leading-[1.08] text-[#171512] sm:text-5xl">Dự án & sản phẩm của học viên.</h2>
@@ -611,7 +601,7 @@ export default async function PublicPortfolioPage({
 
       {/* DNA Competency Section with SVG Radar Chart */}
       {hasDna ? (
-        <section id="dna" className="mx-auto max-w-6xl px-5 py-24 scroll-mt-12">
+        <section id="dna" className="mx-auto max-w-6xl px-5 py-10 scroll-mt-12 sm:py-24">
           <div className="mb-12">
             <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: theme.ink }}>{sectionNo('dna')} · ĐÁNH GIÁ NĂNG LỰC DNA</p>
             <h2 className="mt-2 text-4xl font-extrabold leading-[1.08] text-[#171512] sm:text-5xl">DNA năng lực & thiên hướng.</h2>
@@ -652,7 +642,7 @@ export default async function PublicPortfolioPage({
 
       {/* Checkpoint Results Section */}
       {hasResults ? (
-        <section id="results" className="mx-auto max-w-6xl px-5 py-16 scroll-mt-12">
+        <section id="results" className="mx-auto max-w-6xl px-5 py-10 scroll-mt-12 sm:py-16">
           <div className="mb-10">
             <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: theme.ink }}>{sectionNo('results')} · KẾT QUẢ HỌC TẬP</p>
             <h2 className="mt-2 text-4xl font-extrabold leading-[1.08] text-[#171512] sm:text-5xl">Năng lực có căn cứ quan sát.</h2>
@@ -671,7 +661,7 @@ export default async function PublicPortfolioPage({
 
       {/* Gallery Section */}
       {hasGallery ? (
-        <section id="gallery" className="mx-auto max-w-6xl px-5 py-20 scroll-mt-12">
+        <section id="gallery" className="mx-auto max-w-6xl px-5 py-10 scroll-mt-12 sm:py-20">
           <div className="mb-12">
             <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: theme.ink }}>{sectionNo('gallery')} · THƯ VIỆN HÌNH ẢNH</p>
             <h2 className="mt-2 text-4xl font-extrabold leading-[1.08] text-[#171512] sm:text-5xl">Thư viện hình ảnh & chứng chỉ.</h2>
@@ -683,7 +673,7 @@ export default async function PublicPortfolioPage({
 
       {/* Achievements Section */}
       {hasAchievements ? (
-        <section id="awards" className="mx-auto max-w-6xl px-5 py-20 scroll-mt-12">
+        <section id="awards" className="mx-auto max-w-6xl px-5 py-10 scroll-mt-12 sm:py-20">
           <div className="mb-10">
             <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: theme.ink }}>{sectionNo('awards')} · THÀNH TÍCH & GIẢI THƯỞNG</p>
             <h2 className="mt-2 text-4xl sm:text-5xl font-extrabold leading-[1.25] text-[#171512]">Thành tích & dấu ấn cá nhân.</h2>
@@ -718,7 +708,7 @@ export default async function PublicPortfolioPage({
 
       {/* Rewards & Activities Section */}
       {hasRewards ? (
-        <section id="rewards" className="mx-auto max-w-6xl px-5 py-16 scroll-mt-12">
+        <section id="rewards" className="mx-auto max-w-6xl px-5 py-10 scroll-mt-12 sm:py-16">
           <div className="mb-8">
             <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: theme.ink }}>{sectionNo('rewards')} · ĐIỂM THƯỞNG & HOẠT ĐỘNG</p>
             <h2 className="mt-2 text-4xl sm:text-5xl font-extrabold leading-[1.25] text-[#171512]">Điểm thưởng & Hoạt động.</h2>
@@ -772,9 +762,9 @@ export default async function PublicPortfolioPage({
       ) : null}
 
       {/* Student Quote Banner */}
-      <section className="bg-[#171512] px-5 py-24 text-center text-white">
+      <section className="bg-[#171512] px-5 py-10 text-center text-white sm:py-24">
         <Star className="mx-auto mb-6 h-9 w-9" style={{ color: theme.ink }} />
-        <blockquote className="mx-auto max-w-3xl text-2xl sm:text-3xl font-black leading-relaxed">
+        <blockquote className="mx-auto max-w-5xl text-balance text-[clamp(22px,4vw,34px)] font-black leading-[1.35] tracking-tight">
           "{data.quote || 'Mỗi lần chương trình bị lỗi là một lần mình hiểu nó rõ hơn.'}"
         </blockquote>
       </section>
