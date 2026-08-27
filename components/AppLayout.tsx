@@ -362,8 +362,30 @@ export default function AppLayout({
 
       // Super admin bypasses all permission checks
       if (!isSuperAdmin) {
-        // If they have no permissions, show contact message
-        if (permissions.length === 0) {
+        // manager và admin luôn được phép vào deal-luong routes
+        const DEAL_LUONG_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong']
+        const hasManagementRole =
+          ['manager', 'admin', 'super_admin'].includes(user.role) ||
+          roleCodes.some((code) => ['LEADER', 'TE', 'TC', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(code))
+
+        const hasAnyK12Access = permissions.some((p) => p === '/admin/page2' || p.startsWith('/admin/page2/'))
+        const hasAnyK12LeaderAccess = permissions.some((p) => p === '/admin/quy-trinh-quy-dinh-leader' || p.startsWith('/admin/quy-trinh-quy-dinh-leader/'))
+
+        const extraRoutes: string[] = []
+        if (['manager', 'admin'].includes(user.role)) {
+          extraRoutes.push(...DEAL_LUONG_ROUTES)
+        }
+        if (hasAnyK12Access || hasManagementRole) {
+          extraRoutes.push('/admin/page2', '/admin/page2/manage')
+        }
+        if (hasAnyK12LeaderAccess || hasManagementRole) {
+          extraRoutes.push('/admin/quy-trinh-quy-dinh-leader', '/admin/quy-trinh-quy-dinh-leader/manage')
+        }
+
+        const effectivePermissions = Array.from(new Set([...permissions, ...extraRoutes]))
+
+        // If they have no permissions at all, show contact message
+        if (effectivePermissions.length === 0) {
           if (hasTrainingInputRole && isTrainingInputRoute) {
             setNoPermission(false)
           } else if (hasTrainingInputRole) {
@@ -374,12 +396,6 @@ export default function AppLayout({
             return
           }
         }
-
-        // manager và admin luôn được phép vào deal-luong routes
-        const DEAL_LUONG_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong']
-        const effectivePermissions = ['manager', 'admin'].includes(user.role)
-          ? Array.from(new Set([...permissions, ...DEAL_LUONG_ROUTES]))
-          : permissions
 
         // Check if user has permission for current route
         // Allow bypass for universal admin routes like /admin/profile

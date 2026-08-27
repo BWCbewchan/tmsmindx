@@ -3,11 +3,9 @@ import { type PoolClient } from 'pg';
 import * as path from "path";
 import { unstable_cache } from "next/cache";
 
+let k12LeaderSchemaEnsured = false;
 
-
-let k12SchemaEnsured = false;
-
-export interface K12DocItem {
+export interface K12LeaderDocItem {
 	id: number;
 	slug: string;
 	title: string;
@@ -23,21 +21,21 @@ export interface K12DocItem {
 	headings: Array<{ id: string; text: string; level: number }>;
 }
 
-export interface K12DocNode {
+export interface K12LeaderDocNode {
 	id: string;
 	title: string;
-	children?: K12DocNode[];
+	children?: K12LeaderDocNode[];
 	slug?: string;
 }
 
-export interface K12DocsPayload {
+export interface K12LeaderDocsPayload {
 	rootTitle: string;
-	tree: K12DocNode[];
-	documents: K12DocItem[];
+	tree: K12LeaderDocNode[];
+	documents: K12LeaderDocItem[];
 	defaultSlug: string;
 }
 
-interface K12DocumentRow {
+interface K12LeaderDocumentRow {
 	id: number;
 	slug: string;
 	title: string;
@@ -57,32 +55,51 @@ function normalizeRelativePath(input: string) {
 	return input.replace(/\\/g, "/").replace(/\/+/g, "/").trim();
 }
 
-async function ensureK12Schema(client: PoolClient) {
-	if (k12SchemaEnsured) return;
+async function ensureK12LeaderSchema(client: PoolClient) {
+	if (k12LeaderSchemaEnsured) return;
 
 	await client.query(`
-		ALTER TABLE IF EXISTS k12_documents
-		ADD COLUMN IF NOT EXISTS topic VARCHAR(255),
-		ADD COLUMN IF NOT EXISTS excerpt TEXT,
-		ADD COLUMN IF NOT EXISTS cover_image_url TEXT,
-		ADD COLUMN IF NOT EXISTS type VARCHAR(20) NOT NULL DEFAULT 'article',
-		ADD COLUMN IF NOT EXISTS section_id INTEGER,
-		ADD COLUMN IF NOT EXISTS parent_id INTEGER,
-		ADD COLUMN IF NOT EXISTS content_format VARCHAR(20) NOT NULL DEFAULT 'html'
+		CREATE TABLE IF NOT EXISTS k12_leader_documents (
+			id SERIAL PRIMARY KEY,
+			slug VARCHAR(400) NOT NULL UNIQUE,
+			title VARCHAR(500) NOT NULL,
+			relative_path VARCHAR(600) NOT NULL UNIQUE,
+			content TEXT NOT NULL,
+			status VARCHAR(20) NOT NULL DEFAULT 'published' CHECK (status IN ('draft', 'published')),
+			sort_order INTEGER NOT NULL DEFAULT 0,
+			topic VARCHAR(255),
+			excerpt TEXT,
+			cover_image_url TEXT,
+			type VARCHAR(20) NOT NULL DEFAULT 'article' CHECK (type IN ('section', 'article')),
+			section_id INTEGER,
+			parent_id INTEGER,
+			content_format VARCHAR(20) NOT NULL DEFAULT 'html' CHECK (content_format IN ('html', 'json')),
+			created_by_email VARCHAR(255),
+			updated_by_email VARCHAR(255),
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_k12_leader_documents_status ON k12_leader_documents(status);
+		CREATE INDEX IF NOT EXISTS idx_k12_leader_documents_sort_order ON k12_leader_documents(sort_order);
+		CREATE INDEX IF NOT EXISTS idx_k12_leader_documents_type ON k12_leader_documents(type);
+		CREATE INDEX IF NOT EXISTS idx_k12_leader_documents_section_id ON k12_leader_documents(section_id);
+		CREATE INDEX IF NOT EXISTS idx_k12_leader_documents_parent_id ON k12_leader_documents(parent_id);
+
+		CREATE TABLE IF NOT EXISTS k12_leader_publish_snapshots (
+			id SERIAL PRIMARY KEY,
+			snapshot_data JSONB NOT NULL,
+			document_count INTEGER NOT NULL DEFAULT 0,
+			created_by_email VARCHAR(255),
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_k12_leader_publish_snapshots_created_at 
+			ON k12_leader_publish_snapshots(created_at DESC);
 	`);
 
-	k12SchemaEnsured = true;
+	k12LeaderSchemaEnsured = true;
 }
-
-// DOCS_ROOT không còn được sử dụng vì đã chuyển sang database
-// const DOCS_ROOT = path.join(
-// 	process.cwd(),
-// 	"app",
-// 	"api",
-// 	"gitbook_markdown",
-// 	"markdown_files",
-// 	"quy-trinh-quy-dinh-danh-cho-giao-vien"
-// );
 
 function slugify(input: string) {
 	return input
@@ -178,12 +195,6 @@ function cleanHeadingText(raw: string) {
 		.trim();
 }
 
-function extractTitle(content: string, fallback: string) {
-	const firstHeading = content.match(/^#\s+(.+)$/m);
-	const cleaned = cleanHeadingText(firstHeading?.[1] || fallback);
-	return cleaned || fallback;
-}
-
 function extractHeadings(content: string) {
 	const result: Array<{ id: string; text: string; level: number }> = [];
 	const headingRegex = /^(#{1,6})\s+(.+)$/gm;
@@ -231,68 +242,11 @@ function extractHeadings(content: string) {
 	});
 }
 
-// walkDirectory không còn được sử dụng vì đã chuyển sang database
-// async function walkDirectory(
-// 	absoluteDir: string,
-// 	relativeDir: string,
-// 	docs: K12DocItem[]
-// ): Promise<K12DocNode[]> {
-// 	const entries = await fs.readdir(absoluteDir, { withFileTypes: true });
-// 	const sorted = entries.sort((a, b) => a.name.localeCompare(b.name, "vi"));
-// 	const nodes: K12DocNode[] = [];
-//
-// 	for (const entry of sorted) {
-// 		const absolutePath = path.join(absoluteDir, entry.name);
-// 		const relativePath = path.join(relativeDir, entry.name);
-//
-// 		if (entry.isDirectory()) {
-// 			const children = await walkDirectory(absolutePath, relativePath, docs);
-// 			if (children.length > 0) {
-// 				nodes.push({
-// 					id: relativePath.replace(/\\/g, "/"),
-// 					title: prettifyName(entry.name),
-// 					children,
-// 				});
-// 			}
-// 			continue;
-// 		}
-//
-// 		if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) {
-// 			continue;
-// 		}
-//
-// 		const content = await fs.readFile(absolutePath, "utf8");
-// 		const normalizedRelative = relativePath.replace(/\\/g, "/");
-// 		const slug = normalizedRelative.replace(/\.md$/i, "");
-// 		const fallbackTitle = prettifyName(entry.name) || entry.name;
-// 		const title = extractTitle(content, fallbackTitle);
-//
-// 		docs.push({
-// 			id: docs.length + 1,
-// 			slug,
-// 			title,
-// 			relativePath: normalizedRelative,
-// 			content,
-// 			sortOrder: docs.length,
-// 			headings: extractHeadings(content),
-// 		});
-//
-// 		nodes.push({
-// 			id: normalizedRelative,
-// 			title,
-// 			slug,
-// 		});
-// 	}
-//
-// 	return nodes;
-// }
-
-function buildTreeFromRelativePaths(documents: K12DocItem[]): K12DocNode[] {
-	const root: K12DocNode[] = [];
-	const folderMap = new Map<string, K12DocNode>();
-	const folderChildren = new Map<string, K12DocNode[]>();
-	const docBySlug = new Map<string, K12DocItem>();
-	const docByPathWithoutExt = new Map<string, K12DocItem>();
+function buildTreeFromRelativePaths(documents: K12LeaderDocItem[]): K12LeaderDocNode[] {
+	const root: K12LeaderDocNode[] = [];
+	const folderMap = new Map<string, K12LeaderDocNode>();
+	const docBySlug = new Map<string, K12LeaderDocItem>();
+	const docByPathWithoutExt = new Map<string, K12LeaderDocItem>();
 	const consumedAsFolderLanding = new Set<string>();
 	const normalizedPathBySlug = new Map<string, string>();
 
@@ -335,63 +289,18 @@ function buildTreeFromRelativePaths(documents: K12DocItem[]): K12DocNode[] {
 		return parseRoman(romanMatch[1]);
 	};
 
-	const toAbsoluteDocSlug = (href: string): string | null => {
-		const rootPrefix = "/quy-trinh-quy-dinh-danh-cho-giao-vien/";
-		const directPrefix = "quy-trinh-quy-dinh-danh-cho-giao-vien/";
-		const fullPrefix = "cxohok12.gitbook.io/quy-trinh-quy-dinh-danh-cho-giao-vien/";
-
-		const sanitized = href.trim().split("#")[0].split("?")[0];
-		if (!sanitized) return null;
-
-		if (sanitized.startsWith(rootPrefix)) {
-			return sanitized.slice(rootPrefix.length).replace(/\.md$/i, "");
-		}
-
-		if (sanitized.startsWith(directPrefix)) {
-			return sanitized.slice(directPrefix.length).replace(/\.md$/i, "");
-		}
-
-		const markerIndex = sanitized.indexOf(fullPrefix);
-		if (markerIndex >= 0) {
-			return sanitized.slice(markerIndex + fullPrefix.length).replace(/\.md$/i, "");
-		}
-
-		if (sanitized.startsWith("http://") || sanitized.startsWith("https://")) {
-			return null;
-		}
-
-		return sanitized.replace(/^\/+/, "").replace(/\.md$/i, "");
-	};
-
-	const extractInternalLinkOrder = (content: string): string[] => {
-		const orderedSlugs: string[] = [];
-		const seen = new Set<string>();
-		const linkRegex = /\[[^\]]+\]\(([^\)]+)\)/g;
-		let match: RegExpExecArray | null;
-
-		while ((match = linkRegex.exec(content)) !== null) {
-			const href = match[1] || "";
-			const slug = toAbsoluteDocSlug(href);
-			if (!slug || seen.has(slug)) continue;
-			seen.add(slug);
-			orderedSlugs.push(slug);
-		}
-
-		return orderedSlugs;
-	};
-
-	const getNodeKey = (node: K12DocNode) => {
+	const getNodeKey = (node: K12LeaderDocNode) => {
 		if (node.slug) return `doc:${node.slug}`;
 		return `folder:${node.id}`;
 	};
 
-	const getSegmentOrder = (node: K12DocNode): number | null => {
+	const getSegmentOrder = (node: K12LeaderDocNode): number | null => {
 		const base = node.slug || node.id;
 		const segment = base.split("/").pop() || base;
 		return getOrderFromSegment(segment);
 	};
 
-	const sortNodes = (nodes: K12DocNode[]) => {
+	const sortNodes = (nodes: K12LeaderDocNode[]) => {
 		nodes.sort((a, b) => {
 			const orderA = getSegmentOrder(a);
 			const orderB = getSegmentOrder(b);
@@ -417,14 +326,13 @@ function buildTreeFromRelativePaths(documents: K12DocItem[]): K12DocNode[] {
 		if (existing) return existing;
 
 		const segment = folderPath.split("/").pop() || folderPath;
-		const node: K12DocNode = {
+		const node: K12LeaderDocNode = {
 			id: folderPath,
 			title: prettifyName(segment),
 			children: [],
 		};
 
 		folderMap.set(folderPath, node);
-		folderChildren.set(folderPath, node.children || []);
 
 		const parentPath = folderPath.includes("/") ? folderPath.slice(0, folderPath.lastIndexOf("/")) : "";
 		if (!parentPath) {
@@ -474,7 +382,7 @@ function buildTreeFromRelativePaths(documents: K12DocItem[]): K12DocNode[] {
 		const segments = pathWithoutExt.split("/").filter(Boolean);
 		const parentPath = segments.length > 1 ? segments.slice(0, -1).join("/") : "";
 
-		const node: K12DocNode = {
+		const node: K12LeaderDocNode = {
 			id: normalizedPath,
 			title: doc.title || prettifyName(segments[segments.length - 1] || doc.slug),
 			slug: doc.slug,
@@ -490,56 +398,16 @@ function buildTreeFromRelativePaths(documents: K12DocItem[]): K12DocNode[] {
 		parent.children.push(node);
 	}
 
-	const reorderWithDocLinks = (nodes: K12DocNode[]) => {
+	const reorderNodes = (nodes: K12LeaderDocNode[]) => {
 		sortNodes(nodes);
-
 		nodes.forEach((node) => {
-			if (!node.children || node.children.length === 0) return;
-
-			reorderWithDocLinks(node.children);
-
-			if (!node.slug) return;
-			const sourceDoc = docBySlug.get(node.slug);
-			if (!sourceDoc) return;
-
-			const links = extractInternalLinkOrder(sourceDoc.content);
-			if (links.length === 0) return;
-
-			const indexMap = new Map<string, number>();
-			links.forEach((slug, index) => indexMap.set(slug, index));
-
-			node.children.sort((a, b) => {
-				const orderA = getSegmentOrder(a);
-				const orderB = getSegmentOrder(b);
-				if (orderA != null && orderB != null && orderA !== orderB) {
-					return orderA - orderB;
-				}
-
-				const sortA = a.slug ? docBySlug.get(a.slug)?.sortOrder : undefined;
-				const sortB = b.slug ? docBySlug.get(b.slug)?.sortOrder : undefined;
-				if (sortA != null && sortB != null && sortA !== sortB) {
-					return sortA - sortB;
-				}
-
-				const keyA = a.slug || "";
-				const keyB = b.slug || "";
-				const idxA = keyA ? indexMap.get(keyA) : undefined;
-				const idxB = keyB ? indexMap.get(keyB) : undefined;
-
-				if (idxA != null && idxB != null) return idxA - idxB;
-				if (idxA != null && idxB == null) return -1;
-				if (idxA == null && idxB != null) return 1;
-
-				if (orderA != null && orderB != null && orderA !== orderB) {
-					return orderA - orderB;
-				}
-
-				return a.title.localeCompare(b.title, "vi");
-			});
+			if (node.children && node.children.length > 0) {
+				reorderNodes(node.children);
+			}
 		});
 	};
 
-	const uniqueRoot: K12DocNode[] = [];
+	const uniqueRoot: K12LeaderDocNode[] = [];
 	const rootSeen = new Set<string>();
 	for (const node of root) {
 		const key = getNodeKey(node);
@@ -548,50 +416,17 @@ function buildTreeFromRelativePaths(documents: K12DocItem[]): K12DocNode[] {
 		uniqueRoot.push(node);
 	}
 
-	reorderWithDocLinks(uniqueRoot);
+	reorderNodes(uniqueRoot);
 	return uniqueRoot;
 }
 
-// seedK12DocsFromFilesystem không còn được sử dụng vì đã chuyển sang database
-// async function seedK12DocsFromFilesystem() {
-// 	const docs: K12DocItem[] = [];
-// 	await walkDirectory(DOCS_ROOT, "", docs);
-//
-// 	if (docs.length === 0) {
-// 		return;
-// 	}
-//
-// 	const client = await pool.connect();
-// 	try {
-// 		await client.query("BEGIN");
-//
-// 		for (let i = 0; i < docs.length; i++) {
-// 			const doc = docs[i];
-// 			await client.query(
-// 				`INSERT INTO k12_documents (slug, title, relative_path, content, status, sort_order, created_by_email, updated_by_email)
-// 				 VALUES ($1, $2, $3, $4, 'published', $5, 'system', 'system')
-// 				 ON CONFLICT (slug) DO NOTHING`,
-// 				[doc.slug, doc.title, doc.relativePath, doc.content, i]
-// 			);
-// 		}
-//
-// 		await client.query("COMMIT");
-// 	} catch (error) {
-// 		await client.query("ROLLBACK");
-// 		throw error;
-// 	} finally {
-// 		client.release();
-// 	}
-// }
-
-async function loadK12DocsFromDatabase(includeDraft = false): Promise<K12DocsPayload | null> {
+async function loadK12LeaderDocsFromDatabase(includeDraft = false): Promise<K12LeaderDocsPayload | null> {
 	const client = await pool.connect();
 	try {
-		// Dùng client đang giữ — tránh lấy connection thứ 2 từ pool (gây timeout khi pool nhỏ)
-		await ensureK12Schema(client);
+		await ensureK12LeaderSchema(client);
 
 		const tableCheck = await client.query(
-			"SELECT to_regclass('public.k12_documents') AS table_name"
+			"SELECT to_regclass('public.k12_leader_documents') AS table_name"
 		);
 
 		if (!tableCheck.rows[0]?.table_name) {
@@ -599,23 +434,21 @@ async function loadK12DocsFromDatabase(includeDraft = false): Promise<K12DocsPay
 		}
 
 		const countResult = await client.query(
-			"SELECT COUNT(*)::int AS count FROM k12_documents"
+			"SELECT COUNT(*)::int AS count FROM k12_leader_documents"
 		);
 
 		if (countResult.rows[0]?.count === 0) {
-			// Không có dữ liệu trong database
 			return null;
 		}
 
 		const result = await client.query(
 			`SELECT id, slug, title, relative_path, content, type, section_id, parent_id, topic, excerpt, cover_image_url, status, sort_order
-			 FROM k12_documents
+			 FROM k12_leader_documents
 			 ${includeDraft ? "" : "WHERE status = 'published'"}
 			 ORDER BY sort_order ASC, title ASC`
 		);
 
-		// Chỉ sử dụng dữ liệu từ database, không đọc filesystem
-		const documents: K12DocItem[] = (result.rows as K12DocumentRow[]).map((row) => {
+		const documents: K12LeaderDocItem[] = (result.rows as K12LeaderDocumentRow[]).map((row) => {
 			const normalizedPath = normalizeRelativePath(row.relative_path);
 			const mergedContent = row.content || "";
 
@@ -636,19 +469,19 @@ async function loadK12DocsFromDatabase(includeDraft = false): Promise<K12DocsPay
 			};
 		});
 
-		// Database là nguồn dữ liệu duy nhất cho cấu trúc menu
 		if (documents.length === 0) {
 			return null;
 		}
 
 		const tree = buildTreeFromRelativePaths(documents);
 		const defaultDoc =
+			documents.find((doc) => doc.slug.includes("thong-tin-chung") || doc.slug === "i-thong-tin-chung") ||
 			documents.find((doc) => doc.slug.endsWith("/index")) ||
 			documents.find((doc) => doc.slug === "index") ||
 			documents[0];
 
 		return {
-			rootTitle: "Quy Trình, Quy Định K12 Teaching",
+			rootTitle: "Quy Trình, Quy Định K12 Teaching - Leader/TE/TC",
 			tree,
 			documents,
 			defaultSlug: defaultDoc?.slug || "",
@@ -658,60 +491,57 @@ async function loadK12DocsFromDatabase(includeDraft = false): Promise<K12DocsPay
 	}
 }
 
-export function clearK12DocsCache() {
-	k12DocsMemCache.clear();
+export function clearK12LeaderDocsCache() {
+	k12LeaderDocsMemCache.clear();
 }
 
-/** In-memory cache — tránh gọi DB/filesystem lặp lại trong cùng 1 process/worker */
-const k12DocsMemCache = new Map<
+/** In-memory cache */
+const k12LeaderDocsMemCache = new Map<
 	string,
-	{ payload: K12DocsPayload; expiresAt: number }
+	{ payload: K12LeaderDocsPayload; expiresAt: number }
 >();
-const MEM_CACHE_TTL_MS = process.env.NODE_ENV === 'production' ? 5 * 60 * 1000 : 1000; // 1s in dev, 5m in prod
+const MEM_CACHE_TTL_MS = process.env.NODE_ENV === 'production' ? 5 * 60 * 1000 : 1000;
 
-/** Phiên bản được cache bởi Next.js (persist qua requests, revalidate 5 phút) */
-const loadK12DocsCached = unstable_cache(
-	async (includeDraft: boolean): Promise<K12DocsPayload> => {
-		const dbDocs = await loadK12DocsFromDatabase(includeDraft);
+/** Next.js cached */
+const loadK12LeaderDocsCached = unstable_cache(
+	async (includeDraft: boolean): Promise<K12LeaderDocsPayload> => {
+		const dbDocs = await loadK12LeaderDocsFromDatabase(includeDraft);
 		if (dbDocs) return dbDocs;
 
-		// Nếu không có dữ liệu trong database, trả về payload rỗng
 		return {
-			rootTitle: 'Quy Trình, Quy Định K12 Teaching',
+			rootTitle: 'Quy Trình, Quy Định K12 Teaching - Leader/TE/TC',
 			tree: [],
 			documents: [],
 			defaultSlug: '',
 		};
 	},
-	['k12-docs-published'],
-	{ revalidate: process.env.NODE_ENV === 'production' ? 300 : 1 }, // 1s in dev
+	['k12-leader-docs-published'],
+	{ revalidate: process.env.NODE_ENV === 'production' ? 300 : 1 },
 );
 
-/** Cache riêng cho draft (admin) — revalidate 60s */
-const loadK12DocsDraftCached = unstable_cache(
-	async (): Promise<K12DocsPayload> => {
-		const dbDocs = await loadK12DocsFromDatabase(true);
+const loadK12LeaderDocsDraftCached = unstable_cache(
+	async (): Promise<K12LeaderDocsPayload> => {
+		const dbDocs = await loadK12LeaderDocsFromDatabase(true);
 		if (dbDocs) return dbDocs;
 
-		// Nếu không có dữ liệu trong database, trả về payload rỗng
 		return {
-			rootTitle: 'Quy Trình, Quy Định K12 Teaching',
+			rootTitle: 'Quy Trình, Quy Định K12 Teaching - Leader/TE/TC',
 			tree: [],
 			documents: [],
 			defaultSlug: '',
 		};
 	},
-	['k12-docs-draft'],
-	{ revalidate: process.env.NODE_ENV === 'production' ? 60 : 1 }, // 1s in dev
+	['k12-leader-docs-draft'],
+	{ revalidate: process.env.NODE_ENV === 'production' ? 60 : 1 },
 );
 
-export async function loadK12Docs(options?: { includeDraft?: boolean }): Promise<K12DocsPayload> {
+export async function loadK12LeaderDocs(options?: { includeDraft?: boolean }): Promise<K12LeaderDocsPayload> {
 	const includeDraft = options?.includeDraft ?? false;
-	const dbDocs = await loadK12DocsFromDatabase(includeDraft);
+	const dbDocs = await loadK12LeaderDocsFromDatabase(includeDraft);
 	if (dbDocs) return dbDocs;
 
 	return {
-		rootTitle: 'Quy trình, Quy định MindX K12',
+		rootTitle: 'Quy Trình, Quy Định K12 Teaching - Leader/TE/TC',
 		tree: [],
 		documents: [],
 		defaultSlug: '',

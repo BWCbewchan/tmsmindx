@@ -17,9 +17,15 @@ export interface ThreatCheckResult {
 
 // Cấu hình ngưỡng cho từng loại threat
 const THREAT_CONFIG = {
-  LOGIN_FAIL:     { max: 5,  windowMin: 5,  blockMin: 30  },
-  UNAUTHORIZED:   { max: 10, windowMin: 10, blockMin: 60  },
-  SUSPICIOUS_API: { max: 20, windowMin: 5,  blockMin: 120 },
+  LOGIN_FAIL:     process.env.NODE_ENV === 'development'
+    ? { max: 100, windowMin: 5, blockMin: 1 }
+    : { max: 5, windowMin: 5, blockMin: 30 },
+  UNAUTHORIZED:   process.env.NODE_ENV === 'development'
+    ? { max: 100, windowMin: 10, blockMin: 1 }
+    : { max: 10, windowMin: 10, blockMin: 60 },
+  SUSPICIOUS_API: process.env.NODE_ENV === 'development'
+    ? { max: 200, windowMin: 5, blockMin: 1 }
+    : { max: 20, windowMin: 5, blockMin: 120 },
 } as const;
 
 export type ThreatType = keyof typeof THREAT_CONFIG;
@@ -71,6 +77,10 @@ export async function isIpBlocked(ip: string): Promise<{
   blockedUntil?: Date;
   threatType?: string;
 }> {
+  if (process.env.NODE_ENV === 'development') {
+    return { blocked: false };
+  }
+
   try {
     const result = await pool.query<{
       threat_type:  string;

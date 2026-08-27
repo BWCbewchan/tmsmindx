@@ -230,5 +230,21 @@
     "sort_order": 27,
     "description": "",
     "is_active": true
+  },
+  {
+    "route_path": "/admin/quy-trinh-quy-dinh-leader",
+    "label": "Quy trình quy định Leader/TE/TC",
+    "group_name": "Quản lý",
+    "sort_order": 28,
+    "description": "Xem tài liệu quy trình quy định Leader/TE/TC",
+    "is_active": true
+  },
+  {
+    "route_path": "/admin/quy-trinh-quy-dinh-leader/manage",
+    "label": "Quản lý Quy trình quy định Leader/TE/TC",
+    "group_name": "Quản lý",
+    "sort_order": 29,
+    "description": "Quản lý và biên tập tài liệu quy trình quy định Leader/TE/TC",
+    "is_active": true
   }
 ]

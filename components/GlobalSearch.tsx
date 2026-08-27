@@ -55,6 +55,8 @@ const adminSearchItems: SearchItem[] = [
   { label: 'Thư viện đề chuyên môn', href: '/admin/thu-vien-de', icon: GraduationCap, group: 'Đào tạo & Khảo thí' },
   { label: 'Xem Tài Liệu K12', href: '/admin/page2', icon: BookOpen, group: 'Tài liệu nội bộ' },
   { label: 'Quản Lý Tài Liệu K12', href: '/admin/page2/manage', icon: BookOpen, group: 'Tài liệu nội bộ' },
+  { label: 'Xem Tài Liệu Leader/TE/TC', href: '/admin/quy-trinh-quy-dinh-leader', icon: BookOpen, group: 'Tài liệu nội bộ' },
+  { label: 'Quản Lý Tài Liệu Leader/TE/TC', href: '/admin/quy-trinh-quy-dinh-leader/manage', icon: BookOpen, group: 'Tài liệu nội bộ' },
   { label: 'Giáo trình trải nghiệm', href: '/admin/giao-trinh-trai-nghiem', icon: BookOpen, group: 'Tài liệu nội bộ' },
   { label: 'Giáo trình chuyên môn', href: '/admin/giao-trinh-chuyen-mon', icon: BookOpen, group: 'Tài liệu nội bộ' },
   { label: 'Quản lý giáo trình', href: '/admin/quan-ly-tai-lieu-giang-day', icon: BookOpen, group: 'Tài liệu nội bộ' },
