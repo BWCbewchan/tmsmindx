@@ -170,7 +170,7 @@ export function ProjectCardShowcase({ project, defaultCourse, trackHint }: { pro
       <article className="group relative overflow-hidden rounded-[26px] border border-[#ded6c9] bg-[#fffaf2] shadow-[0_18px_55px_rgba(23,21,18,0.10)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_24px_70px_rgba(23,21,18,0.14)]">
         <div className={`absolute -right-12 -top-16 h-44 w-44 rounded-full ${theme.wash} opacity-10 blur-2xl`} />
         <div className={`relative overflow-hidden bg-gradient-to-br ${theme.shell} p-4 sm:p-5`}>
-            <div className="absolute inset-0 opacity-25 [background-image:radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.38)_1px,transparent_0)] [background-size:18px_18px]" />
+            <div className="absolute inset-0 opacity-40 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white/20 via-transparent to-transparent" />
             <div className="absolute -right-8 top-5 text-white/10">
               <SymbolIcon className="h-48 w-48" strokeWidth={1.25} />
             </div>

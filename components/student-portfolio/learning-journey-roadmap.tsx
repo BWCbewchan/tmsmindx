@@ -1,0 +1,242 @@
+'use client';
+
+import { Award, CheckCircle2, ExternalLink, Sparkles } from 'lucide-react';
+import type { StudentPortfolioData } from '@/lib/student-portfolio/types';
+
+interface LearningJourneyRoadmapProps {
+  journey: StudentPortfolioData['learningJourney'];
+  projects?: StudentPortfolioData['projects'];
+  theme: {
+    ink: string;
+    accent: string;
+    surface: string;
+    label: string;
+  };
+  sectionNo: string;
+}
+
+function scoreText(value?: number | null) {
+  return typeof value === 'number' ? value.toFixed(1).replace(/\.0$/, '') : '';
+}
+
+function awardTone(level?: string, title?: string) {
+  const text = (title || '').toLowerCase();
+  if (level === 'gold' || text.includes('nhat') || text.includes('nhất')) {
+    return { bg: '#fffbeb', border: '#fde68a', ink: '#b45309', medal: '#f59e0b' };
+  }
+  if (level === 'silver' || text.includes('nhi') || text.includes('nhì')) {
+    return { bg: '#f8fafc', border: '#cbd5e1', ink: '#475569', medal: '#64748b' };
+  }
+  if (level === 'bronze' || text.includes('ba')) {
+    return { bg: '#fff7ed', border: '#fed7aa', ink: '#c2410c', medal: '#d97706' };
+  }
+  return { bg: '#f0f9ff', border: '#bae6fd', ink: '#0369a1', medal: '#0284c7' };
+}
+
+function sameText(a?: string, b?: string) {
+  if (!a || !b) return false;
+  const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return clean(a).includes(clean(b)) || clean(b).includes(clean(a));
+}
+
+export function LearningJourneyRoadmap({
+  journey,
+  projects = [],
+  theme,
+  sectionNo,
+}: LearningJourneyRoadmapProps) {
+  if (!journey || journey.length === 0) return null;
+
+  const scrollToProject = (index: number) => {
+    const el = document.getElementById(`project-${index}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      const projectsSec = document.getElementById('projects');
+      if (projectsSec) projectsSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  return (
+    <section id="journey" className="mx-auto max-w-6xl px-5 py-20 scroll-mt-12">
+      {/* Section Header */}
+      <div className="mb-12">
+        <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: theme.ink }}>
+          {sectionNo} · LỘ TRÌNH HỌC TẬP
+        </p>
+        <h2 className="mt-2 text-3xl sm:text-4xl font-extrabold tracking-tight text-[#171512]">
+          Học đến đâu, làm ra đến đó.
+        </h2>
+        <p className="mt-2.5 text-base text-[#55504a] font-medium">
+          Mỗi môn học là một cột mốc tích lũy kỹ năng và hoàn thiện sản phẩm sáng tạo.
+        </p>
+      </div>
+
+      {/* Timeline List (Restored Image 1 Straight Vertical Layout) */}
+      <div className="space-y-10 border-l-2 border-[#ded6c9] pl-6 md:pl-8">
+        {journey.map((item, index) => {
+          const isCompleted = item.status === 'Đã hoàn thành';
+          const cp1 = scoreText(item.cp1Score);
+          const cp2 = scoreText(item.cp2Score);
+          const demo = scoreText(item.demoScore);
+          const tbck = scoreText(item.tbckScore);
+          const award = item.awardTitle ? awardTone(item.awardLevel, item.awardTitle) : null;
+          const displayDate = item.period || (item.code ? `Mã môn: ${item.code}` : '');
+
+          // Find matching project index in projects array (strict matching only)
+          const projectIndex = projects.findIndex(
+            (proj) =>
+              sameText(proj.course, item.title) ||
+              sameText(proj.course, item.code) ||
+              sameText(proj.title, item.title) ||
+              sameText(proj.title, item.code)
+          );
+          const matchedProject = projectIndex >= 0 ? projects[projectIndex] : null;
+          const projectImage = matchedProject?.imageUrl || matchedProject?.imageUrls?.[0];
+
+          return (
+            <div key={`${item.title}-${index}`} className="relative grid gap-6 md:grid-cols-[220px_1fr]">
+              {/* Green / Accent Node Dot on Line */}
+              <span
+                className="absolute -left-[31px] top-7 h-5 w-5 rounded-full border-4 border-white shadow-xs md:-left-[39px]"
+                style={{ backgroundColor: isCompleted ? '#16a34a' : theme.ink }}
+              />
+
+              {/* Left Column: Course Title & Start Date */}
+              <div>
+                <h3 className="text-lg font-extrabold leading-snug text-[#171512]">{item.title}</h3>
+                {displayDate ? (
+                  <p className="mt-1.5 text-xs font-semibold text-[#777067]">
+                    {displayDate.startsWith('Ngày') ? displayDate : `Thời gian: ${displayDate}`}
+                  </p>
+                ) : null}
+              </div>
+
+              {/* Right Column: Clean White Card (Clickable to scroll to project) */}
+              <div
+                onClick={() => scrollToProject(projectIndex >= 0 ? projectIndex : 0)}
+                className="group relative cursor-pointer overflow-hidden rounded-2xl border border-[#e4ded6] bg-white p-6 sm:p-7 shadow-[0_8px_24px_rgba(23,21,18,0.04)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_16px_36px_rgba(23,21,18,0.09)] hover:border-[#cbd5e1]"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#8b8176]">
+                      {item.title}
+                    </p>
+                    <h3 className="mt-1.5 break-words text-2xl sm:text-[26px] font-extrabold leading-tight text-[#bd0026]">
+                      {item.code ? `Lớp: ${item.code}` : item.title}
+                    </h3>
+                  </div>
+
+                  {/* Status & Score Badges */}
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    {cp1 ? (
+                      <span className="rounded-full border border-[#e5ded5] bg-[#faf8f5] px-3.5 py-1.5 text-xs font-extrabold text-[#171512]">
+                        CP1 {cp1}
+                      </span>
+                    ) : null}
+                    {cp2 ? (
+                      <span className="rounded-full border border-[#e5ded5] bg-[#faf8f5] px-3.5 py-1.5 text-xs font-extrabold text-[#171512]">
+                        CP2 {cp2}
+                      </span>
+                    ) : null}
+                    {demo ? (
+                      <span className="rounded-full border border-[#e5ded5] bg-[#faf8f5] px-3.5 py-1.5 text-xs font-extrabold text-[#171512]">
+                        SPCK {demo}
+                      </span>
+                    ) : null}
+                    {tbck ? (
+                      <span className="rounded-full border border-[#e5ded5] bg-[#faf8f5] px-3.5 py-1.5 text-xs font-extrabold text-[#171512]">
+                        TBCK {tbck}
+                      </span>
+                    ) : null}
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-extrabold ${
+                        isCompleted
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                          : 'border-sky-200 bg-sky-50 text-sky-800'
+                      }`}
+                    >
+                      {isCompleted ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : null}
+                      <span>{isCompleted ? 'Hoàn thành' : (item.status || 'Đang diễn ra')}</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Award Badge (Image 1 Style) */}
+                {award && item.awardTitle ? (
+                  <div className="mt-4">
+                    <span
+                      className="inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs font-extrabold shadow-2xs"
+                      style={{
+                        backgroundColor: award.bg,
+                        borderColor: award.border,
+                        color: award.ink,
+                      }}
+                    >
+                      <Award className="h-4 w-4" style={{ color: award.medal, fill: award.medal }} />
+                      <span>{item.awardTitle}</span>
+                    </span>
+                  </div>
+                ) : null}
+
+                {/* Teacher Comment (Summarized 2-3 positive lines from session 14) */}
+                {item.finalComment ? (
+                  <p className="mt-4 text-sm font-medium leading-relaxed text-[#4e4740] border-t border-[#f3eee7] pt-4">
+                    {item.finalComment}
+                  </p>
+                ) : null}
+
+                {/* Project Thumbnail Image Preview */}
+                {matchedProject ? (
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      scrollToProject(projectIndex >= 0 ? projectIndex : 0);
+                    }}
+                    className="mt-4 flex flex-col sm:flex-row items-stretch gap-4 rounded-xl border border-[#e5ded5] bg-[#faf8f5] p-3.5 transition-all hover:bg-white hover:shadow-md hover:border-[#cbd5e1]"
+                  >
+                    {projectImage ? (
+                      <div className="relative h-32 sm:h-24 w-full sm:w-36 shrink-0 overflow-hidden rounded-lg border border-[#e2dcd3] bg-[#171512]">
+                        <img
+                          src={projectImage}
+                          alt={matchedProject.title || 'Sản phẩm cuối khóa'}
+                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        />
+                      </div>
+                    ) : null}
+                    <div className="flex flex-col justify-center min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase text-[#bd0026]">
+                        <Sparkles className="h-3.5 w-3.5" />
+                        <span>Sản phẩm cuối khóa</span>
+                      </div>
+                      <h4 className="mt-1 text-sm font-extrabold text-[#171512] truncate">
+                        {matchedProject.title || 'Dự án thực hành cuối khóa'}
+                      </h4>
+                      {matchedProject.description ? (
+                        <p className="mt-1 text-xs font-medium text-[#666057] line-clamp-2">
+                          {matchedProject.description}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-xs font-medium text-[#888075]">
+                          Bấm để xem thông tin chi tiết và bản demo sản phẩm dự án.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* Click Hint Footer */}
+                {matchedProject ? (
+                  <div className="mt-4 flex items-center justify-end gap-1.5 text-xs font-extrabold text-[#bd0026] opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span>Xem chi tiết sản phẩm dự án</span>
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
