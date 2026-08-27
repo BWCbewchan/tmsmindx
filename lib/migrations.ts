@@ -2735,6 +2735,63 @@ const migrations: Migration[] = [
     `,
   },
   {
+    name: 'V105_portfolios',
+    version: 105,
+    sql: `
+      CREATE TABLE IF NOT EXISTS portfolios (
+        id SERIAL PRIMARY KEY,
+        student_lms_id VARCHAR(50) NOT NULL,
+        class_lms_id VARCHAR(50) NOT NULL,
+        student_name VARCHAR(255) NOT NULL,
+        class_name VARCHAR(255),
+        centre_name VARCHAR(255),
+        course_name VARCHAR(255),
+        public_slug VARCHAR(255) UNIQUE,
+        status VARCHAR(20) DEFAULT 'draft',
+        data JSONB DEFAULT '{}',
+        created_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(student_lms_id, class_lms_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_portfolios_class_lms_id
+        ON portfolios(class_lms_id);
+      CREATE INDEX IF NOT EXISTS idx_portfolios_student_lms_id
+        ON portfolios(student_lms_id);
+      CREATE INDEX IF NOT EXISTS idx_portfolios_status
+        ON portfolios(status);
+
+      DROP TRIGGER IF EXISTS trg_portfolios_updated_at ON portfolios;
+      CREATE TRIGGER trg_portfolios_updated_at
+      BEFORE UPDATE ON portfolios
+      FOR EACH ROW
+      EXECUTE FUNCTION update_updated_at_column();
+    `,
+  },
+  {
+    name: 'V106_portfolios_drop_student_id_not_null',
+    version: 106,
+    sql: `
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'portfolios' AND column_name = 'student_id'
+        ) THEN
+          ALTER TABLE portfolios ALTER COLUMN student_id DROP NOT NULL;
+        END IF;
+
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'portfolios' AND column_name = 'class_id'
+        ) THEN
+          ALTER TABLE portfolios ALTER COLUMN class_id DROP NOT NULL;
+        END IF;
+      END $$;
+    `,
+  },
+  {
     name: 'V106_quan_ly_qc_teacher_account_and_scaled_score',
     version: 106,
     sql: `
