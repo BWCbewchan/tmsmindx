@@ -95,7 +95,7 @@ function Layout({ children }: { children: React.ReactNode }) {
         `}
       >
         <div className="w-full min-h-screen lg:h-screen">
-          <div className={`min-h-screen lg:h-full custom-scrollbar ${isStandaloneLesson ? 'overflow-y-auto' : 'lg:overflow-y-auto'}`}>
+          <div id="main-scroll-container" className={`min-h-screen lg:h-full custom-scrollbar ${isStandaloneLesson ? 'overflow-y-auto' : 'lg:overflow-y-auto'}`}>
             <div
               className={
                 isStandaloneLesson || isPublicPortfolio

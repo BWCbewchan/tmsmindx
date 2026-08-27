@@ -16,6 +16,9 @@ export interface PortfolioLearningItem {
   period?: string;
   status?: string;
   description?: string;
+  cp1Score?: number | null;
+  cp2Score?: number | null;
+  demoScore?: number | null;
   tbckScore?: number | null;
   finalComment?: string;
   awardTitle?: string;
@@ -42,6 +45,7 @@ export interface PortfolioAward {
   date?: string;
   className?: string;
   level?: 'gold' | 'silver' | 'bronze' | 'merit';
+  imageUrl?: string;
 }
 
 export interface PortfolioAcademicSummary {
