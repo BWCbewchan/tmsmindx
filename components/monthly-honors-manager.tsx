@@ -1027,6 +1027,29 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
     if (file && file.type.startsWith('image/')) {
       applyImageToBox(box, file)
     }
+    if (missingName >= 0) {
+      setResult({ success: false, error: `Top ${missingName + 1} đang thiếu họ và tên.` })
+      return null
+    }
+
+    const headers = ['STT', 'Tên', 'Email', 'Khối dạy', 'Cơ sở', 'Tháng', 'Số case', 'Số học sinh', 'CR45', 'Loại/Chọn', 'Thưởng CR']
+    const lines = [
+      headers.join(','),
+      ...cleanRows.map(row => [
+        row.stt,
+        row.full_name,
+        row.email,
+        row.khoi_day,
+        row.co_so,
+        thang.trim(),
+        row.so_case,
+        row.so_hoc_sinh,
+        row.ti_le,
+        row.loai,
+        row.thuong_cr,
+      ].map(value => csvCell(value.trim())).join(',')),
+    ]
+    return new File([lines.join('\n')], `vinh-danh-thu-cong-${Date.now()}.csv`, { type: 'text/csv;charset=utf-8' })
   }
 
   const buildManualCsvFile = () => {
