@@ -456,6 +456,23 @@ function formatLmsDate(value?: string): string {
   return date.toLocaleDateString('vi-VN');
 }
 
+function isHiddenClassStatus(status?: string) {
+  const key = normalizeKey(status).replace(/[^a-z0-9]+/g, ' ').trim();
+  return (
+    key.includes('suspended') ||
+    key.includes('cancelled') ||
+    key.includes('canceled') ||
+    key.includes('cancel') ||
+    key.includes('da huy') ||
+    /\bhuy\b/.test(key)
+  );
+}
+
+function isJourneyClassStatus(status?: string) {
+  const key = normalizeKey(status).replace(/[^a-z0-9]+/g, ' ').trim();
+  return key.includes('running') || key.includes('finished');
+}
+
 function sortClassesByStartDate(classes: LmsPortfolioClass[]) {
   return classes.slice().sort((a, b) => {
     const aTime = a.startDate ? new Date(a.startDate).getTime() : 0;
@@ -1533,14 +1550,19 @@ export async function buildPortfolioDataFromLms(
   const technologyTags = Array.from(
     new Set(classes.map(courseLineTag).filter(Boolean)),
   );
-  const learningJourney = classes.map((cls) => {
+  const journeyClasses = classes.filter((cls) => {
     const studentClass = studentInClass(cls, input.studentId, studentName);
+    return (
+      isJourneyClassStatus(cls.status) &&
+      !isHiddenClassStatus(cls.status) &&
+      !isHiddenClassStatus(studentClass?.completionInfo?.status)
+    );
+  });
+  const learningJourney = journeyClasses.map((cls) => {
     const classScores = scoreSummaryForClass(cls, input.studentId, studentName);
     const finalComment = positiveFinalComment(finalAttendanceForStudent(cls, input.studentId, studentName));
     const classAward = rewardAwards.find((award) => awardMatchesClass(award, cls));
-    const completed = normalizeKey(cls.status).includes('complete') ||
-      normalizeKey(studentClass?.completionInfo?.status).includes('complete') ||
-      (!!cls.endDate && new Date(cls.endDate).getTime() < Date.now());
+    const completed = normalizeKey(cls.status).includes('finished');
     return {
       title: cleanText(cls.course?.name) || cleanText(cls.course?.shortName) || cleanText(cls.name),
       code: cleanText(cls.name),

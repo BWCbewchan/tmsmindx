@@ -19,6 +19,26 @@ function scoreText(value?: number | null) {
   return typeof value === 'number' ? value.toFixed(1).replace(/\.0$/, '') : '';
 }
 
+function normalizeStatus(value?: string) {
+  return (value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/đ/g, 'd')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function isCompletedLearningStatus(status?: string) {
+  const text = normalizeStatus(status);
+  return text.includes('finished') || text.includes('da hoan thanh');
+}
+
+function isRunningLearningStatus(status?: string) {
+  const text = normalizeStatus(status);
+  return text.includes('running') || text.includes('dang dien ra');
+}
+
 function awardTone(level?: string, title?: string) {
   const text = (title || '').toLowerCase();
   if (level === 'gold' || text.includes('nhat') || text.includes('nhất')) {
@@ -75,7 +95,8 @@ export function LearningJourneyRoadmap({
       {/* Timeline List (Restored Image 1 Straight Vertical Layout) */}
       <div className="space-y-10 border-l-2 border-[#ded6c9] pl-6 md:pl-8">
         {journey.map((item, index) => {
-          const isCompleted = item.status === 'Đã hoàn thành';
+          const isCompleted = isCompletedLearningStatus(item.status);
+          const statusLabel = isCompleted ? 'Hoàn thành' : isRunningLearningStatus(item.status) ? 'Đang diễn ra' : item.status || 'Đang diễn ra';
           const cp1 = scoreText(item.cp1Score);
           const cp2 = scoreText(item.cp2Score);
           const demo = scoreText(item.demoScore);
@@ -157,7 +178,7 @@ export function LearningJourneyRoadmap({
                       }`}
                     >
                       {isCompleted ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : null}
-                      <span>{isCompleted ? 'Hoàn thành' : (item.status || 'Đang diễn ra')}</span>
+                      <span>{statusLabel}</span>
                     </span>
                   </div>
                 </div>

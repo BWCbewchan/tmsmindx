@@ -158,8 +158,8 @@ function normalizeTrack(value?: string) {
   return (value || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/đ/g, 'd');
 }
 
 type PortfolioTrack = 'coding' | 'robotics' | 'art';
@@ -180,6 +180,36 @@ function sameText(a?: string, b?: string) {
 
 function scoreText(value?: number | null) {
   return typeof value === 'number' ? value.toFixed(1).replace(/\.0$/, '') : '';
+}
+
+function isVisibleLearningStatus(status?: string) {
+  const text = normalizeTrack(status).replace(/[^a-z0-9]+/g, ' ').trim();
+  if (!text) return false;
+  return (
+    text.includes('running') ||
+    text.includes('finished') ||
+    text.includes('dang dien ra') ||
+    text.includes('da hoan thanh')
+  );
+}
+
+function isHiddenLearningItem(item: StudentPortfolioData['learningJourney'][number]) {
+  const text = normalizeTrack([item.status, item.title, item.code, item.description].filter(Boolean).join(' '))
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  return (
+    text.includes('suspended') ||
+    text.includes('cancelled') ||
+    text.includes('canceled') ||
+    text.includes('cancel') ||
+    text.includes('da huy') ||
+    /\bhuy\b/.test(text)
+  );
+}
+
+function isCompletedLearningStatus(status?: string) {
+  const text = normalizeTrack(status).replace(/[^a-z0-9]+/g, ' ').trim();
+  return text.includes('finished') || text.includes('da hoan thanh');
 }
 
 function projectAnchorId(index: number) {
@@ -248,7 +278,7 @@ const trackTheme = {
 
 function sanitizeIntroText(text?: string, studentName: string = '') {
   if (!text) return '';
-  let clean = text
+  const clean = text
     .replace(/.*đang ghi lại hành trình học tập tại MindX\.?/gi, `${studentName ? studentName + ' - ' : ''}Hành trình phát triển tư duy công nghệ và sản phẩm sáng tạo tại MindX.`)
     .replace(/đang ghi lại hành trình học tập/gi, 'hành trình phát triển sản phẩm công nghệ')
     .replace(/Portfolio này tổng hợp dữ liệu học tập, sản phẩm và đánh giá được đồng bộ từ LMS MindX\.?/gi, 'Hồ sơ tổng hợp quá trình học tập, các sản phẩm sáng tạo và đánh giá năng lực của học viên tại Trường học Công nghệ MindX.')
@@ -275,6 +305,9 @@ export default async function PublicPortfolioPage({
   const defaultIsPrivate = portfolio.status === 'draft' || data.visibility === 'private';
   const isPrivateMode = query.mode ? query.mode === 'private' : defaultIsPrivate;
   const isPublicMode = !isPrivateMode;
+  const visibleLearningJourney = (data.learningJourney || []).filter(
+    (item) => !isHiddenLearningItem(item) && isVisibleLearningStatus(item.status),
+  );
 
   const academicItems = [
     { label: 'Checkpoint 1', value: data.academicSummary?.checkpoint1Score },
@@ -288,7 +321,7 @@ export default async function PublicPortfolioPage({
   ].filter((item) => item.value !== undefined && item.value !== null && String(item.value).trim() !== '');
 
   const allSkills = isPublicMode ? [...(data.hardSkills || []), ...(data.softSkills || [])] : [];
-  const hasJourney = Boolean(data.learningJourney && data.learningJourney.length > 0);
+  const hasJourney = visibleLearningJourney.length > 0;
   const hasProjects = Boolean(data.projects && data.projects.length > 0);
   const hasResults = Boolean(academicItems.length > 0);
 
@@ -305,19 +338,19 @@ export default async function PublicPortfolioPage({
   const dnaAverage = allScores.length
     ? Math.round((allScores.reduce((sum, score) => sum + Number(score.value || 0), 0) / allScores.length) * 10) / 10
     : null;
-  const completedCourses = (data.learningJourney || []).filter((item) => item.status === 'Đã hoàn thành').length;
-  const completionRate = data.learningJourney?.length
-    ? Math.round((completedCourses / data.learningJourney.length) * 100)
+  const completedCourses = visibleLearningJourney.filter((item) => isCompletedLearningStatus(item.status)).length;
+  const completionRate = visibleLearningJourney.length
+    ? Math.round((completedCourses / visibleLearningJourney.length) * 100)
     : 0;
   const heroStats = [
-    { value: data.learningJourney?.length || 0, label: 'Khóa học' },
+    { value: visibleLearningJourney.length, label: 'Khóa học' },
     { value: data.projects?.length || 0, label: 'Sản phẩm' },
     isPublicMode && dnaAverage !== null
       ? { value: dnaAverage, label: 'Điểm DNA' }
       : { value: profile.courseLine || theme.label, label: 'Khối học' },
   ];
   const bannerStats = [
-    { value: data.learningJourney?.length || 0, label: 'Khóa / Lộ trình học' },
+    { value: visibleLearningJourney.length, label: 'Khóa / Lộ trình học' },
     { value: data.projects?.length || 0, label: 'Sản phẩm hoàn thành' },
     { value: `${completionRate}%`, label: 'Khóa đã hoàn thành' },
     isPublicMode && dnaAverage !== null
@@ -532,7 +565,7 @@ export default async function PublicPortfolioPage({
       {/* Learning Journey Section with organic curved roadmap path (Image 4 style) */}
       {hasJourney ? (
         <LearningJourneyRoadmap
-          journey={data.learningJourney}
+          journey={visibleLearningJourney}
           projects={data.projects}
           theme={{
             ink: theme.ink,
