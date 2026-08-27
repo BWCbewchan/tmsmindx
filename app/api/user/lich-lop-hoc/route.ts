@@ -3,15 +3,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { callLmsApi } from '@/lib/lms-api';
 
 const GET_ALL_CLASSES_QUERY = /* graphql */ `
-  query GetAllClasses($haveSlotFrom: Date, $haveSlotTo: Date) {
+  query GetAllClasses($haveSlotFrom: Date, $haveSlotTo: Date, $pageIndex: Int, $itemsPerPage: Int) {
     classes(payload: {
       haveSlot_from: $haveSlotFrom,
       haveSlot_to: $haveSlotTo,
       status_in: ["RUNNING", "PREPARING"],
-      pageIndex: 0,
-      itemsPerPage: 500,
+      pageIndex: $pageIndex,
+      itemsPerPage: $itemsPerPage,
       orderBy: "startDate_asc"
     }) {
+      pagination { total }
       data {
         id
         name
@@ -92,23 +93,57 @@ export async function GET(request: NextRequest) {
     const fromParam = searchParams.get('from');
     const toParam = searchParams.get('to');
 
-    const LMS_TZ_OFFSET_MS = 7 * 60 * 60 * 1000;
-    const haveSlotFrom = new Date(new Date(fromParam!).getTime() - LMS_TZ_OFFSET_MS).toISOString();
-    const haveSlotTo = new Date(new Date(toParam!).getTime() - LMS_TZ_OFFSET_MS).toISOString();
+    if (!fromParam || !toParam) {
+      return NextResponse.json({
+        success: false,
+        slots: [],
+        message: 'Thiếu khoảng ngày cần tải lịch lớp học.'
+      }, { status: 400 });
+    }
+
+    const haveSlotFrom = new Date(`${fromParam}T00:00:00.000+07:00`).toISOString();
+    const haveSlotTo = new Date(`${toParam}T23:59:59.999+07:00`).toISOString();
 
     const authHeader = `Bearer ${firebaseToken}`;
-    const classesResult = await callLmsApi<any>({
+    const itemsPerPage = 200;
+    const firstResult = await callLmsApi<any>({
       query: GET_ALL_CLASSES_QUERY,
-      variables: { haveSlotFrom, haveSlotTo },
+      variables: { haveSlotFrom, haveSlotTo, pageIndex: 0, itemsPerPage },
     }, authHeader);
 
-    if (classesResult.errors?.length) {
-      console.error('[lich-lop-hoc] GraphQL errors:', classesResult.errors);
+    if (firstResult.errors?.length) {
+      console.error('[lich-lop-hoc] GraphQL errors:', firstResult.errors);
       return NextResponse.json({
         success: false,
         slots: [],
         message: 'Lỗi khi lấy dữ liệu từ LMS.'
       });
+    }
+
+    const firstPage = firstResult.data?.classes;
+    const allClasses = Array.isArray(firstPage?.data) ? [...firstPage.data] : [];
+    const total = Number(firstPage?.pagination?.total || allClasses.length);
+    const totalPages = Math.ceil(total / itemsPerPage);
+    const maxPages = 20;
+
+    for (let pageIndex = 1; pageIndex < totalPages && pageIndex < maxPages; pageIndex++) {
+      const pageResult = await callLmsApi<any>({
+        query: GET_ALL_CLASSES_QUERY,
+        variables: { haveSlotFrom, haveSlotTo, pageIndex, itemsPerPage },
+      }, authHeader);
+
+      if (pageResult.errors?.length) {
+        console.error(`[lich-lop-hoc] GraphQL errors on page ${pageIndex}:`, pageResult.errors);
+        return NextResponse.json({
+          success: false,
+          slots: [],
+          message: 'Lỗi khi lấy dữ liệu từ LMS.'
+        });
+      }
+
+      const pageData = pageResult.data?.classes?.data;
+      if (!Array.isArray(pageData) || pageData.length === 0) break;
+      allClasses.push(...pageData);
     }
 
     const mapSlot = (cls: any, slot: any) => ({
@@ -138,7 +173,7 @@ export async function GET(request: NextRequest) {
         studentAttendance: slot.studentAttendance || [],
       });
 
-    const slots = classesResult.data.classes.data
+    const slots = allClasses
       .filter((cls: any) => {
         // Filter chỉ lấy lớp mà user có role LEC
         const hasLecRole = (cls.slots || []).some((slot: any) => {

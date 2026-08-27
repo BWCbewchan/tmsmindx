@@ -362,8 +362,8 @@ export default function AppLayout({
 
       // Super admin bypasses all permission checks
       if (!isSuperAdmin) {
-        // manager và admin luôn được phép vào deal-luong routes
-        const DEAL_LUONG_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong']
+        // manager và admin luôn được phép vào deal-luong routes và portfolio-qc routes
+        const PORTFOLIO_QC_ROUTES = ['/admin/portfolio-qc', '/admin/deal-luong', '/admin/tao-deal-luong']
         const hasManagementRole =
           ['manager', 'admin', 'super_admin'].includes(user.role) ||
           roleCodes.some((code) => ['LEADER', 'TE', 'TC', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(code))
@@ -372,8 +372,8 @@ export default function AppLayout({
         const hasAnyK12LeaderAccess = permissions.some((p) => p === '/admin/quy-trinh-quy-dinh-leader' || p.startsWith('/admin/quy-trinh-quy-dinh-leader/'))
 
         const extraRoutes: string[] = []
-        if (['manager', 'admin'].includes(user.role)) {
-          extraRoutes.push(...DEAL_LUONG_ROUTES)
+        if (['manager', 'admin'].includes(user.role) || hasManagementRole) {
+          extraRoutes.push(...PORTFOLIO_QC_ROUTES)
         }
         if (hasAnyK12Access || hasManagementRole) {
           extraRoutes.push('/admin/page2', '/admin/page2/manage')

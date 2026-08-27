@@ -102,6 +102,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (userResult.rows.length === 0) {
+      console.warn(`⚠️ [APP-AUTH LOGIN] Không tìm thấy tài khoản app_users với email/username: "${normalizedInput}" -> Chuyển sang fallback Firebase`);
       // Not a final failed login yet: the UI can still fall back to Firebase auth.
       return NextResponse.json({ appUser: false });
     }
@@ -110,15 +111,18 @@ export async function POST(request: NextRequest) {
 
     const authType = String(user.auth_type ?? '').trim().toLowerCase();
     if (authType === 'firebase' || !user.password_hash) {
+      console.warn(`⚠️ [APP-AUTH LOGIN] Tài khoản "${normalizedInput}" dùng auth_type='${user.auth_type}' hoặc chưa thiết lập password_hash -> Chuyển sang fallback Firebase`);
       return NextResponse.json({ appUser: false });
     }
 
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     if (!isValidPassword) {
+      console.error(`❌ [APP-AUTH LOGIN FAILED] Mật khẩu không chính xác cho tài khoản: "${normalizedInput}" (IP: ${ip})`);
       // Ghi log thất bại + kiểm tra brute force
       logLoginFailed({ email: normalizedInput, ip, userAgent, reason: 'wrong_password' });
       const threat = await checkAndRecordThreat(ip, 'LOGIN_FAIL');
       if (threat.blocked) {
+        console.error(`❌ [APP-AUTH LOGIN FAILED] IP ${ip} bị khóa 30 phút do thử quá nhiều lần.`);
         return NextResponse.json(
           { error: `Quá nhiều lần thử. IP bị block 30 phút.` },
           { status: 429 },

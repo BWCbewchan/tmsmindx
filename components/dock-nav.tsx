@@ -581,6 +581,7 @@ export function DockNav() {
       id: 'giaovien', label: 'Giáo viên', icon: Users,
       submenu: [
         { href: '/admin/page1', label: 'Hồ sơ Giáo viên' },
+        { href: '/admin/quan-ly-qc', label: 'Quản Lý Kiểm Tra Chất Lượng' },
         { href: '/admin/page4/quan-ly-lich-lam-viec', label: 'Quản lý lịch làm việc' },
         { href: '/admin/page4/lich-danh-gia', label: 'Lịch sự kiện' },
         { href: '/admin/xin-nghi-mot-buoi', label: 'Tiếp nhận xin nghỉ 1 buổi' },
@@ -647,6 +648,7 @@ export function DockNav() {
       id: 'giaovien', label: 'Giáo viên', icon: Users,
       submenu: [
         { href: '/admin/page1', label: 'Hồ sơ Giáo viên' },
+        { href: '/admin/quan-ly-qc', label: 'Quản lý QC' },
         { href: '/admin/page4/quan-ly-lich-lam-viec', label: 'Lịch làm việc' },
         { href: '/admin/xin-nghi-mot-buoi', label: 'Tiếp nhận xin nghỉ' },
         { href: '/admin/deal-luong?type=salary_deal', label: 'Thỏa thuận lương' },
@@ -689,6 +691,7 @@ export function DockNav() {
   const mobileExtraAdminItems: SubItem[] = [
     { href: '/admin/truyenthong', label: 'Quản lý Truyền thông' },
     // Giáo viên extra
+    { href: '/admin/quan-ly-qc', label: 'Quản Lý Kiểm Tra Chất Lượng' },
     { href: '/admin/page4/lich-danh-gia', label: 'Lịch sự kiện' },
     { href: '/admin/deal-luong?type=salary_reduction', label: 'Hạ lương' },
     { href: '/admin/deal-luong?type=bonus', label: 'Nâng lương' },

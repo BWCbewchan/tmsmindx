@@ -12,6 +12,7 @@ import {
   BookOpen,
   CalendarDays,
   ChevronDown,
+  ClipboardCheck,
   DollarSign,
   FileText,
   GraduationCap,
@@ -266,6 +267,12 @@ export function Sidebar() {
       submenu: [
         { href: '/admin/page1', label: 'Hồ sơ Giáo viên' },
         {
+          href: '/admin/quan-ly-qc',
+          label: 'Quản Lý Kiểm Tra Chất Lượng',
+          icon: ClipboardCheck,
+        },
+        { href: '/admin/check-cong', label: 'Kiểm tra công' },
+        {
           href: '/admin/page4/quan-ly-lich-lam-viec',
           label: 'Quản lý lịch làm việc',
         },
@@ -310,6 +317,7 @@ export function Sidebar() {
           submenu: [
             { href: '/admin/page5', label: 'Thư viện video nâng cao' },
             { href: '/admin/assignments', label: 'Thư viện đề nâng cao' },
+            { href: '/admin/xu-ly-tinh-huong', label: 'Bộ tham khảo xử lý tình huống', rawLabel: 'Bộ tham khảo xử lý tình huống' },
             { href: '/admin/training-dashboard', label: 'Thống kê' },
           ],
         },
@@ -355,6 +363,11 @@ export function Sidebar() {
           ],
         },
       ],
+    },
+    {
+      href: '/admin/portfolio-qc',
+      label: 'Kiểm Soát Portfolio (QC)',
+      icon: Sparkles,
     },
     {
       label: 'Cấu Hình Hệ Thống',
@@ -444,6 +457,7 @@ export function Sidebar() {
               },
             ]
           : []),
+        { href: '/user/xu-ly-tinh-huong', label: 'Bộ tham khảo xử lý tình huống', rawLabel: 'Bộ tham khảo xử lý tình huống' },
         {
           label: 'Giáo trình',
           submenu: [
@@ -684,7 +698,7 @@ export function Sidebar() {
           >
             <Menu className="h-4 w-4 transition-transform group-hover:rotate-180 duration-300" />
           </button>
-          
+
           <button
             type="button"
             onClick={() => setIsSearchOpen(true)}
@@ -933,7 +947,7 @@ export function Sidebar() {
                                           )}
                                         >
                                           <span>
-                                            {toTitleCase(nestedItem.label)}
+                                            {nestedItem.rawLabel ?? toTitleCase(nestedItem.label)}
                                           </span>
                                         </Link>
                                       )
@@ -960,7 +974,7 @@ export function Sidebar() {
                                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 hover:border-l-3 hover:border-gray-300',
                                 )}
                               >
-                                <span>{toTitleCase(subItem.label)}</span>
+                                <span>{subItem.rawLabel ?? toTitleCase(subItem.label)}</span>
                               </Link>
                             )
                           })}

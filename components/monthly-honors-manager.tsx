@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Trophy, Upload, X, CheckCircle, AlertCircle, Trash2, Eye, Star, Crown, Medal, Download, RefreshCw, Plus } from 'lucide-react'
+import { Trophy, Upload, X, CheckCircle, AlertCircle, Trash2, Eye, Star, Crown, Medal, Download, RefreshCw, Plus, Crop, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import useSWR, { useSWRConfig } from 'swr'
 import { cn } from '@/lib/utils'
+import { normalizeStorageUrl } from '@/lib/storage-url'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,12 +35,372 @@ interface VinhDanhData {
 
 const fetcher = (url: string) => fetch(url, { cache: 'no-store' }).then(r => r.json())
 const HONORS_SCORE_LABEL = 'CR45'
+const AVATAR_CROP_OUTPUT_SIZE = 720
+const AVATAR_CROP_FILE_TYPE = 'image/jpeg'
+const AVATAR_CROP_FILE_QUALITY = 0.92
+const AVATAR_CROP_MIN_ZOOM = 1
+const AVATAR_CROP_MAX_ZOOM = 3
+
+type AvatarCropDraft = {
+  src: string
+  fileName: string
+  title: string
+}
 
 function initials(name: string) {
   const p = name.trim().split(/\s+/)
   return p.length === 1
     ? p[0].slice(0, 2).toUpperCase()
     : (p[p.length - 2][0] + p[p.length - 1][0]).toUpperCase()
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const result = event.target?.result
+      if (typeof result === 'string') resolve(result)
+      else reject(new Error('Không thể đọc ảnh'))
+    }
+    reader.onerror = () => reject(new Error('Không thể đọc ảnh'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const result = event.target?.result
+      if (typeof result === 'string') resolve(result)
+      else reject(new Error('Không thể tạo preview ảnh'))
+    }
+    reader.onerror = () => reject(new Error('Không thể tạo preview ảnh'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+function makeCroppedAvatarFileName(fileName: string) {
+  const base = fileName
+    .replace(/\.[^.]+$/, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+  return `${base || 'honors-avatar'}-cropped.jpg`
+}
+
+function AvatarCropDialog({
+  src,
+  fileName,
+  title,
+  onCancel,
+  onSave,
+}: AvatarCropDraft & {
+  onCancel: () => void
+  onSave: (file: File, previewUrl: string) => void
+}) {
+  const cropBoxRef = useRef<HTMLDivElement>(null)
+  const imageRef = useRef<HTMLImageElement>(null)
+  const [cropSize, setCropSize] = useState(0)
+  const [imageNatural, setImageNatural] = useState({ w: 0, h: 0 })
+  const [zoom, setZoom] = useState(1)
+  const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const [isSaving, setIsSaving] = useState(false)
+  const dragRef = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    startOffset: { x: number; y: number }
+  } | null>(null)
+
+  const normalizedSrc = normalizeStorageUrl(src)
+  const hasImage = cropSize > 0 && imageNatural.w > 0 && imageNatural.h > 0
+  const baseScale = hasImage ? Math.max(cropSize / imageNatural.w, cropSize / imageNatural.h) : 1
+  const effectiveScale = baseScale * zoom
+  const displayedImage = {
+    w: imageNatural.w * effectiveScale,
+    h: imageNatural.h * effectiveScale,
+  }
+
+  const clampOffset = useCallback((nextOffset: { x: number; y: number }, nextZoom = zoom) => {
+    if (!cropSize || !imageNatural.w || !imageNatural.h) return { x: 0, y: 0 }
+
+    const nextScale = Math.max(cropSize / imageNatural.w, cropSize / imageNatural.h) * nextZoom
+    const nextDisplayedW = imageNatural.w * nextScale
+    const nextDisplayedH = imageNatural.h * nextScale
+    const maxX = Math.max(0, (nextDisplayedW - cropSize) / 2)
+    const maxY = Math.max(0, (nextDisplayedH - cropSize) / 2)
+
+    return {
+      x: clampNumber(nextOffset.x, -maxX, maxX),
+      y: clampNumber(nextOffset.y, -maxY, maxY),
+    }
+  }, [cropSize, imageNatural, zoom])
+
+  const applyZoom = useCallback((nextZoom: number) => {
+    const safeZoom = clampNumber(nextZoom, AVATAR_CROP_MIN_ZOOM, AVATAR_CROP_MAX_ZOOM)
+    setZoom(safeZoom)
+    setOffset(current => clampOffset(current, safeZoom))
+  }, [clampOffset])
+
+  useEffect(() => {
+    const measure = () => {
+      const el = cropBoxRef.current
+      if (!el) return
+      setCropSize(el.clientWidth)
+    }
+
+    measure()
+    const observer = new ResizeObserver(measure)
+    if (cropBoxRef.current) observer.observe(cropBoxRef.current)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    setZoom(1)
+    setOffset({ x: 0, y: 0 })
+  }, [src])
+
+  useEffect(() => {
+    setOffset(current => clampOffset(current))
+  }, [clampOffset])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel()
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onCancel])
+
+  const resetCrop = useCallback(() => {
+    setZoom(1)
+    setOffset({ x: 0, y: 0 })
+  }, [])
+
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!hasImage) return
+
+    event.preventDefault()
+    cropBoxRef.current?.setPointerCapture(event.pointerId)
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startOffset: offset,
+    }
+  }, [hasImage, offset])
+
+  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+
+    const nextOffset = {
+      x: drag.startOffset.x + event.clientX - drag.startX,
+      y: drag.startOffset.y + event.clientY - drag.startY,
+    }
+    setOffset(clampOffset(nextOffset))
+  }, [clampOffset])
+
+  const handlePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId === event.pointerId) {
+      dragRef.current = null
+    }
+  }, [])
+
+  const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    applyZoom(zoom + (event.deltaY > 0 ? -0.08 : 0.08))
+  }, [applyZoom, zoom])
+
+  const handleSaveCrop = useCallback(async () => {
+    const image = imageRef.current
+    if (!image || !cropSize || !imageNatural.w || !imageNatural.h) return
+
+    setIsSaving(true)
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = AVATAR_CROP_OUTPUT_SIZE
+      canvas.height = AVATAR_CROP_OUTPUT_SIZE
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Không thể tạo canvas crop')
+
+      const imageLeft = cropSize / 2 + offset.x - displayedImage.w / 2
+      const imageTop = cropSize / 2 + offset.y - displayedImage.h / 2
+      const sourceX = clampNumber(-imageLeft / effectiveScale, 0, imageNatural.w)
+      const sourceY = clampNumber(-imageTop / effectiveScale, 0, imageNatural.h)
+      const sourceSize = Math.min(cropSize / effectiveScale, imageNatural.w - sourceX, imageNatural.h - sourceY)
+
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, AVATAR_CROP_OUTPUT_SIZE, AVATAR_CROP_OUTPUT_SIZE)
+      ctx.imageSmoothingEnabled = true
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(
+        image,
+        sourceX,
+        sourceY,
+        sourceSize,
+        sourceSize,
+        0,
+        0,
+        AVATAR_CROP_OUTPUT_SIZE,
+        AVATAR_CROP_OUTPUT_SIZE,
+      )
+
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, AVATAR_CROP_FILE_TYPE, AVATAR_CROP_FILE_QUALITY)
+      })
+      if (!blob) throw new Error('Không thể xuất ảnh đã crop')
+
+      const previewUrl = await blobToDataUrl(blob)
+      const croppedFile = new File([blob], makeCroppedAvatarFileName(fileName), {
+        type: AVATAR_CROP_FILE_TYPE,
+        lastModified: Date.now(),
+      })
+
+      onSave(croppedFile, previewUrl)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Không thể crop ảnh này. Hãy thử chọn lại ảnh gốc.')
+    } finally {
+      setIsSaving(false)
+    }
+  }, [cropSize, displayedImage, effectiveScale, fileName, imageNatural, offset, onSave])
+
+  return (
+    <div
+      className="fixed inset-0 z-modal-raised-custom flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      onClick={(event) => {
+        event.stopPropagation()
+        if (event.target === event.currentTarget) onCancel()
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="honors-avatar-crop-title"
+        className="w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl"
+        onClick={event => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
+              <Crop className="h-4 w-4" />
+            </div>
+            <h3 id="honors-avatar-crop-title" className="text-sm font-black text-gray-900">{title}</h3>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100"
+            aria-label="Đóng crop avatar"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="grid gap-5 p-5 md:grid-cols-[minmax(0,1fr)_190px]">
+          <div
+            ref={cropBoxRef}
+            className="relative mx-auto aspect-square w-full max-w-[440px] touch-none overflow-hidden rounded-2xl bg-gray-950 select-none shadow-inner"
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onWheel={handleWheel}
+          >
+            <img
+              ref={imageRef}
+              src={normalizedSrc}
+              alt=""
+              draggable={false}
+              onLoad={(event) => {
+                const image = event.currentTarget
+                setImageNatural({ w: image.naturalWidth, h: image.naturalHeight })
+              }}
+              className="absolute max-w-none select-none"
+              style={{
+                left: cropSize / 2 + offset.x,
+                top: cropSize / 2 + offset.y,
+                width: displayedImage.w || '100%',
+                height: displayedImage.h || '100%',
+                transform: 'translate(-50%, -50%)',
+                cursor: hasImage ? 'grab' : 'default',
+              }}
+            />
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{
+                background: 'radial-gradient(circle at center, transparent 0 49%, rgba(0,0,0,0.54) 49.5% 100%)',
+              }}
+            />
+            <div className="pointer-events-none absolute inset-[8%] rounded-full border-2 border-white/90 shadow-[0_0_0_1px_rgba(0,0,0,0.22),0_0_36px_rgba(255,255,255,0.18)]" />
+            <div className="pointer-events-none absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-white/18" />
+            <div className="pointer-events-none absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-white/18" />
+          </div>
+
+          <div className="flex min-w-0 flex-col justify-between gap-4">
+            <div className="space-y-4">
+              <div>
+                <p className="mb-2 text-xs font-black uppercase tracking-wide text-gray-500">Preview</p>
+                <div className="mx-auto flex h-32 w-32 items-center justify-center overflow-hidden rounded-full bg-gray-100 ring-4 ring-amber-100">
+                  <div className="relative h-full w-full overflow-hidden">
+                    <img
+                      src={normalizedSrc}
+                      alt=""
+                      draggable={false}
+                      className="absolute max-w-none select-none"
+                      style={{
+                        left: 64 + (offset.x / Math.max(cropSize, 1)) * 128,
+                        top: 64 + (offset.y / Math.max(cropSize, 1)) * 128,
+                        width: cropSize ? displayedImage.w * 128 / cropSize : '100%',
+                        height: cropSize ? displayedImage.h * 128 / cropSize : '100%',
+                        transform: 'translate(-50%, -50%)',
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <label className="block">
+                <span className="mb-2 block text-xs font-black uppercase tracking-wide text-gray-500">Zoom</span>
+                <input
+                  type="range"
+                  min={AVATAR_CROP_MIN_ZOOM}
+                  max={AVATAR_CROP_MAX_ZOOM}
+                  step="0.01"
+                  value={zoom}
+                  onChange={event => applyZoom(Number(event.target.value))}
+                  className="w-full accent-amber-600"
+                  aria-label="Phóng to ảnh avatar"
+                />
+              </label>
+
+              <Button type="button" variant="outline" size="sm" onClick={resetCrop} className="w-full gap-2">
+                <RotateCcw className="h-3.5 w-3.5" />
+                Đặt lại
+              </Button>
+            </div>
+
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={onCancel} className="flex-1">
+                Hủy
+              </Button>
+              <Button type="button" variant="mindx" size="sm" onClick={handleSaveCrop} disabled={!hasImage || isSaving} className="flex-1">
+                {isSaving ? 'Đang crop...' : 'Lưu ảnh'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ─── Honor Card (preview display) ────────────────────────────────────────────
@@ -56,6 +417,8 @@ function HonorCard({
   const [tiLeDraft, setTiLeDraft] = useState(String(record.ti_le))
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
+  const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null)
+  const [avatarCropDraft, setAvatarCropDraft] = useState<AvatarCropDraft | null>(null)
   const [hovered, setHovered] = useState(false)
   const [saving, setSaving] = useState(false)
   const rankConfigs = [
@@ -76,18 +439,48 @@ function HonorCard({
     setTiLeDraft(String(record.ti_le))
     setAvatarFile(null)
     setAvatarPreview(null)
+    setAvatarCropSource(null)
+    setAvatarCropDraft(null)
   }, [record.co_so, record.full_name, record.id, record.ti_le])
 
-  const applyAvatarFile = useCallback((file: File) => {
+  const startAvatarCropFromFile = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) {
       alert('Chỉ hỗ trợ file ảnh')
       return
     }
 
+    try {
+      const sourceUrl = await readFileAsDataUrl(file)
+      setAvatarCropSource(sourceUrl)
+      setAvatarCropDraft({
+        src: sourceUrl,
+        fileName: file.name,
+        title: `Canh avatar cho ${record.full_name}`,
+      })
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Không thể đọc ảnh')
+    }
+  }, [record.full_name])
+
+  const startCurrentAvatarCrop = useCallback(() => {
+    const sourceUrl = avatarCropSource || avatarPreview || record.avatar_url
+    if (!sourceUrl) {
+      avatarInputRef.current?.click()
+      return
+    }
+
+    setAvatarCropSource(sourceUrl)
+    setAvatarCropDraft({
+      src: sourceUrl,
+      fileName: `${record.full_name || 'avatar'}-${record.id}.jpg`,
+      title: `Canh avatar cho ${record.full_name}`,
+    })
+  }, [avatarCropSource, avatarPreview, record.avatar_url, record.full_name, record.id])
+
+  const applyCroppedAvatar = useCallback((file: File, previewUrl: string) => {
     setAvatarFile(file)
-    const reader = new FileReader()
-    reader.onload = (event) => setAvatarPreview(event.target?.result as string)
-    reader.readAsDataURL(file)
+    setAvatarPreview(previewUrl)
+    setAvatarCropDraft(null)
   }, [])
 
   useEffect(() => {
@@ -98,12 +491,12 @@ function HonorCard({
       if (!pastedImage) return
 
       event.preventDefault()
-      applyAvatarFile(pastedImage)
+      void startAvatarCropFromFile(pastedImage)
     }
 
     window.addEventListener('paste', onWindowPaste)
     return () => window.removeEventListener('paste', onWindowPaste)
-  }, [applyAvatarFile, hovered, onSave])
+  }, [hovered, onSave, startAvatarCropFromFile])
 
   const submit = async () => {
     if (!onSave || !isDirty) return
@@ -121,6 +514,7 @@ function HonorCard({
       }, avatarFile)
       setAvatarFile(null)
       setAvatarPreview(null)
+      setAvatarCropSource(null)
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Không thể lưu thông tin vinh danh')
     } finally {
@@ -129,13 +523,14 @@ function HonorCard({
   }
 
   return (
-    <div
-      className={cn(
-        'relative grid grid-cols-[92px_minmax(0,1fr)_auto] items-center gap-4 overflow-hidden rounded-2xl border border-amber-100 bg-white p-4 text-gray-900 shadow-sm transition-transform hover:-translate-y-0.5 hover:shadow-md'
-      )}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
+    <>
+      <div
+        className={cn(
+          'relative grid grid-cols-[92px_minmax(0,1fr)_auto] items-center gap-4 overflow-hidden rounded-2xl border border-amber-100 bg-white p-4 text-gray-900 shadow-sm transition-transform hover:-translate-y-0.5 hover:shadow-md'
+        )}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
       <div className={cn('absolute left-4 top-3 rounded-lg px-2.5 py-1 text-[11px] font-black shadow-sm', cfg.badge)}>
         Top {rank}
       </div>
@@ -155,33 +550,47 @@ function HonorCard({
             </span>
           </div>
         )}
-        {onSave && (
-          <>
-            <button
-              type="button"
-              onClick={() => avatarInputRef.current?.click()}
-              className={cn(
-                'absolute inset-0 flex items-center justify-center bg-black/45 text-white transition-opacity focus:opacity-100',
-                hovered ? 'opacity-100' : 'opacity-0 group-hover/avatar:opacity-100'
+          {onSave && (
+            <>
+              <button
+                type="button"
+                onClick={() => avatarInputRef.current?.click()}
+                className={cn(
+                  'absolute inset-0 z-10 flex items-center justify-center bg-black/45 text-white transition-opacity focus:opacity-100',
+                  hovered ? 'opacity-100' : 'opacity-0 group-hover/avatar:opacity-100'
+                )}
+                title="Đổi và crop avatar"
+                aria-label={`Đổi và crop avatar cho ${record.full_name}`}
+              >
+                <Upload className="w-4 h-4" />
+              </button>
+              {(avatarPreview || record.avatar_url) && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    startCurrentAvatarCrop()
+                  }}
+                  className="absolute bottom-0.5 right-0.5 z-20 flex h-6 w-6 items-center justify-center rounded-full border border-white/80 bg-white text-[#a1001f] shadow-md transition hover:scale-105 hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+                  title="Crop lại avatar"
+                  aria-label={`Crop lại avatar cho ${record.full_name}`}
+                >
+                  <Crop className="h-3.5 w-3.5" />
+                </button>
               )}
-              title="Đổi avatar"
-              aria-label={`Đổi avatar cho ${record.full_name}`}
-            >
-              <Upload className="w-4 h-4" />
-            </button>
-            <input
-              ref={avatarInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const nextFile = e.target.files?.[0]
-                if (nextFile) applyAvatarFile(nextFile)
-                e.currentTarget.value = ''
-              }}
-            />
-          </>
-        )}
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const nextFile = e.target.files?.[0]
+                  if (nextFile) void startAvatarCropFromFile(nextFile)
+                  e.currentTarget.value = ''
+                }}
+              />
+            </>
+          )}
       </div>
 
       <div className="min-w-0 space-y-2 pt-4">
@@ -257,7 +666,16 @@ function HonorCard({
           </Button>
         </div>
       )}
-    </div>
+      </div>
+
+      {avatarCropDraft && (
+        <AvatarCropDialog
+          {...avatarCropDraft}
+          onCancel={() => setAvatarCropDraft(null)}
+          onSave={applyCroppedAvatar}
+        />
+      )}
+    </>
   )
 }
 
@@ -358,6 +776,7 @@ interface ImportResult {
 
 type TopImageBox = 'top1' | 'top2' | 'top3'
 type ImportMode = 'csv' | 'manual'
+type TopImageCropDraft = AvatarCropDraft & { box: TopImageBox }
 
 type ManualHonorRow = {
   full_name: string
@@ -401,6 +820,10 @@ function getClipboardImageFile(items: DataTransferItemList | undefined | null): 
   return null
 }
 
+function getTopImageLabel(box: TopImageBox) {
+  return box === 'top1' ? 'Top 1' : box === 'top2' ? 'Top 2' : 'Top 3'
+}
+
 function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: (month?: string | null) => void }) {
   const [mode, setMode] = useState<ImportMode>('csv')
   const [file, setFile] = useState<File | null>(null)
@@ -424,6 +847,10 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
   const [top1Preview, setTop1Preview] = useState<string | null>(null)
   const [top2Preview, setTop2Preview] = useState<string | null>(null)
   const [top3Preview, setTop3Preview] = useState<string | null>(null)
+  const [top1CropSource, setTop1CropSource] = useState<string | null>(null)
+  const [top2CropSource, setTop2CropSource] = useState<string | null>(null)
+  const [top3CropSource, setTop3CropSource] = useState<string | null>(null)
+  const [imageCropDraft, setImageCropDraft] = useState<TopImageCropDraft | null>(null)
   const top1PasteRef = useRef<HTMLDivElement>(null)
   const top2PasteRef = useRef<HTMLDivElement>(null)
   const top3PasteRef = useRef<HTMLDivElement>(null)
@@ -451,30 +878,81 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
     if (f) handleFile(f)
   }, [handleFile])
 
-  const handleImageSelect = useCallback((
-    file: File,
-    setImage: React.Dispatch<React.SetStateAction<File | null>>,
-    setPreview: React.Dispatch<React.SetStateAction<string | null>>
-  ) => {
+  const setTopImageSource = useCallback((box: TopImageBox, sourceUrl: string) => {
+    if (box === 'top1') setTop1CropSource(sourceUrl)
+    else if (box === 'top2') setTop2CropSource(sourceUrl)
+    else setTop3CropSource(sourceUrl)
+  }, [])
+
+  const applyCroppedImageToBox = useCallback((box: TopImageBox, imageFile: File, previewUrl: string) => {
+    if (box === 'top1') {
+      setTop1Image(imageFile)
+      setTop1Preview(previewUrl)
+    } else if (box === 'top2') {
+      setTop2Image(imageFile)
+      setTop2Preview(previewUrl)
+    } else {
+      setTop3Image(imageFile)
+      setTop3Preview(previewUrl)
+    }
+    setResult(null)
+  }, [])
+
+  const startTopImageCropFromFile = useCallback(async (box: TopImageBox, file: File) => {
     if (!file.type.startsWith('image/')) {
       alert('Chỉ hỗ trợ file ảnh')
       return
     }
-    setImage(file)
-    const reader = new FileReader()
-    reader.onload = (e) => setPreview(e.target?.result as string)
-    reader.readAsDataURL(file)
-  }, [])
+
+    try {
+      const sourceUrl = await readFileAsDataUrl(file)
+      setTopImageSource(box, sourceUrl)
+      setImageCropDraft({
+        box,
+        src: sourceUrl,
+        fileName: file.name,
+        title: `Canh avatar ${getTopImageLabel(box)}`,
+      })
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Không thể đọc ảnh')
+    }
+  }, [setTopImageSource])
 
   const applyImageToBox = useCallback((box: TopImageBox, imageFile: File) => {
-    if (box === 'top1') {
-      handleImageSelect(imageFile, setTop1Image, setTop1Preview)
-    } else if (box === 'top2') {
-      handleImageSelect(imageFile, setTop2Image, setTop2Preview)
-    } else {
-      handleImageSelect(imageFile, setTop3Image, setTop3Preview)
+    void startTopImageCropFromFile(box, imageFile)
+  }, [startTopImageCropFromFile])
+
+  const openImagePicker = useCallback((box: TopImageBox) => {
+    setActiveImageBox(box)
+    document.getElementById(`${box}ImageInput`)?.click()
+  }, [])
+
+  const openCurrentImageCropper = useCallback((box: TopImageBox) => {
+    const sourceUrl = box === 'top1'
+      ? (top1CropSource || top1Preview)
+      : box === 'top2'
+        ? (top2CropSource || top2Preview)
+        : (top3CropSource || top3Preview)
+
+    if (!sourceUrl) {
+      openImagePicker(box)
+      return
     }
-  }, [handleImageSelect])
+
+    setActiveImageBox(box)
+    setImageCropDraft({
+      box,
+      src: sourceUrl,
+      fileName: `${box}-avatar.jpg`,
+      title: `Canh avatar ${getTopImageLabel(box)}`,
+    })
+  }, [openImagePicker, top1CropSource, top1Preview, top2CropSource, top2Preview, top3CropSource, top3Preview])
+
+  const handleCroppedTopImage = useCallback((imageFile: File, previewUrl: string) => {
+    if (!imageCropDraft) return
+    applyCroppedImageToBox(imageCropDraft.box, imageFile, previewUrl)
+    setImageCropDraft(null)
+  }, [applyCroppedImageToBox, imageCropDraft])
 
   const focusImagePasteCatcher = useCallback((box: TopImageBox) => {
     setActiveImageBox(box)
@@ -497,11 +975,6 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
       selection?.removeAllRanges()
       selection?.addRange(range)
     })
-  }, [])
-
-  const openImagePicker = useCallback((box: TopImageBox) => {
-    setActiveImageBox(box)
-    document.getElementById(`${box}ImageInput`)?.click()
   }, [])
 
   const handleImageBoxKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>, box: TopImageBox) => {
@@ -824,7 +1297,7 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
           <div className="bg-gray-50 rounded-xl p-3 space-y-3">
             <div>
               <p className="text-xs font-bold text-gray-700">Ảnh đại diện Top 3 (tùy chọn)</p>
-              <p className="mt-0.5 text-[10px] font-medium text-gray-400">Bấm hoặc rê vào ô Top cần thay ảnh, sau đó dán ảnh từ clipboard.</p>
+              <p className="mt-0.5 text-[10px] font-medium text-gray-400">Ảnh chọn hoặc dán sẽ được canh khung trước khi lưu.</p>
             </div>
             <div className="grid grid-cols-3 gap-3">
               {/* Top 1 */}
@@ -863,7 +1336,18 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
                     className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-0 outline-none caret-transparent"
                   />
                   {top1Preview ? (
-                    <img src={top1Preview} alt="Top 1" className="relative z-10 w-full h-full object-cover pointer-events-none" />
+                    <>
+                      <img src={top1Preview} alt="Top 1" className="relative z-10 w-full h-full object-cover pointer-events-none" />
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openCurrentImageCropper('top1') }}
+                        className="absolute right-2 top-2 z-20 flex h-6 w-6 items-center justify-center rounded-full border border-amber-200 bg-white/95 text-amber-700 shadow-sm transition hover:bg-amber-50"
+                        aria-label="Crop lại ảnh Top 1"
+                        title="Crop lại"
+                      >
+                        <Crop className="h-3.5 w-3.5" />
+                      </button>
+                    </>
                   ) : (
                     <div className="relative z-10 flex flex-col items-center gap-1 pointer-events-none">
                       <Upload className="w-5 h-5 text-gray-300" />
@@ -883,7 +1367,11 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
                   type="file"
                   accept="image/*"
                   className="hidden"
-                  onChange={(e) => e.target.files?.[0] && handleImageSelect(e.target.files[0], setTop1Image, setTop1Preview)}
+                  onChange={(e) => {
+                    const nextFile = e.target.files?.[0]
+                    if (nextFile) void startTopImageCropFromFile('top1', nextFile)
+                    e.currentTarget.value = ''
+                  }}
                 />
               </div>
               {/* Top 2 */}
@@ -922,7 +1410,18 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
                     className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-0 outline-none caret-transparent"
                   />
                   {top2Preview ? (
-                    <img src={top2Preview} alt="Top 2" className="relative z-10 w-full h-full object-cover pointer-events-none" />
+                    <>
+                      <img src={top2Preview} alt="Top 2" className="relative z-10 w-full h-full object-cover pointer-events-none" />
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openCurrentImageCropper('top2') }}
+                        className="absolute right-2 top-2 z-20 flex h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white/95 text-gray-700 shadow-sm transition hover:bg-gray-50"
+                        aria-label="Crop lại ảnh Top 2"
+                        title="Crop lại"
+                      >
+                        <Crop className="h-3.5 w-3.5" />
+                      </button>
+                    </>
                   ) : (
                     <div className="relative z-10 flex flex-col items-center gap-1 pointer-events-none">
                       <Upload className="w-5 h-5 text-gray-300" />
@@ -942,7 +1441,11 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
                   type="file"
                   accept="image/*"
                   className="hidden"
-                  onChange={(e) => e.target.files?.[0] && handleImageSelect(e.target.files[0], setTop2Image, setTop2Preview)}
+                  onChange={(e) => {
+                    const nextFile = e.target.files?.[0]
+                    if (nextFile) void startTopImageCropFromFile('top2', nextFile)
+                    e.currentTarget.value = ''
+                  }}
                 />
               </div>
               {/* Top 3 */}
@@ -981,7 +1484,18 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
                     className="pointer-events-none absolute inset-0 z-0 h-full w-full opacity-0 outline-none caret-transparent"
                   />
                   {top3Preview ? (
-                    <img src={top3Preview} alt="Top 3" className="relative z-10 w-full h-full object-cover pointer-events-none" />
+                    <>
+                      <img src={top3Preview} alt="Top 3" className="relative z-10 w-full h-full object-cover pointer-events-none" />
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openCurrentImageCropper('top3') }}
+                        className="absolute right-2 top-2 z-20 flex h-6 w-6 items-center justify-center rounded-full border border-orange-200 bg-white/95 text-orange-700 shadow-sm transition hover:bg-orange-50"
+                        aria-label="Crop lại ảnh Top 3"
+                        title="Crop lại"
+                      >
+                        <Crop className="h-3.5 w-3.5" />
+                      </button>
+                    </>
                   ) : (
                     <div className="relative z-10 flex flex-col items-center gap-1 pointer-events-none">
                       <Upload className="w-5 h-5 text-gray-300" />
@@ -1001,7 +1515,11 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
                   type="file"
                   accept="image/*"
                   className="hidden"
-                  onChange={(e) => e.target.files?.[0] && handleImageSelect(e.target.files[0], setTop3Image, setTop3Preview)}
+                  onChange={(e) => {
+                    const nextFile = e.target.files?.[0]
+                    if (nextFile) void startTopImageCropFromFile('top3', nextFile)
+                    e.currentTarget.value = ''
+                  }}
                 />
               </div>
             </div>
@@ -1067,6 +1585,13 @@ function ImportDialog({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
           </Button>
         </div>
       </div>
+      {imageCropDraft && (
+        <AvatarCropDialog
+          {...imageCropDraft}
+          onCancel={() => setImageCropDraft(null)}
+          onSave={handleCroppedTopImage}
+        />
+      )}
     </div>
   )
 }

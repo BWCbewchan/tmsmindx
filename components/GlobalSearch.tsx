@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, X, Home, Bell, Megaphone, GraduationCap, FileText, BookOpen, CalendarDays, BarChart3, Users, Settings, DollarSign, Mail, Video } from 'lucide-react'
+import { Search, X, Home, Bell, Megaphone, GraduationCap, FileText, BookOpen, CalendarDays, BarChart3, Users, Settings, DollarSign, Mail, Video, ClipboardCheck } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { checkHrefPermission } from '@/lib/menu-permissions'
 import { cn } from '@/lib/utils'
@@ -41,6 +41,7 @@ const adminSearchItems: SearchItem[] = [
   { label: 'Đào tạo đầu vào - Quản lý video đào tạo', href: '/admin/hr-onboarding/videos', icon: Video, group: 'Đào tạo đầu vào', keywords: ['video onboarding', 'video dau vao'] },
   { label: 'Đào tạo đầu vào - Thư viện bài kiểm tra', href: '/admin/hr-candidates/input-training-tests', icon: GraduationCap, group: 'Đào tạo đầu vào', keywords: ['quiz dau vao', 'bai kiem tra dau vao'] },
   { label: 'Hồ sơ Giáo viên', href: '/admin/page1', icon: Users, group: 'Giáo viên & Vận hành' },
+  { label: 'Quản Lý Kiểm Tra Chất Lượng', href: '/admin/quan-ly-qc', icon: ClipboardCheck, group: 'Giáo viên & Vận hành', keywords: ['qc', 'quality check', 'kiem tra chat luong', 'phieu qc'] },
   { label: 'Quản lý lịch làm việc', href: '/admin/page4/quan-ly-lich-lam-viec', icon: CalendarDays, group: 'Giáo viên & Vận hành' },
   { label: 'Lịch sự kiện', href: '/admin/page4/lich-danh-gia', icon: CalendarDays, group: 'Giáo viên & Vận hành' },
   { label: 'Tiếp nhận xin nghỉ 1 buổi', href: '/admin/xin-nghi-mot-buoi', icon: Users, group: 'Giáo viên & Vận hành' },
