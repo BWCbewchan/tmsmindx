@@ -489,6 +489,29 @@ const COURSE_CODE_CHECKPOINT_SESSIONS: Record<string, [number, number]> = {
   ROB4I: [5, 9],
 };
 
+const TOTAL_CHECKPOINT_SCORE_LABELS = [
+  'Total checkpoint score',
+  'Tổng điểm Checkpoint',
+  'Tổng điểm checkpoint',
+  'Điểm tổng Checkpoint',
+  'Điểm tổng checkpoint',
+];
+
+const THEORY_SCORE_LABELS = [
+  'Điểm lý thuyết',
+  'Điểm lí thuyết',
+  'Điểm trắc nghiệm',
+  'Checkpoint score',
+  'Điểm bài kiểm tra',
+  'Điểm kiểm tra',
+  'Theory score',
+];
+
+const PRACTICE_SCORE_LABELS = [
+  'Điểm thực hành',
+  'Practice score',
+];
+
 function courseText(cls: LmsPortfolioClass) {
   return [cls.course?.courseLine?.name, cls.course?.shortName, cls.course?.name, cls.name]
     .map(cleanText)
@@ -509,7 +532,8 @@ function courseCategory(cls: LmsPortfolioClass): CourseCategory {
 
 function courseCode(cls: LmsPortfolioClass) {
   const raw = courseText(cls).toUpperCase();
-  return Object.keys(COURSE_CODE_CHECKPOINT_SESSIONS).find((code) => raw.includes(code)) || '';
+  const normalized = raw.replace(/[^A-Z0-9]/g, '');
+  return Object.keys(COURSE_CODE_CHECKPOINT_SESSIONS).find((code) => raw.includes(code) || normalized.includes(code)) || '';
 }
 
 function finalSessionNumber(cls: LmsPortfolioClass) {
@@ -520,14 +544,14 @@ function finalSessionNumber(cls: LmsPortfolioClass) {
 }
 
 function preferredCheckpointSessions(cls: LmsPortfolioClass): [number, number] {
+  const code = courseCode(cls);
+  if (code && COURSE_CODE_CHECKPOINT_SESSIONS[code]) return COURSE_CODE_CHECKPOINT_SESSIONS[code];
+
   const configured = (cls.courseProcess?.checkpointSessions || [])
     .map((checkpoint) => Number(checkpoint.session || 0))
     .filter((session) => session > 0)
     .slice(0, 2);
   if (configured.length >= 2) return [configured[0], configured[1]];
-
-  const code = courseCode(cls);
-  if (code && COURSE_CODE_CHECKPOINT_SESSIONS[code]) return COURSE_CODE_CHECKPOINT_SESSIONS[code];
 
   return courseCategory(cls) === 'Robotics' ? [4, 8] : [5, 9];
 }
@@ -837,13 +861,26 @@ function scoreComponentsFromAttendance(
     const value = scoreValue(area.grade);
     const typeKey = normalizeKey(area.type || meta?.type);
 
-    if (key.includes('checkpoint') || key.includes('diem cp') || typeKey.includes('checkpoint')) {
+    if (
+      key.includes('total checkpoint score') ||
+      key.includes('tong diem checkpoint') ||
+      key.includes('diem tong checkpoint')
+    ) {
       components.directCheckpoint = value;
     } else if (key.includes('diem demo') || key.includes('demo score') || typeKey.includes('demo')) {
       components.directDemo = value;
     } else if (key.includes('san pham') || key.includes('spck') || key.includes('du an cuoi khoa') || key.includes('final project') || key.includes('capstone')) {
       components.product = value;
-    } else if (key.includes('ly thuyet') || key.includes('li thuyet') || key.includes('trac nghiem') || key.includes('bai kiem tra') || key.includes('diem kiem tra') || key.includes('theory')) {
+    } else if (
+      key.includes('ly thuyet') ||
+      key.includes('li thuyet') ||
+      key.includes('trac nghiem') ||
+      key.includes('bai kiem tra') ||
+      key.includes('diem kiem tra') ||
+      key.includes('theory') ||
+      key === 'checkpoint score' ||
+      key === 'diem checkpoint'
+    ) {
       components.theory = value;
     } else if (key.includes('thuc hanh') || key.includes('practice')) {
       components.practice = value;
@@ -867,14 +904,114 @@ function scoreComponentsFromAttendance(
       area.content,
     ]),
   ].map(stripCommentHtml).filter(Boolean).join(' ');
-  components.directCheckpoint ??= parseScoreByLabels(text, ['Điểm Checkpoint', 'Checkpoint', 'Điểm CP']);
+  components.directCheckpoint ??= parseScoreByLabels(text, TOTAL_CHECKPOINT_SCORE_LABELS);
   components.directDemo ??= parseScoreByLabels(text, ['Điểm Demo', 'Demo Score', 'Demo']);
   components.product ??= parseScoreByLabels(text, ['Điểm sản phẩm cuối khóa', 'Điểm sản phẩm cuối khoá', 'Điểm sản phẩm', 'SPCK']);
-  components.theory ??= parseScoreByLabels(text, ['Điểm lý thuyết', 'Lý thuyết', 'Trắc nghiệm']);
-  components.practice ??= parseScoreByLabels(text, ['Điểm thực hành', 'Thực hành']);
+  components.theory ??= parseScoreByLabels(text, THEORY_SCORE_LABELS);
+  components.practice ??= parseScoreByLabels(text, PRACTICE_SCORE_LABELS);
   components.ability ??= mean(abilityScores) ?? parseScoreByLabels(text, ['Điểm năng lực', 'Năng lực']);
 
   return components;
+}
+
+function hasCheckpointScore(components: ScoreComponents) {
+  return (
+    components.directCheckpoint !== null ||
+    computeCheckpointScore(components.theory, components.practice, components.ability) !== null
+  );
+}
+
+function hasDemoScore(components: ScoreComponents) {
+  return (
+    components.directDemo !== null ||
+    computeDemoScore(components.product, components.ability) !== null
+  );
+}
+
+function pickScoredAttendance(
+  attendances: Array<LmsStudentAttendance & { slotIndex: number; slotId?: string }>,
+  areaMap: Map<string, CommentAreaMeta>,
+  preferredSession: number,
+  kind: 'checkpoint' | 'demo',
+  excludedSessions: number[] = [],
+) {
+  const excluded = new Set(excludedSessions);
+  const scoreCheck = kind === 'checkpoint' ? hasCheckpointScore : hasDemoScore;
+  const preferred = attendances.find((attendance) => attendance.slotIndex === preferredSession && !excluded.has(attendance.slotIndex));
+  const preferredComponents = scoreComponentsFromAttendance(preferred, areaMap);
+  if (preferred && scoreCheck(preferredComponents)) {
+    return { components: preferredComponents, session: preferred.slotIndex };
+  }
+
+  for (const attendance of attendances) {
+    if (excluded.has(attendance.slotIndex)) continue;
+    const components = scoreComponentsFromAttendance(attendance, areaMap);
+    if (scoreCheck(components)) return { components, session: attendance.slotIndex };
+  }
+
+  return { components: preferredComponents, session: preferred?.slotIndex ?? preferredSession };
+}
+
+function finalAttendanceForStudent(cls: LmsPortfolioClass, studentId: string, studentName?: string) {
+  const finalSession = finalSessionNumber(cls);
+  const attendances = attendanceForStudent(cls, studentId, studentName);
+  return (
+    attendances.find((attendance) => attendance.slotIndex === finalSession) ||
+    attendances.slice().reverse().find((attendance) => cleanText(attendance.comment) || (attendance.commentByAreas || []).some((area) => cleanText(area.content)))
+  );
+}
+
+function positiveFinalComment(attendance?: LmsStudentAttendance) {
+  if (!attendance) return '';
+  const rawText = [
+    attendance.comment,
+    ...(attendance.commentByAreas || []).map((area) => area.content),
+  ].map(stripCommentHtml).filter(Boolean).join(' ');
+  const withoutScores = rawText
+    .replace(/điểm\s+(demo|năng lực|checkpoint|sản phẩm|lý thuyết|lí thuyết|thực hành)[^.!?]{0,80}/gi, ' ')
+    .replace(/\b(cp1|cp2|tbck|spck|demo)\b[^.!?]{0,60}/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const sentences = withoutScores
+    .split(/(?<=[.!?])\s+|(?:\s+-\s+)/)
+    .map((sentence) => sentence.trim().replace(/^[:;,\-\s]+/, ''))
+    .filter((sentence) => sentence.length >= 24 && sentence.length <= 190);
+  const negative = /(chưa|không|cần|nhắc|khó|thiếu|yếu|chậm|quên|mất nhiều|hạn chế|ngại|lỗi)/i;
+  const positive = /(tốt|hoàn thành|chủ động|biết|hiểu|nắm|sáng tạo|tích cực|cải thiện|áp dụng|tự tin|khá|ổn|theo kịp|phản xạ nhanh)/i;
+  const selected = sentences
+    .filter((sentence) => positive.test(sentence) && !negative.test(sentence))
+    .slice(0, 2);
+  return selected.join(' ');
+}
+
+function scoreSummaryForClass(cls: LmsPortfolioClass, studentId: string, studentName?: string) {
+  const areaMap = buildCommentAreaMetaMap(cls);
+  const attendances = attendanceForStudent(cls, studentId, studentName);
+  const [cp1Session, cp2Session] = preferredCheckpointSessions(cls);
+  const demoSession = finalSessionNumber(cls);
+  const cp1Pick = pickScoredAttendance(attendances, areaMap, cp1Session, 'checkpoint');
+  const cp2Pick = pickScoredAttendance(attendances, areaMap, cp2Session, 'checkpoint', [cp1Pick.session]);
+  const demoPick = pickScoredAttendance(attendances, areaMap, demoSession, 'demo');
+  const cp1Components = cp1Pick.components;
+  const cp2Components = cp2Pick.components;
+  const demoComponents = demoPick.components;
+  const cp1Score = cp1Components.directCheckpoint ?? computeCheckpointScore(
+    cp1Components.theory,
+    cp1Components.practice,
+    cp1Components.ability,
+  );
+  const cp2Score = cp2Components.directCheckpoint ?? computeCheckpointScore(
+    cp2Components.theory,
+    cp2Components.practice,
+    cp2Components.ability,
+  );
+  const demoScore = demoComponents.directDemo ?? computeDemoScore(
+    demoComponents.product,
+    demoComponents.ability,
+  );
+  const tbckScore = computeTBCK(cp1Score, cp2Score, demoScore);
+  const rankData = determineRank(tbckScore, demoScore);
+  return { cp1Score, cp2Score, demoScore, tbckScore, ...rankData };
 }
 
 function upsertCustomSection(
@@ -936,38 +1073,7 @@ function buildScoresFromClasses(
   ];
 
   for (const cls of academicClasses) {
-    const areaMap = buildCommentAreaMetaMap(cls);
-    const attendances = attendanceForStudent(cls, studentId, studentName);
-    const [cp1Session, cp2Session] = preferredCheckpointSessions(cls);
-    const demoSession = finalSessionNumber(cls);
-    const cp1Components = scoreComponentsFromAttendance(
-      attendances.find((attendance) => attendance.slotIndex === cp1Session),
-      areaMap,
-    );
-    const cp2Components = scoreComponentsFromAttendance(
-      attendances.find((attendance) => attendance.slotIndex === cp2Session),
-      areaMap,
-    );
-    const demoComponents = scoreComponentsFromAttendance(
-      attendances.find((attendance) => attendance.slotIndex === demoSession),
-      areaMap,
-    );
-    const cp1Score = cp1Components.directCheckpoint ?? computeCheckpointScore(
-      cp1Components.theory,
-      cp1Components.practice,
-      cp1Components.ability,
-    );
-    const cp2Score = cp2Components.directCheckpoint ?? computeCheckpointScore(
-      cp2Components.theory,
-      cp2Components.practice,
-      cp2Components.ability,
-    );
-    const demoScore = demoComponents.directDemo ?? computeDemoScore(
-      demoComponents.product,
-      demoComponents.ability,
-    );
-    const tbckScore = computeTBCK(cp1Score, cp2Score, demoScore);
-    const rankData = determineRank(tbckScore, demoScore);
+    const { cp1Score, cp2Score, demoScore, tbckScore, rank, rankLabel } = scoreSummaryForClass(cls, studentId, studentName);
 
     if ([cp1Score, cp2Score, demoScore, tbckScore].some((score) => typeof score === 'number')) {
       const formatScore = (score: number | null) => (typeof score === 'number' ? String(scoreValue(score)) : '');
@@ -978,17 +1084,17 @@ function buildScoresFromClasses(
       customSections = upsertCustomSection(
         customSections,
         'Xếp loại',
-        rankData.rank ? `${rankData.rank} - ${rankData.rankLabel}` : '',
+        rank ? `${rank} - ${rankLabel}` : '',
       );
       academicSummary = {
         checkpoint1Score: cp1Score,
         checkpoint2Score: cp2Score,
         demoScore,
         tbckScore,
-        rank: rankData.rank,
-        rankLabel: rankData.rankLabel,
-        isPassed: rankData.rank ? ['A', 'B', 'C'].includes(rankData.rank) : undefined,
-        needsRetake: rankData.rank === 'D',
+        rank,
+        rankLabel,
+        isPassed: rank ? ['A', 'B', 'C'].includes(rank) : undefined,
+        needsRetake: rank === 'D',
       };
       break;
     }
@@ -1153,31 +1259,13 @@ async function fetchRewardTransactions(studentId: string, authHeader?: string) {
 }
 
 function rewardTransactionDescription(item: RewardTransactionItem) {
-  const additional = item.additionalData;
-  let parsed: Record<string, unknown> | null = null;
-  if (typeof additional === 'string' && additional.trim()) {
-    try {
-      parsed = JSON.parse(additional) as Record<string, unknown>;
-    } catch {
-      return additional;
-    }
-  } else if (additional && typeof additional === 'object') {
-    parsed = additional as Record<string, unknown>;
-  }
+  const parsed = rewardTransactionData(item);
 
   if (parsed) {
     const data = (parsed.data && typeof parsed.data === 'object' ? parsed.data : parsed) as Record<string, unknown>;
     if (item.actionTriggerType === 'OPERATION_RECORD_FINAL_SCORE') {
-      const prizeMap: Record<string, string> = {
-        FIRST_PRIZE: 'giải nhất',
-        SECOND_PRIZE: 'giải nhì',
-        THIRD_PRIZE: 'giải ba',
-        CONSOLATION_PRIZE: 'giải khuyến khích',
-      };
-      const valueCalculation = cleanText(data.valueCalculation);
-      const classData = (data.class && typeof data.class === 'object' ? data.class : {}) as Record<string, unknown>;
-      const className = cleanText(classData.name) || cleanText(data.className);
-      return `Đạt ${prizeMap[valueCalculation] || valueCalculation || 'giải thưởng'} Demo/SPCK${className ? ` lớp ${className}` : ''}`;
+      const prize = rewardTransactionAward(item);
+      if (prize) return `${prize.title}${prize.className ? ` lớp ${prize.className}` : ''}`;
     }
     if (item.actionTriggerType === 'OPERATION_ATTEND') {
       const classData = (data.classData && typeof data.classData === 'object' ? data.classData : {}) as Record<string, unknown>;
@@ -1191,6 +1279,66 @@ function rewardTransactionDescription(item: RewardTransactionItem) {
   if (item.actionTriggerType === 'OPERATION_RECORD_FINAL_SCORE') return 'Đạt giải Demo/SPCK cuối khóa';
   if (item.actionTriggerType === 'OPERATION_ATTEND') return 'Điểm danh lớp học';
   return cleanText(item.reason) || cleanText(item.description) || cleanText(item.actionTriggerType) || 'Giao dịch điểm thưởng';
+}
+
+function rewardTransactionData(item: RewardTransactionItem) {
+  const additional = item.additionalData;
+  let parsed: Record<string, unknown> | null = null;
+  if (typeof additional === 'string' && additional.trim()) {
+    try {
+      parsed = JSON.parse(additional) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  } else if (additional && typeof additional === 'object') {
+    parsed = additional as Record<string, unknown>;
+  }
+
+  return parsed;
+}
+
+function rewardTransactionAward(item: RewardTransactionItem): StudentPortfolioData['achievements'][number] | null {
+  if (item.isDeleted || item.actionTriggerType !== 'OPERATION_RECORD_FINAL_SCORE') return null;
+  const parsed = rewardTransactionData(item);
+  const data = (parsed?.data && typeof parsed.data === 'object' ? parsed.data : parsed || {}) as Record<string, unknown>;
+  const valueCalculation = cleanText(data.valueCalculation || item.reason || item.description).toUpperCase();
+  const prizeMap: Record<string, { title: string; level: 'gold' | 'silver' | 'bronze' | 'merit' }> = {
+    FIRST_PRIZE: { title: 'Đạt giải nhất Demo/SPCK', level: 'gold' },
+    SECOND_PRIZE: { title: 'Đạt giải nhì Demo/SPCK', level: 'silver' },
+    THIRD_PRIZE: { title: 'Đạt giải ba Demo/SPCK', level: 'bronze' },
+    CONSOLATION_PRIZE: { title: 'Đạt giải khuyến khích Demo/SPCK', level: 'merit' },
+  };
+  const directText = normalizeKey(valueCalculation);
+  const fallbackPrize = directText.includes('giai nhat')
+    ? prizeMap.FIRST_PRIZE
+    : directText.includes('giai nhi')
+      ? prizeMap.SECOND_PRIZE
+      : directText.includes('giai ba')
+        ? prizeMap.THIRD_PRIZE
+        : directText.includes('khuyen khich')
+          ? prizeMap.CONSOLATION_PRIZE
+          : null;
+  const prize = prizeMap[valueCalculation] || fallbackPrize;
+  if (!prize) return null;
+  const classData = (data.class && typeof data.class === 'object' ? data.class : {}) as Record<string, unknown>;
+  const className = cleanText(classData.name) || cleanText(data.className);
+  return {
+    title: prize.title,
+    subtitle: className ? `Lớp ${className}` : 'MindX Technology School',
+    date: formatLmsDate(item.createdAt || item.lastModifiedAt),
+    className,
+    level: prize.level,
+  };
+}
+
+function awardMatchesClass(award: StudentPortfolioData['achievements'][number], cls: LmsPortfolioClass) {
+  const className = normalizeKey(award.className || award.subtitle);
+  if (!className) return false;
+  return [
+    cls.name,
+    cls.course?.name,
+    cls.course?.shortName,
+  ].map(normalizeKey).some((value) => value && (value.includes(className) || className.includes(value)));
 }
 
 export async function buildPortfolioDataFromLms(
@@ -1252,6 +1400,9 @@ export async function buildPortfolioDataFromLms(
     fetchRewardPoints(input.studentId, authHeader).catch(() => 0),
     fetchRewardTransactions(input.studentId, authHeader).catch(() => []),
   ]);
+  const rewardAwards = rewardTransactions
+    .map(rewardTransactionAward)
+    .filter((award): award is StudentPortfolioData['achievements'][number] => Boolean(award));
   const studentIds = new Set([input.studentId, lmsStudent?.id, currentStudent?._id].map(cleanText).filter(Boolean));
   const projects = buildProjectsFromWorks(classes, works, studentIds);
 
@@ -1261,6 +1412,9 @@ export async function buildPortfolioDataFromLms(
   );
   const learningJourney = classes.map((cls) => {
     const studentClass = studentInClass(cls, input.studentId, studentName);
+    const classScores = scoreSummaryForClass(cls, input.studentId, studentName);
+    const finalComment = positiveFinalComment(finalAttendanceForStudent(cls, input.studentId, studentName));
+    const classAward = rewardAwards.find((award) => awardMatchesClass(award, cls));
     const completed = normalizeKey(cls.status).includes('complete') ||
       normalizeKey(studentClass?.completionInfo?.status).includes('complete') ||
       (!!cls.endDate && new Date(cls.endDate).getTime() < Date.now());
@@ -1274,6 +1428,10 @@ export async function buildPortfolioDataFromLms(
       description: cleanText(cls.course?.shortName)
         ? `Hoàn thiện các mốc học tập và sản phẩm thực hành trong khóa ${cleanText(cls.course?.shortName)}.`
         : 'Hoàn thiện các mốc học tập và sản phẩm thực hành trong lộ trình MindX.',
+      tbckScore: classScores.tbckScore,
+      finalComment,
+      awardTitle: classAward?.title,
+      awardLevel: classAward?.level,
     };
   });
 
@@ -1314,6 +1472,7 @@ export async function buildPortfolioDataFromLms(
   mark('profile.teacherName', profile.teacherName);
   if (learningJourney.length > 0) syncedFields.push('learningJourney');
   if (projects.length > 0) syncedFields.push('projects');
+  if (rewardAwards.length > 0) syncedFields.push('achievements');
   if (scoreData.dnaScores.length > 0) syncedFields.push('dnaScores');
   if (scoreData.mindsetScores.length > 0) syncedFields.push('mindsetScores');
   if (scoreData.orientationScores.length > 0) syncedFields.push('orientationScores');
@@ -1334,7 +1493,7 @@ export async function buildPortfolioDataFromLms(
     projects,
     technologies: technologyTags,
     gallery: projects.map((project) => project.imageUrl || '').filter(Boolean),
-    achievements: [],
+    achievements: rewardAwards,
     rewards: {
       points: rewardPoints,
       history: rewardTransactions
@@ -1379,6 +1538,15 @@ export function mergePortfolioWithLmsData(
   merged.orientationScores = merged.orientationScores?.length ? merged.orientationScores : lmsData.orientationScores;
   merged.gallery = merged.gallery.length ? merged.gallery : lmsData.gallery;
   merged.technologies = Array.from(new Set([...lmsData.technologies, ...merged.technologies].filter(Boolean)));
+  merged.achievements = [
+    ...merged.achievements,
+    ...lmsData.achievements.filter((award) =>
+      !merged.achievements.some((existing) =>
+        normalizeKey(existing.title) === normalizeKey(award.title) &&
+        normalizeKey(existing.subtitle) === normalizeKey(award.subtitle),
+      ),
+    ),
+  ];
   merged.rewards = {
     points: merged.rewards?.points || lmsData.rewards.points,
     history: merged.rewards?.history?.length ? merged.rewards.history : lmsData.rewards.history,

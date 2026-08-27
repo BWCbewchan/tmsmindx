@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ProjectCardShowcase } from '@/components/student-portfolio/project-card-showcase';
 import { GalleryShowcase } from '@/components/student-portfolio/gallery-showcase';
+import logoTechAi from '@/logo_tech_ai.jpg';
 
 function initials(name: string) {
   return name
@@ -169,6 +170,33 @@ function detectPortfolioTrack(value?: string): PortfolioTrack | null {
   return null;
 }
 
+function sameText(a?: string, b?: string) {
+  const left = normalizeTrack(a).replace(/[^a-z0-9]+/g, ' ').trim();
+  const right = normalizeTrack(b).replace(/[^a-z0-9]+/g, ' ').trim();
+  return Boolean(left && right && (left.includes(right) || right.includes(left)));
+}
+
+function scoreText(value?: number | null) {
+  return typeof value === 'number' ? value.toFixed(1).replace(/\.0$/, '') : '';
+}
+
+function projectAnchorId(index: number) {
+  return `portfolio-project-${index + 1}`;
+}
+
+function awardTone(level?: string) {
+  if (level === 'gold') {
+    return { label: 'Vàng', bg: '#fff7d6', border: '#f2c94c', ink: '#8a5a00', medal: '#f2c94c' };
+  }
+  if (level === 'silver') {
+    return { label: 'Bạc', bg: '#f3f4f6', border: '#c7ced8', ink: '#475569', medal: '#c7ced8' };
+  }
+  if (level === 'bronze') {
+    return { label: 'Đồng', bg: '#fff1e8', border: '#d08b5b', ink: '#8a4b22', medal: '#c67a43' };
+  }
+  return { label: 'Khuyến khích', bg: '#eef7ff', border: '#9cc8ee', ink: '#1d4f7a', medal: '#58a6df' };
+}
+
 function portfolioTrack(data: StudentPortfolioData): PortfolioTrack {
   const currentTrack = detectPortfolioTrack([
     data.profile.className,
@@ -185,10 +213,9 @@ const trackTheme = {
     Icon: Code2,
     verb: 'Build · Test · Ship · 2026',
     promise: 'Từ biến những câu hỏi “nếu như?” thành sản phẩm có thể chơi và trải nghiệm.',
-    hero: 'from-[#2a050b] via-[#820018] to-[#df1f36]',
-    cardShadow: 'shadow-[22px_22px_0_rgba(189,0,38,0.16)]',
-    courseBands: ['from-[#ff7a3d] to-[#ffd36b]', 'from-[#2584ff] to-[#7357ff]', 'from-[#0f8f78] to-[#16d17d]'],
-    surface: 'bg-[#fff7ed]',
+    hero: 'from-[#2a050b] via-[#6f0616] to-[#bd0026]',
+    cardShadow: 'shadow-[22px_22px_0_rgba(34,34,34,0.08)]',
+    surface: 'bg-[#fbfaf7]',
     accent: 'text-[#bd0026]',
     ink: '#bd0026',
   },
@@ -197,10 +224,9 @@ const trackTheme = {
     Icon: Bot,
     verb: 'Sense · Move · Solve · 2026',
     promise: 'Biến ý tưởng chuyển động thành mô hình có thể quan sát, thử nghiệm và cải tiến.',
-    hero: 'from-[#26040a] via-[#820018] to-[#df1f36]',
-    cardShadow: 'shadow-[22px_22px_0_rgba(14,165,233,0.16)]',
-    courseBands: ['from-[#14b8a6] to-[#67e8f9]', 'from-[#f97316] to-[#facc15]', 'from-[#2563eb] to-[#22d3ee]'],
-    surface: 'bg-[#f7fbfc]',
+    hero: 'from-[#1b1d24] via-[#4a1620] to-[#8f1230]',
+    cardShadow: 'shadow-[22px_22px_0_rgba(15,23,42,0.08)]',
+    surface: 'bg-[#fbfdff]',
     accent: 'text-[#bd0026]',
     ink: '#bd0026',
   },
@@ -209,10 +235,9 @@ const trackTheme = {
     Icon: Brush,
     verb: 'Sketch · Color · Show · 2026',
     promise: 'Biến quan sát và cảm xúc thành tác phẩm có cá tính, bố cục và câu chuyện riêng.',
-    hero: 'from-[#2a050b] via-[#820018] to-[#df1f36]',
-    cardShadow: 'shadow-[22px_22px_0_rgba(245,158,11,0.16)]',
-    courseBands: ['from-[#f43f5e] to-[#f59e0b]', 'from-[#8b5cf6] to-[#ec4899]', 'from-[#10b981] to-[#facc15]'],
-    surface: 'bg-[#fff7ed]',
+    hero: 'from-[#2a050b] via-[#6f0616] to-[#bd0026]',
+    cardShadow: 'shadow-[22px_22px_0_rgba(34,34,34,0.08)]',
+    surface: 'bg-[#fbfaf7]',
     accent: 'text-[#bd0026]',
     ink: '#bd0026',
   },
@@ -253,9 +278,9 @@ export default async function PublicPortfolioPage({
   const hasResults = Boolean(academicItems.length > 0);
 
   const hasDna = isPublicMode && Boolean((data.dnaScores && data.dnaScores.length > 0) || (data.mindsetScores && data.mindsetScores.length > 0));
-  const hasAchievements = isPublicMode && Boolean(data.achievements && data.achievements.length > 0);
+  const hasAchievements = Boolean(data.achievements && data.achievements.length > 0);
   const hasGallery = isPublicMode && Boolean(data.gallery && data.gallery.length > 0);
-  const hasRewards = isPublicMode && Boolean((data.rewards && data.rewards.points > 0) || (data.rewards && data.rewards.history && data.rewards.history.length > 0));
+  const hasRewards = isPublicMode && Boolean(data.rewards && data.rewards.points > 0);
   const hasIntroSection = isPublicMode && Boolean(profile.intro || allSkills.length > 0);
   const currentTrackHint = [profile.className, profile.courseLine, profile.courseName].filter(Boolean).join(' ');
   const track = portfolioTrack(data);
@@ -290,16 +315,32 @@ export default async function PublicPortfolioPage({
   const nameTokens = profile.studentName.split(/\s+/).filter(Boolean);
   const heroLastName = nameTokens.length > 1 ? nameTokens.slice(-1).join(' ') : profile.studentName;
   const heroLeadName = nameTokens.length > 1 ? nameTokens.slice(0, -1).join(' ') : '';
+  const projectForJourney = (item: StudentPortfolioData['learningJourney'][number]) =>
+    (data.projects || []).find((project) =>
+      sameText(project.course, item.title) ||
+      sameText(project.course, item.code) ||
+      sameText(project.title, item.title) ||
+      sameText(project.title, item.code),
+    );
+  const visibleSectionKeys = [
+    hasIntroSection ? 'intro' : '',
+    hasJourney ? 'journey' : '',
+    hasProjects ? 'projects' : '',
+    hasDna ? 'dna' : '',
+    hasResults ? 'results' : '',
+    hasGallery ? 'gallery' : '',
+    hasAchievements ? 'awards' : '',
+    hasRewards ? 'rewards' : '',
+  ].filter(Boolean);
+  const sectionNo = (key: string) => String(visibleSectionKeys.indexOf(key) + 1).padStart(2, '0');
 
   return (
     <main className={`scroll-smooth min-h-screen ${theme.surface} text-[#171512] antialiased [background-image:linear-gradient(rgba(23,21,18,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(23,21,18,0.035)_1px,transparent_1px)] [background-size:32px_32px]`}>
       {/* Header Bar */}
-      <header className="sticky top-0 z-50 border-b border-[#ded6c9] bg-[#f7f3ec]/90 backdrop-blur-md transition-all duration-300">
+      <header className="sticky top-0 z-50 border-b border-[#e8e2d8] bg-white/92 backdrop-blur-md transition-all duration-300">
         <nav className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 text-xs font-bold uppercase">
           <div className="flex items-center gap-3">
-            <span className={`text-2xl font-black ${theme.accent}`}>
-              Mind<span className="text-[#171512]">X</span>
-            </span>
+            <img src={logoTechAi.src} alt="MindX Technology School" className="h-11 w-auto object-contain" />
             <span className="h-4 w-px bg-[#d8d0c2]" />
             <span className="font-extrabold text-[#423d37]">Student Portfolio</span>
           </div>
@@ -325,7 +366,7 @@ export default async function PublicPortfolioPage({
       </header>
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden border-b border-[#eadfcd]/70 bg-[linear-gradient(105deg,rgba(255,250,242,0.95)_0%,rgba(255,250,242,0.95)_48%,rgba(255,229,235,0.92)_48%,rgba(255,229,235,0.92)_100%)]">
+      <section className="relative overflow-hidden border-b border-[#e8e2d8]/80 bg-[linear-gradient(105deg,rgba(255,255,255,0.96)_0%,rgba(255,255,255,0.96)_50%,rgba(255,236,241,0.88)_50%,rgba(255,236,241,0.88)_100%)]">
         <div className="mx-auto grid min-h-[650px] max-w-6xl items-center gap-14 px-4 py-14 sm:px-5 sm:py-16 md:grid-cols-[minmax(0,1fr)_430px] lg:grid-cols-[minmax(0,1fr)_460px]">
         <div className="min-w-0">
           <div className="mb-7 inline-flex max-w-full items-center gap-2 rounded-full border border-[#ded6c9] bg-white/75 px-4 py-1.5 text-xs font-black" style={{ color: theme.ink }}>
@@ -417,7 +458,7 @@ export default async function PublicPortfolioPage({
       <section className="bg-[#171512] py-16 text-white">
         <div className="mx-auto grid max-w-6xl gap-8 px-5 md:grid-cols-[240px_1fr]">
           <div>
-            <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>01 · Giới thiệu</p>
+            <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>{sectionNo('intro')} · Giới thiệu</p>
             <h3 className="mt-2 text-2xl font-black leading-snug">Hành trình & Kỹ năng nổi bật.</h3>
           </div>
           <div>
@@ -442,12 +483,12 @@ export default async function PublicPortfolioPage({
       ) : null}
 
       {/* Red Stat Banner */}
-      <section className={`bg-gradient-to-r ${theme.hero} py-10 text-white shadow-lg`}>
-        <div className="mx-auto grid max-w-6xl grid-cols-2 gap-6 px-5 text-center md:grid-cols-4">
+      <section className="border-y border-[#e8e2d8] bg-white py-8 shadow-[0_12px_30px_rgba(23,21,18,0.04)]">
+        <div className="mx-auto grid max-w-6xl grid-cols-2 gap-4 px-5 text-center md:grid-cols-4">
           {bannerStats.map((stat) => (
-            <div key={stat.label} className="border-r border-white/20 last:border-0">
-              <p className="truncate text-4xl font-black">{stat.value}</p>
-              <p className="mt-1.5 text-xs font-bold uppercase text-white/80">{stat.label}</p>
+            <div key={stat.label} className="rounded-2xl border border-[#ece5dc] bg-[#fbfaf7] px-4 py-5">
+              <p className="truncate text-3xl font-black text-[#171512]">{stat.value}</p>
+              <p className="mt-1.5 text-[11px] font-black uppercase text-[#777067]">{stat.label}</p>
             </div>
           ))}
         </div>
@@ -457,52 +498,80 @@ export default async function PublicPortfolioPage({
       {hasJourney ? (
         <section id="journey" className="mx-auto max-w-6xl px-5 py-24 scroll-mt-12">
           <div className="mb-12">
-            <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>02 · Learning Journey</p>
+            <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>{sectionNo('journey')} · Learning Journey</p>
             <h2 className="mt-2 text-4xl sm:text-5xl font-black leading-[1.25] text-[#171512]">Học đến đâu, làm ra đến đó.</h2>
             <p className="mt-3 text-base text-[#55504a]">Mỗi môn học là một cột mốc tích lũy kỹ năng và tạo ra sản phẩm hoàn chỉnh.</p>
           </div>
 
           <div className="space-y-8 border-l-2 border-[#ded6c9] pl-6 md:pl-8">
             {(data.learningJourney || []).map((item: StudentPortfolioData['learningJourney'][number], index: number) => {
-              const band = theme.courseBands[index % theme.courseBands.length];
               const isCompleted = item.status === 'Đã hoàn thành';
+              const journeyProject = projectForJourney(item);
+              const projectIndex = journeyProject ? (data.projects || []).indexOf(journeyProject) : -1;
+              const projectImage = journeyProject?.imageUrls?.[0] || journeyProject?.imageUrl || '';
+              const hasJourneyProjectAsset = Boolean(projectImage);
+              const projectHref = projectIndex >= 0 ? `#${projectAnchorId(projectIndex)}` : '#projects';
+              const tbck = scoreText(item.tbckScore);
+              const award = item.awardTitle ? awardTone(item.awardLevel) : null;
               return (
                 <div key={`${item.title}-${index}`} className="relative grid gap-6 md:grid-cols-[240px_1fr]">
-                  <span className="absolute -left-[31px] top-6 h-5 w-5 rounded-full border-4 border-[#f7f3ec] shadow-sm md:-left-[39px]" style={{ backgroundColor: theme.ink }} />
+                  <span className="absolute -left-[31px] top-6 h-5 w-5 rounded-full border-4 border-white shadow-sm md:-left-[39px]" style={{ backgroundColor: isCompleted ? '#16a34a' : theme.ink }} />
                   <div>
                     <h3 className="text-lg font-black leading-snug text-[#171512]">{item.title}</h3>
                     <p className="mt-1 text-xs font-bold text-[#777067]">{item.period || item.code}</p>
                   </div>
-                  <div className="overflow-hidden rounded-[18px] border border-[#ded6c9] bg-white shadow-[0_14px_35px_rgba(23,21,18,0.08)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_20px_45px_rgba(23,21,18,0.12)]">
-                    <div className={`min-h-20 bg-gradient-to-r ${band} p-5 text-white`}>
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                        <div>
-                          <p className="text-[11px] font-black uppercase text-white/75">MindX Course</p>
-                          <p className="mt-1 text-xl font-black">{item.code || profile.className || 'Course'}</p>
-                        </div>
-                        <span
-                          className={`inline-block shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-black shadow-sm ${
-                            isCompleted
-                              ? 'border-emerald-200 bg-white text-emerald-700'
-                              : 'border-amber-200 bg-white text-amber-700'
-                          }`}
-                        >
-                          {item.status || 'Đang diễn ra'}
+                  <div className="overflow-hidden rounded-[22px] border border-[#e4ded6] bg-white shadow-[0_16px_38px_rgba(23,21,18,0.07)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_22px_48px_rgba(23,21,18,0.1)]">
+                    {journeyProject && hasJourneyProjectAsset ? (
+                      <a href={projectHref} className="group relative block h-40 overflow-hidden bg-[#ece7df]">
+                        {projectImage ? (
+                          <img src={projectImage} alt={journeyProject.title} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]" />
+                        ) : null}
+                        <span className="absolute left-5 top-4 rounded-full bg-white/90 px-3 py-1.5 text-[10px] font-black uppercase text-[#5d554d] shadow-sm">
+                          Minh chứng LMS
                         </span>
+                      </a>
+                    ) : null}
+
+                    <div className="p-6">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-black uppercase tracking-wide text-[#8b8176]">MindX Course</p>
+                          <h3 className="mt-2 break-words text-2xl font-black leading-tight text-[#171512]">{item.title}</h3>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center gap-2">
+                          {tbck ? (
+                            <span className="rounded-full border border-[#e5ded5] bg-[#fbfaf7] px-3.5 py-2 text-xs font-black text-[#171512]">
+                              TBCK {tbck}
+                            </span>
+                          ) : null}
+                          <span className={`rounded-full border px-3.5 py-2 text-xs font-black ${
+                            isCompleted
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                              : 'border-sky-200 bg-sky-50 text-sky-800'
+                          }`}>
+                            {item.status || 'Đang diễn ra'}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                    <div className="grid gap-5 p-6 md:grid-cols-[1fr_auto]">
-                      <p className="max-w-2xl text-sm font-semibold leading-7 text-[#423d37]">
-                        {item.description || 'Hoàn thiện các yêu cầu học thuật và bài tập kiểm tra trong lộ trình môn học.'}
-                      </p>
-                      <div className="flex min-w-[190px] flex-col gap-2 text-xs font-bold text-[#55504a]">
-                        {profile.centreName ? (
-                          <span className="rounded-full border border-[#eadfcd] bg-[#fffaf2] px-3 py-2">Cơ sở: {profile.centreName}</span>
-                        ) : null}
-                        {item.code ? (
-                          <span className="rounded-full border border-[#eadfcd] bg-[#fffaf2] px-3 py-2">Mã khóa: {item.code}</span>
-                        ) : null}
-                      </div>
+
+                      {award ? (
+                        <div className="mt-4 inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs font-black" style={{ backgroundColor: award.bg, borderColor: award.border, color: award.ink }}>
+                          <Award className="h-4 w-4" fill={award.medal} color={award.medal} />
+                          {item.awardTitle}
+                        </div>
+                      ) : null}
+
+                      {item.finalComment ? (
+                        <p className="mt-4 max-w-2xl text-sm font-semibold leading-7 text-[#5a524a] line-clamp-3">
+                          {item.finalComment}
+                        </p>
+                      ) : null}
+
+                      {journeyProject && hasJourneyProjectAsset ? (
+                        <a href={projectHref} className="mt-5 inline-flex items-center gap-2 text-xs font-black uppercase" style={{ color: theme.ink }}>
+                          Xem minh chứng <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -516,18 +585,19 @@ export default async function PublicPortfolioPage({
       {hasProjects ? (
         <section id="projects" className="mx-auto max-w-6xl px-5 py-20 scroll-mt-12">
           <div className="mb-12">
-            <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>03 · Featured Projects</p>
+            <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>{sectionNo('projects')} · Featured Projects</p>
             <h2 className="mt-2 text-4xl font-black leading-[1.08] text-[#171512] sm:text-5xl">Dự án & sản phẩm của học viên.</h2>
             <p className="mt-3 text-base text-[#55504a]">Những sản phẩm nổi bật được hoàn thiện trong quá trình học tập tại MindX.</p>
           </div>
           <div className="space-y-6">
             {(data.projects || []).map((project: StudentPortfolioData['projects'][number], index: number) => (
-              <ProjectCardShowcase
-                key={`${project.title}-${index}`}
-                project={project}
-                defaultCourse={profile.courseName || profile.className}
-                trackHint={currentTrackHint}
-              />
+              <div id={projectAnchorId(index)} key={`${project.title}-${index}`} className="scroll-mt-24">
+                <ProjectCardShowcase
+                  project={project}
+                  defaultCourse={profile.courseName || profile.className}
+                  trackHint={currentTrackHint}
+                />
+              </div>
             ))}
           </div>
         </section>
@@ -537,7 +607,7 @@ export default async function PublicPortfolioPage({
       {hasDna ? (
         <section id="dna" className="mx-auto max-w-6xl px-5 py-24 scroll-mt-12">
           <div className="mb-12">
-            <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>04 · Competency Analysis</p>
+            <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>{sectionNo('dna')} · Competency Analysis</p>
             <h2 className="mt-2 text-4xl font-black leading-[1.08] text-[#171512] sm:text-5xl">DNA năng lực & thiên hướng.</h2>
             <p className="mt-3 text-base text-[#55504a]">Bảng phân tích trực quan hai trục năng lực cốt lõi và kỹ thuật dự án.</p>
           </div>
@@ -568,7 +638,7 @@ export default async function PublicPortfolioPage({
       {hasResults ? (
         <section id="results" className="mx-auto max-w-6xl px-5 py-16 scroll-mt-12">
           <div className="mb-10">
-            <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>05 · Academic Results</p>
+            <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>{sectionNo('results')} · Academic Results</p>
             <h2 className="mt-2 text-4xl font-black leading-[1.08] text-[#171512] sm:text-5xl">Năng lực có căn cứ quan sát.</h2>
             <p className="mt-3 text-base text-[#55504a]">Kết quả điểm số các bài kiểm tra Checkpoint và xếp loại hoàn thành từ LMS.</p>
           </div>
@@ -587,7 +657,7 @@ export default async function PublicPortfolioPage({
       {hasGallery ? (
         <section id="gallery" className="mx-auto max-w-6xl px-5 py-20 scroll-mt-12">
           <div className="mb-12">
-            <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>06 · Image Gallery</p>
+            <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>{sectionNo('gallery')} · Image Gallery</p>
             <h2 className="mt-2 text-4xl font-black leading-[1.08] text-[#171512] sm:text-5xl">Thư viện hình ảnh học tập.</h2>
             <p className="mt-3 text-base text-[#55504a]">Bấm vào hình ảnh bất kỳ để xem chế độ Lightbox phóng to chất lượng cao.</p>
           </div>
@@ -599,19 +669,33 @@ export default async function PublicPortfolioPage({
       {hasAchievements ? (
         <section id="awards" className="mx-auto max-w-6xl px-5 py-20 scroll-mt-12">
           <div className="mb-10">
-            <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>07 · Honors & Awards</p>
+            <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>{sectionNo('awards')} · Honors & Awards</p>
             <h2 className="mt-2 text-4xl sm:text-5xl font-black leading-[1.25] text-[#171512]">Thành tích & dấu ấn cá nhân.</h2>
           </div>
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {(data.achievements || []).map((award: StudentPortfolioData['achievements'][number], index: number) => (
-              <article key={`${award.title}-${index}`} className="rounded-2xl border border-[#ded6c9] bg-white p-6 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
-                <div className="mb-6 grid h-12 w-12 place-items-center rounded-xl text-white shadow-sm" style={{ backgroundColor: theme.ink }}>
-                  <Award className="h-6 w-6" />
+            {(data.achievements || []).map((award: StudentPortfolioData['achievements'][number], index: number) => {
+              const tone = awardTone(award.level);
+              return (
+              <article key={`${award.title}-${index}`} className="overflow-hidden rounded-[18px] border border-[#ded6c9] bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
+                <div className="relative grid h-32 place-items-center overflow-hidden bg-[#171512]">
+                  <div className="absolute -bottom-10 left-6 h-28 w-24 rotate-45 bg-[#bd0026]/70" />
+                  <div className="absolute -bottom-8 right-6 h-24 w-24 -rotate-45 bg-white/8" />
+                  <div className="relative grid h-16 w-16 place-items-center rounded-full border-4 border-white/55 shadow-lg" style={{ backgroundColor: tone.medal }}>
+                    <Award className="h-8 w-8 text-white" fill="white" />
+                  </div>
+                  <span className="absolute bottom-4 rounded-full bg-white/12 px-3 py-1 text-[9px] font-black uppercase tracking-wide text-white/80">
+                    {tone.label}
+                  </span>
                 </div>
-                <h3 className="font-black text-lg text-[#171512]">{award.title}</h3>
-                <p className="mt-2 text-sm text-[#777067]">{award.subtitle}</p>
+                <div className="p-5">
+                  <p className="text-[10px] font-black uppercase" style={{ color: theme.ink }}>MindX Award</p>
+                  <h3 className="mt-2 font-black text-lg leading-tight text-[#171512]">{award.title}</h3>
+                  <p className="mt-2 text-sm font-semibold leading-6 text-[#777067]">{award.subtitle || 'MindX Technology School'}</p>
+                  {award.date ? <p className="mt-3 text-xs font-bold text-[#9b9288]">{award.date}</p> : null}
+                </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         </section>
       ) : null}
@@ -620,24 +704,14 @@ export default async function PublicPortfolioPage({
       {hasRewards ? (
         <section id="rewards" className="mx-auto max-w-6xl px-5 py-16 scroll-mt-12">
           <div className="mb-8">
-            <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>08 · Rewards & Activities</p>
+            <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>{sectionNo('rewards')} · Rewards & Activities</p>
             <h2 className="mt-2 text-4xl sm:text-5xl font-black leading-[1.25] text-[#171512]">Điểm thưởng & Hoạt động.</h2>
           </div>
           <div className="rounded-2xl border border-[#ded6c9] bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between border-b border-[#ded6c9] pb-4 mb-4">
+            <div className="flex items-center justify-between gap-4">
               <span className="font-black text-lg text-[#171512]">Tổng điểm thưởng tích lũy</span>
               <span className="rounded-full bg-rose-50 px-4 py-1.5 text-base font-black" style={{ color: theme.ink }}>{data.rewards?.points || 0} Điểm</span>
             </div>
-            {data.rewards?.history?.length ? (
-              <div className="space-y-3">
-                {data.rewards.history.map((item: any, idx: number) => (
-                  <div key={idx} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#fffaf2] px-4 py-3 text-sm">
-                    <span className="font-bold text-[#423d37]">{item.title}</span>
-                    <span className="font-extrabold text-emerald-700">{item.subtitle || item.date || ''}</span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
           </div>
         </section>
       ) : null}

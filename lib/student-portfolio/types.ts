@@ -16,6 +16,10 @@ export interface PortfolioLearningItem {
   period?: string;
   status?: string;
   description?: string;
+  tbckScore?: number | null;
+  finalComment?: string;
+  awardTitle?: string;
+  awardLevel?: 'gold' | 'silver' | 'bronze' | 'merit';
 }
 
 export interface PortfolioProject {
@@ -36,6 +40,8 @@ export interface PortfolioAward {
   title: string;
   subtitle?: string;
   date?: string;
+  className?: string;
+  level?: 'gold' | 'silver' | 'bronze' | 'merit';
 }
 
 export interface PortfolioAcademicSummary {
