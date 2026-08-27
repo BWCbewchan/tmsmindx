@@ -2393,7 +2393,7 @@ input[type='reset'] {
   position: fixed;
   top: 6px;
   right: 64px;
-  z-index: 9999;
+  z-index: 1200;
 }
 
 @media (min-width: 1024px) {
