@@ -8,6 +8,7 @@ const DEFAULT_ALLOWED_OPERATIONS = new Set([
   'GetClasses',
   'GetAllClasses',
   'GetClassSessions',
+  'findAllStudentWorks',
 ]);
 
 function allowedOperations(): Set<string> {

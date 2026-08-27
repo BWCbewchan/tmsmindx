@@ -6,6 +6,11 @@
       "sourceType": "github",
       "computedHash": "2462fa74e41cf41b83ba098a34b316c4ce126e4597da7db39dd8e659cfee9136"
     },
+    "anti-ui-slop": {
+      "source": "uizze.com",
+      "sourceType": "well-known",
+      "computedHash": "cdb9293f9d8461b525a42949d5f3509754c42efa2eab11f20d406b16270eb867"
+    },
     "frontend-design": {
       "source": "anthropics/skills",
       "sourceType": "github",
@@ -15,6 +20,16 @@
       "source": "google-labs-code/stitch-skills",
       "sourceType": "github",
       "computedHash": "119a14a004bd30fa99d386df599bd0db8d057cca146f7ee08349daed48b2ea55"
+    },
+    "ui-design": {
+      "source": "uizze.com",
+      "sourceType": "well-known",
+      "computedHash": "fe14d1158abb50fdece6abe03ade1d8d6d5b2ef8b7f6914d65193a30a3d48712"
+    },
+    "ui-radar": {
+      "source": "uizze.com",
+      "sourceType": "well-known",
+      "computedHash": "34305420bba52f3fe7d1d3b2dd355b64ccf12de7411cbbf4557a1231e8ef8ddb"
     },
     "web-design-guidelines": {
       "source": "vercel-labs/agent-skills",
