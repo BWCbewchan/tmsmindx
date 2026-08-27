@@ -702,6 +702,26 @@ export default function XinNghiContent({ initialLeaveDate, externalOpen, onCreat
     }))
   }
 
+  function handleSelectManualClass(rawClassCode = formData.class_code) {
+    const classCode = String(rawClassCode || '').trim()
+    if (!classCode) return
+
+    setSelectedLmsClassName(null)
+    setLmsClassDropdownOpen(false)
+    setClassTimeStart(null)
+    setClassTimeEnd(null)
+    setClassTimeFromLms(false)
+    setLeaveSessionFromLms(false)
+
+    setFormData((prev) => ({
+      ...prev,
+      class_code: classCode,
+      student_count: '',
+      leave_date: '',
+      leave_session: '',
+    }))
+  }
+
   function handleSelectLmsSlotDate(slot: LmsClassSlot) {
     const startHm = slotHhMm(slot.startTime)
     const endHm = slotHhMm(slot.endTime)
@@ -2438,7 +2458,6 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
                   type="button"
                   onClick={() => setLmsClassDropdownOpen((v) => !v)}
                   className={`${INPUT_BASE_CLASS} flex items-center justify-between text-left`}
-                  disabled={lmsLoading}
                 >
                   {lmsLoading ? (
                     <span className="flex items-center gap-2 text-gray-400">
@@ -2449,8 +2468,8 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
                       <span>Đang tải...</span>
                     </span>
                   ) : (
-                    <span className={selectedLmsClassName ? 'text-gray-900' : 'text-gray-400'}>
-                      {selectedLmsClassName || 'Chọn lớp từ lịch dạy hoặc nhập thủ công'}
+                    <span className={selectedLmsClassName || formData.class_code ? 'text-gray-900' : 'text-gray-400'}>
+                      {selectedLmsClassName || formData.class_code || 'Chọn lớp từ lịch dạy hoặc nhập thủ công'}
                     </span>
                   )}
                   <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" />
@@ -2471,6 +2490,12 @@ ${editForm.teacher_name || '[Họ Và Tên]'}`
                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-[#a1001f] focus:ring-1 focus:ring-[#a1001f]/20"
                         placeholder="Hoặc nhập thủ công mã lớp..."
                         onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            handleSelectManualClass(e.currentTarget.value)
+                          }
+                        }}
                       />
                     </div>
                     <div className="max-h-64 overflow-y-auto">

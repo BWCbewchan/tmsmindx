@@ -25,6 +25,16 @@ interface Rect { x: number; y: number; w: number; h: number }
 const fetcher = (url: string) => fetch(url, { cache: 'no-store' }).then(r => r.json())
 const HONORS_SCORE_LABEL = 'CR45'
 const CONFETTI_BURST_MS = 2400
+const HONORS_DIALOG_TITLE_ID = 'teacher-honors-popup-title'
+const HONORS_DIALOG_DESCRIPTION_ID = 'teacher-honors-popup-description'
+const HONORS_FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',')
 
 const MOCK_TOP_TEACHERS: Teacher[] = [
   {
@@ -84,6 +94,56 @@ function fittedFontSize(length: number, minPx: number, maxPx: number, vwFactor: 
   const safeLength = Math.max(length, 10)
   const preferredVw = Math.max(minPx / 3.9, vwFactor / safeLength)
   return `clamp(${minPx}px, ${preferredVw.toFixed(3)}vw, ${maxPx}px)`
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function getHonorsResponsiveScales() {
+  const visualViewport = window.visualViewport
+  const viewportWidth = visualViewport?.width ?? window.innerWidth
+  const viewportHeight = visualViewport?.height ?? window.innerHeight
+  const safeWidth = Math.max(320, viewportWidth)
+  const safeHeight = Math.max(320, viewportHeight)
+  const aspectRatio = safeWidth / safeHeight
+  const isCompactPortrait = safeWidth < 640 && aspectRatio < 1
+  const isDesktop = safeWidth >= 900
+  const viewportGutter = isDesktop ? (safeHeight < 680 ? 16 : 24) : 8
+  const desktopWidthCap = safeWidth >= 1440 ? 1120 : safeWidth >= 1180 ? 1060 : 980
+  const desktopHeightCap = safeHeight >= 820 ? 720 : safeHeight >= 740 ? 690 : safeHeight - viewportGutter
+  const dialogWidth = isDesktop
+    ? clampNumber(Math.min(desktopWidthCap, safeWidth - viewportGutter), 860, desktopWidthCap)
+    : Math.max(320, safeWidth - viewportGutter)
+  const dialogHeight = isDesktop
+    ? clampNumber(Math.min(desktopHeightCap, safeHeight - viewportGutter), 520, desktopHeightCap)
+    : clampNumber(Math.min(safeHeight - viewportGutter, safeHeight * 0.94), 500, safeHeight - viewportGutter)
+
+  const baseWidth = isCompactPortrait ? 390 : 1040
+  const baseHeight = isCompactPortrait ? 720 : 700
+  const maxVisualScale = safeWidth >= 1440 && safeHeight >= 800 ? 1.06 : 1
+  const fitScale = Math.min(dialogWidth / baseWidth, dialogHeight / baseHeight, maxVisualScale)
+  const shortScreenScale = safeHeight < 720 ? safeHeight / 720 : maxVisualScale
+  const wideScreenScale = aspectRatio > 1.9 && safeHeight < 760 ? 1 - (aspectRatio - 1.9) * 0.13 : maxVisualScale
+  const tallScreenScale = aspectRatio < 0.62 ? 0.96 : maxVisualScale
+  const rawScale = isCompactPortrait
+    ? fitScale
+    : Math.min(fitScale, shortScreenScale, wideScreenScale, tallScreenScale)
+  const baseScale = clampNumber(rawScale, isCompactPortrait ? 0.9 : 0.68, maxVisualScale)
+  const podiumTopPad = isDesktop
+    ? clampNumber(safeHeight * 0.024, safeHeight < 760 ? 10 : 16, safeHeight < 760 ? 18 : 24)
+    : clampNumber(safeHeight * 0.012, 4, 12)
+
+  return {
+    width: safeWidth,
+    height: safeHeight,
+    dialogWidth,
+    dialogHeight,
+    uiScale: baseScale,
+    medalScale: clampNumber(baseScale * (safeHeight < 580 ? 0.96 : 1), 0.64, maxVisualScale),
+    scoreScale: clampNumber(baseScale * (safeHeight < 620 ? 0.94 : 1), 0.62, maxVisualScale),
+    podiumTopPad,
+  }
 }
 
 function getDeviceHints() {
@@ -241,6 +301,7 @@ function ConfettiRain({ active }: { active: boolean }) {
           style={{
             '--confetti-left': `${particle.left}%`,
             '--confetti-size': `${particle.size}px`,
+            '--confetti-height': `${particle.size * 1.55}px`,
             '--confetti-duration': `${particle.duration}s`,
             '--confetti-delay': `${particle.delay}s`,
             '--confetti-drift': `${particle.drift}px`,
@@ -335,7 +396,7 @@ function Metallic3DPodiumBase({ rank }: { rank: number }) {
   const heightCls = isGold ? 'h-8 sm:h-10 md:h-12' : isSilver ? 'h-6 sm:h-8 md:h-9' : 'h-5 sm:h-7 md:h-8'
 
   return (
-    <div className={cn('relative w-[114%] -ml-[7%] flex flex-col items-center pointer-events-none select-none z-0', isGold ? '-mt-1.5 sm:-mt-2' : '-mt-1 sm:-mt-1.5')}>
+    <div className={cn('podium-base relative w-[114%] -ml-[7%] flex flex-col items-center pointer-events-none select-none z-0', isGold ? '-mt-1.5 sm:-mt-2' : '-mt-1 sm:-mt-1.5')}>
       {/* Top 3D Ellipse Surface */}
       <div
         className="w-full h-4 sm:h-5 rounded-[50%] relative z-10 border shadow-sm overflow-hidden"
@@ -509,15 +570,15 @@ const PodiumCard = memo(function PodiumCard({ teacher, idx, animCls, triggerAnim
       onMouseLeave={onMouseLeave}
     >
       {/* Medal Header Section */}
-      <div className="relative w-full flex justify-center -mb-4 sm:-mb-5 z-20 pointer-events-none">
-        <div className="relative flex items-center justify-center">
+      <div className="podium-medal-header relative w-full flex justify-center -mb-4 sm:-mb-5 z-20 pointer-events-none">
+        <div className="honors-medal-cluster relative flex items-center justify-center">
           {/* SVG Laurel Leaf Wreath */}
           <MedalLaurelLeaves color={award.laurelColor} />
 
           {/* Folded Ribbon Tails */}
-          <div className="absolute -bottom-5 sm:-bottom-6 flex items-center justify-center gap-1 z-0">
+          <div className="honors-medal-ribbons absolute -bottom-5 sm:-bottom-6 flex items-center justify-center gap-1 z-0">
             <div
-              className="w-2.5 sm:w-3 h-5 sm:h-6 rounded-b-sm shadow-md"
+              className="honors-medal-ribbon-tail w-2.5 sm:w-3 h-5 sm:h-6 rounded-b-sm shadow-md"
               style={{
                 background: award.ribbonBg,
                 clipPath: 'polygon(0 0, 100% 0, 100% 100%, 50% 80%, 0 100%)',
@@ -525,7 +586,7 @@ const PodiumCard = memo(function PodiumCard({ teacher, idx, animCls, triggerAnim
               }}
             />
             <div
-              className="w-2.5 sm:w-3 h-5 sm:h-6 rounded-b-sm shadow-md"
+              className="honors-medal-ribbon-tail w-2.5 sm:w-3 h-5 sm:h-6 rounded-b-sm shadow-md"
               style={{
                 background: award.ribbonBg,
                 clipPath: 'polygon(0 0, 100% 0, 100% 100%, 50% 80%, 0 100%)',
@@ -536,16 +597,16 @@ const PodiumCard = memo(function PodiumCard({ teacher, idx, animCls, triggerAnim
 
           {/* Circular Medal Emblem */}
           <div
-            className="relative z-10 w-11 h-11 sm:w-13 sm:h-13 rounded-full flex flex-col items-center justify-center shadow-lg"
+            className="honors-medal-emblem relative z-10 w-11 h-11 sm:w-[3.25rem] sm:h-[3.25rem] rounded-full flex flex-col items-center justify-center shadow-lg"
             style={{
               background: award.metalBg,
               border: award.metalBorder,
               boxShadow: '0 8px 18px rgba(0,0,0,0.25), inset 0 1.5px 3px rgba(255,255,255,0.85)',
             }}
           >
-            <Crown className="w-3 h-3 sm:w-4 sm:h-4 stroke-[2.4]" style={{ color: award.metalColor }} />
+            <Crown className="honors-medal-crown w-3 h-3 sm:w-4 sm:h-4 stroke-[2.4]" style={{ color: award.metalColor }} />
             <span
-              className="text-sm sm:text-base font-black leading-none -mt-0.5"
+              className="honors-medal-number text-sm sm:text-base font-black leading-none -mt-0.5"
               style={{ color: award.metalColor, textShadow: '0 1px 2px rgba(255,255,255,0.6)' }}
             >
               {award.medalNumber}
@@ -575,7 +636,7 @@ const PodiumCard = memo(function PodiumCard({ teacher, idx, animCls, triggerAnim
             <div
               className={cn(
                 "podium-avatar-frame relative rounded-full overflow-hidden border-2 border-white shadow-lg",
-                isFirst ? "w-22 h-22 sm:w-28 sm:h-28" : "w-18 h-18 sm:w-22 sm:h-22"
+                isFirst ? "w-[5.5rem] h-[5.5rem] sm:w-28 sm:h-28" : "w-[4.5rem] h-[4.5rem] sm:w-[5.5rem] sm:h-[5.5rem]"
               )}
             >
               <img
@@ -877,18 +938,18 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
   }, [activePanel, switchPanel])
 
   return (
-    <div className="fixed inset-0 z-[58] flex items-center justify-center p-2 sm:p-4 pointer-events-none select-none">
+    <div className="honors-popup-viewport fixed inset-0 z-modal-custom flex items-center justify-center p-2 sm:p-4 pointer-events-none select-none">
       <style>{`
         @keyframes honors-confetti-fall {
           0% {
             opacity: 0;
-            transform: translate3d(0, -12dvh, 0) rotate(0deg);
+            transform: translate3d(0, -12vh, 0) rotate(0deg);
           }
           8% { opacity: 0.95; }
           82% { opacity: 0.9; }
           100% {
             opacity: 0;
-            transform: translate3d(var(--confetti-drift), 112dvh, 0) rotate(var(--confetti-rotation));
+            transform: translate3d(var(--confetti-drift), 112vh, 0) rotate(var(--confetti-rotation));
           }
         }
         @keyframes card-slide-left { from { opacity:0; transform:translate3d(-16px,10px,0) scale(0.96); } to { opacity:1; transform:translate3d(0,0,0) scale(1); } }
@@ -905,17 +966,23 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
         .honors-confetti { contain: strict; transform: translateZ(0); }
         .honors-confetti-piece {
           position: absolute; top: 0; left: var(--confetti-left);
-          width: var(--confetti-size); height: calc(var(--confetti-size) * 1.55);
+          width: var(--confetti-size); height: var(--confetti-height);
           border-radius: 1px; background: var(--confetti-color);
           box-shadow: 0 0 4px color-mix(in srgb, var(--confetti-color) 65%, transparent);
           opacity: 0; animation: honors-confetti-fall var(--confetti-duration) linear var(--confetti-delay) infinite;
         }
 
         .honors-popup-card {
-          width: min(980px, calc(100vw - 1.5rem));
-          height: min(690px, calc(100dvh - 1.5rem));
-          max-height: calc(100dvh - 1.5rem);
+          width: min(var(--honors-popup-width, 1080px), calc(var(--honors-viewport-width, 100vw) - 1.5rem));
+          height: min(var(--honors-popup-height, 710px), calc(var(--honors-viewport-height, 100vh) - 1.5rem));
+          max-height: calc(var(--honors-viewport-height, 100vh) - 1.5rem);
           contain: layout paint style;
+          --honors-medal-scale-local: var(--honors-medal-scale, 1);
+          --honors-score-scale-local: var(--honors-score-scale, 1);
+        }
+
+        .honors-popup-viewport {
+          padding: clamp(0.5rem, 1.8vh, 1rem);
         }
 
         .honors-stage-depth {
@@ -950,7 +1017,7 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
           bottom: -1.65rem;
           z-index: 1;
           width: 114%;
-          height: clamp(13.5rem, 27dvh, 16.5rem);
+          height: clamp(13.5rem, 27vh, 16.5rem);
           overflow: visible;
           filter: drop-shadow(0 -1px 0 rgba(255, 239, 184, 0.26));
         }
@@ -970,19 +1037,27 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
         }
 
         .honors-title h1 {
-          font-size: clamp(1.8rem, 3.4vw, 2.7rem);
+          font-size: clamp(1.85rem, 3.2vw, 3rem);
           color: transparent;
           background: linear-gradient(180deg, #B91C1C 0%, #8A1020 50%, #5D0C12 100%);
           -webkit-background-clip: text; background-clip: text;
           letter-spacing: -0.01em; text-shadow: 0 10px 20px rgba(127,29,29,0.12);
         }
 
-        .honors-stage { height: 100%; min-height: 0; padding-bottom: clamp(2rem, 4dvh, 3rem); }
+        .honors-stage { height: 100%; min-height: 0; padding-bottom: clamp(1.5rem, 3.2vh, 2.6rem); }
         .honors-content-panel { bottom: 0; }
         .honors-panel { display: flex; min-height: 0; flex-direction: column; }
+        .honors-title { flex-shrink: 0; }
+        .honors-podium {
+          align-items: flex-start;
+          margin-top: 0 !important;
+          margin-bottom: 0 !important;
+          min-height: 0;
+          padding-top: var(--honors-podium-top-pad, 1.25rem);
+        }
         .honors-footer-ribbon {
-          min-height: clamp(5.7rem, 12dvh, 7rem);
-          padding-bottom: clamp(1.15rem, 2.6dvh, 1.85rem);
+          min-height: clamp(5rem, 10vh, 6.35rem);
+          padding-bottom: clamp(0.9rem, 2.1vh, 1.5rem);
           display: flex;
           align-items: flex-end;
           justify-content: center;
@@ -991,7 +1066,7 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
           inset: 0 !important;
           display: grid;
           place-items: center;
-          padding: clamp(2rem, 5dvh, 3.25rem) clamp(2.25rem, 5dvw, 4rem) clamp(3rem, 6dvh, 4rem);
+          padding: clamp(2rem, 5vh, 3.25rem) clamp(2.25rem, 5vw, 4rem) clamp(3rem, 6vh, 4rem);
         }
         .honors-feature-panel .mascot-feature-panel {
           margin: auto;
@@ -1005,17 +1080,78 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
 
         .honors-podium-track {
           width: 100%;
-          max-width: 840px;
+          max-width: 910px;
           min-width: 0;
+          gap: clamp(1rem, 2vw, 1.55rem) !important;
         }
         .podium-card-wrap {
           min-width: 0;
+          --honors-medal-width: 7.2rem;
+          --honors-medal-height: 4.45rem;
+          --honors-laurel-width: 7.2rem;
+          --honors-laurel-height: 4rem;
+          --honors-medal-emblem-size: 3rem;
+          --honors-medal-crown-size: 0.95rem;
+          --honors-medal-number-size: 0.98rem;
+          --honors-ribbon-width: 0.7rem;
+          --honors-ribbon-height: 1.42rem;
+          --honors-ribbon-bottom: -1.38rem;
+          --honors-score-base-width: 9.25rem;
+        }
+        .card-podium-1 {
+          --honors-medal-width: 7.75rem;
+          --honors-medal-height: 4.8rem;
+          --honors-laurel-width: 7.75rem;
+          --honors-laurel-height: 4.25rem;
+          --honors-medal-emblem-size: 3.35rem;
+          --honors-medal-crown-size: 1.05rem;
+          --honors-medal-number-size: 1.08rem;
+          --honors-ribbon-width: 0.76rem;
+          --honors-ribbon-height: 1.55rem;
+          --honors-ribbon-bottom: -1.52rem;
+          --honors-score-base-width: 10.75rem;
+        }
+        .podium-medal-header {
+          margin-bottom: -1.25rem;
+        }
+        .honors-medal-cluster {
+          width: var(--honors-medal-width);
+          height: var(--honors-medal-height);
+          transform: translateZ(0) scale(var(--honors-medal-scale-local));
+          transform-origin: bottom center;
+        }
+        .medal-laurel-leaves {
+          top: -0.36rem !important;
+          width: var(--honors-laurel-width) !important;
+          height: var(--honors-laurel-height) !important;
+        }
+        .honors-medal-ribbons {
+          bottom: var(--honors-ribbon-bottom) !important;
+          gap: 0.25rem !important;
+        }
+        .honors-medal-ribbon-tail {
+          width: var(--honors-ribbon-width) !important;
+          height: var(--honors-ribbon-height) !important;
+        }
+        .honors-medal-emblem {
+          width: var(--honors-medal-emblem-size) !important;
+          height: var(--honors-medal-emblem-size) !important;
+          border-width: 2.6px !important;
+        }
+        .honors-medal-crown {
+          width: var(--honors-medal-crown-size) !important;
+          height: var(--honors-medal-crown-size) !important;
+        }
+        .honors-medal-number {
+          font-size: var(--honors-medal-number-size) !important;
         }
         .podium-card-shell {
           min-width: 0;
         }
         .cr45-score-wrap {
-          width: min(100%, 11rem);
+          width: min(100%, var(--honors-score-base-width));
+          transform: translateZ(0) scale(var(--honors-score-scale-local));
+          transform-origin: top center;
         }
         .cr45-score-svg {
           width: min(100%, 100%) !important;
@@ -1024,29 +1160,104 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
         .podium-copy {
           min-width: 0;
         }
-        .card-podium-1 { width: clamp(210px, 22dvw, 250px); height: clamp(345px, 48dvh, 410px); z-index: 20; transform: scale(1.06); filter: drop-shadow(0 8px 24px rgba(0,0,0,0.18)); }
-        .card-podium-2 { width: clamp(185px, 19dvw, 220px); height: clamp(310px, 42dvh, 365px); z-index: 5; }
-        .card-podium-3 { width: clamp(185px, 19dvw, 220px); height: clamp(300px, 40dvh, 355px); z-index: 5; }
+        .card-podium-1 { width: clamp(220px, 22vw, 268px); height: clamp(360px, 49vh, 426px); z-index: 20; transform: scale(1.055); filter: drop-shadow(0 8px 24px rgba(0,0,0,0.18)); }
+        .card-podium-2 { width: clamp(190px, 19vw, 232px); height: clamp(318px, 43vh, 376px); z-index: 5; }
+        .card-podium-3 { width: clamp(190px, 19vw, 232px); height: clamp(306px, 41vh, 366px); z-index: 5; }
+
+        @media (min-width: 1200px) and (min-height: 780px) {
+          .honors-podium-track {
+            max-width: 955px;
+            gap: clamp(1.35rem, 2.2vw, 1.9rem) !important;
+          }
+          .card-podium-1 {
+            width: clamp(250px, 17vw, 292px);
+            height: clamp(390px, 47vh, 442px);
+            transform: scale(1.045);
+          }
+          .card-podium-2 {
+            width: clamp(218px, 14.5vw, 252px);
+            height: clamp(342px, 40vh, 392px);
+          }
+          .card-podium-3 {
+            width: clamp(218px, 14.5vw, 252px);
+            height: clamp(332px, 39vh, 382px);
+          }
+        }
 
         @media (max-width: 899px) {
           .honors-popup-card {
-            width: min(94vw, 760px);
-            height: min(680px, calc(100dvh - 1.25rem));
+            width: min(var(--honors-popup-width, 760px), calc(var(--honors-viewport-width, 100vw) - 1.25rem));
+            height: min(var(--honors-popup-height, 680px), calc(var(--honors-viewport-height, 100vh) - 1.25rem));
           }
           .honors-title h1 {
             font-size: clamp(1.65rem, 5vw, 2.15rem);
           }
-          .card-podium-1 { width: clamp(190px, 28vw, 220px); height: clamp(310px, 47dvh, 380px); }
-          .card-podium-2 { width: clamp(165px, 24vw, 195px); height: clamp(280px, 40dvh, 340px); }
-          .card-podium-3 { width: clamp(165px, 24vw, 195px); height: clamp(270px, 39dvh, 330px); }
+          .card-podium-1 { width: clamp(190px, 28vw, 220px); height: clamp(310px, 47vh, 380px); }
+          .card-podium-2 { width: clamp(165px, 24vw, 195px); height: clamp(280px, 40vh, 340px); }
+          .card-podium-3 { width: clamp(165px, 24vw, 195px); height: clamp(270px, 39vh, 330px); }
+        }
+
+        @media (min-width: 900px) and (max-height: 760px) {
+          .honors-popup-card {
+            width: min(var(--honors-popup-width, 1040px), calc(var(--honors-viewport-width, 100vw) - 0.75rem));
+            height: min(var(--honors-popup-height, 660px), calc(var(--honors-viewport-height, 100vh) - 0.75rem));
+            max-height: calc(var(--honors-viewport-height, 100vh) - 0.75rem);
+            border-radius: 1.35rem;
+          }
+          .honors-stage {
+            padding: 0.8rem 3rem 0;
+            padding-bottom: clamp(1.8rem, 3.2vh, 2.4rem);
+          }
+          .honors-title h1 {
+            margin-top: 0.35rem;
+            margin-bottom: 0.1rem;
+            font-size: clamp(1.55rem, 4.1vh, 2.2rem);
+          }
+          .honors-subtitle {
+            font-size: 0.62rem;
+          }
+          .honors-podium-track {
+            max-width: 840px;
+            gap: clamp(0.7rem, 1.6vw, 1rem);
+          }
+          .card-podium-1 { width: clamp(198px, 20vw, 238px); height: clamp(278px, 46vh, 344px); transform: scale(1.025); }
+          .card-podium-2 { width: clamp(172px, 18vw, 208px); height: clamp(242px, 40vh, 306px); }
+          .card-podium-3 { width: clamp(172px, 18vw, 208px); height: clamp(234px, 39vh, 296px); }
+          .honors-footer-ribbon {
+            min-height: clamp(4rem, 8.8vh, 5.2rem);
+            padding-bottom: clamp(0.65rem, 1.6vh, 1rem);
+          }
+          .honors-bottom-wave-art {
+            height: clamp(9.5rem, 22vh, 13rem);
+          }
         }
 
         @media (max-width: 639px) {
           .honors-popup-card {
             width: calc(100vw - 0.75rem - env(safe-area-inset-left) - env(safe-area-inset-right));
-            height: min(92dvh, calc(100dvh - 0.75rem));
-            max-height: calc(100dvh - 0.75rem);
+            height: min(92vh, calc(var(--honors-viewport-height, 100vh) - 0.75rem));
+            max-height: calc(var(--honors-viewport-height, 100vh) - 0.75rem);
             border-radius: 1rem;
+          }
+          .honors-red-wave.is-top {
+            top: -7.2rem;
+            height: 12rem;
+            width: 72%;
+          }
+          .honors-title {
+            padding: 1rem 2.35rem 0 2.35rem;
+          }
+          .honors-eyebrow {
+            max-width: calc(100% - 3rem);
+          }
+          .honors-title h1 {
+            margin-top: 0.75rem;
+            font-size: clamp(1.7rem, 8vw, 2rem);
+            line-height: 0.98;
+          }
+          .honors-subtitle {
+            max-width: 18.5rem;
+            line-height: 1.35;
           }
           .honors-stage {
             padding: 0.65rem 0.85rem 0;
@@ -1077,34 +1288,54 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
             row-gap: 0.35rem;
             max-width: 24rem;
           }
+          .podium-card-wrap {
+            --honors-medal-width: 4.8rem;
+            --honors-medal-height: 3rem;
+            --honors-laurel-width: 4.8rem;
+            --honors-laurel-height: 2.6rem;
+            --honors-medal-emblem-size: 2.2rem;
+            --honors-medal-crown-size: 0.68rem;
+            --honors-medal-number-size: 0.72rem;
+            --honors-ribbon-width: 0.48rem;
+            --honors-ribbon-height: 0.98rem;
+            --honors-ribbon-bottom: -0.92rem;
+            --honors-score-base-width: 7.2rem;
+          }
           .card-podium-1 {
             order: 1;
             width: min(58%, 13.5rem);
-            height: clamp(220px, 37dvh, 285px);
+            height: clamp(220px, 37vh, 285px);
             z-index: 20;
             transform: scale(1);
             filter: drop-shadow(0 6px 18px rgba(0,0,0,0.16));
+            --honors-medal-width: 5.35rem;
+            --honors-medal-height: 3.35rem;
+            --honors-laurel-width: 5.35rem;
+            --honors-laurel-height: 2.9rem;
+            --honors-medal-emblem-size: 2.52rem;
+            --honors-medal-crown-size: 0.78rem;
+            --honors-medal-number-size: 0.82rem;
+            --honors-ribbon-width: 0.54rem;
+            --honors-ribbon-height: 1.1rem;
+            --honors-ribbon-bottom: -1.02rem;
+            --honors-score-base-width: 8.2rem;
           }
           .card-podium-2 {
             order: 2;
             width: min(45%, 10.8rem);
-            height: clamp(188px, 31dvh, 242px);
+            height: clamp(188px, 31vh, 242px);
             z-index: 5;
           }
           .card-podium-3 {
             order: 3;
             width: min(46%, 10.5rem);
-            height: clamp(165px, 27dvh, 212px);
+            height: clamp(165px, 27vh, 212px);
             z-index: 5;
           }
           .podium-card-shell {
             border-radius: 1rem !important;
             padding: 0.4rem 0.35rem 0.35rem !important;
             padding-top: 1.25rem !important;
-          }
-          .medal-laurel-leaves {
-            width: 4.8rem;
-            height: 2.6rem;
           }
           .podium-avatar-frame {
             width: clamp(2.8rem, 13vw, 3.8rem) !important;
@@ -1119,12 +1350,6 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
           }
           .card-podium-1 .podium-monogram {
             font-size: clamp(2.2rem, 12vw, 3.4rem) !important;
-          }
-          .cr45-score-wrap {
-            width: min(100%, 7.2rem);
-          }
-          .card-podium-1 .cr45-score-wrap {
-            width: min(100%, 8.2rem);
           }
           .podium-copy h4 {
             font-size: clamp(11px, 3.4vw, 14px) !important;
@@ -1150,23 +1375,38 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
         @media (max-width: 380px) {
           .honors-popup-card {
             width: calc(100vw - 0.4rem);
-            height: min(95dvh, calc(100dvh - 0.4rem));
+            height: min(95vh, calc(var(--honors-viewport-height, 100vh) - 0.4rem));
           }
           .honors-stage {
             padding-left: 0.35rem;
             padding-right: 0.35rem;
           }
-          .card-podium-1 { width: min(60%, 12.5rem); height: clamp(195px, 33dvh, 245px); }
+          .podium-card-wrap {
+            --honors-medal-width: 4.35rem;
+            --honors-medal-height: 2.72rem;
+            --honors-laurel-width: 4.35rem;
+            --honors-laurel-height: 2.36rem;
+            --honors-medal-emblem-size: 2rem;
+            --honors-score-base-width: 6.5rem;
+          }
+          .card-podium-1 {
+            width: min(60%, 12.5rem);
+            height: clamp(195px, 33vh, 245px);
+            --honors-medal-width: 4.85rem;
+            --honors-medal-height: 3.02rem;
+            --honors-laurel-width: 4.85rem;
+            --honors-laurel-height: 2.62rem;
+            --honors-medal-emblem-size: 2.25rem;
+            --honors-score-base-width: 7.5rem;
+          }
           .card-podium-2,
-          .card-podium-3 { width: min(46%, 9.8rem); height: clamp(160px, 26dvh, 205px); }
-          .cr45-score-wrap { width: min(100%, 6.5rem); }
-          .card-podium-1 .cr45-score-wrap { width: min(100%, 7.5rem); }
+          .card-podium-3 { width: min(46%, 9.8rem); height: clamp(160px, 26vh, 205px); }
           .honors-footer-ribbon { min-height: 3.2rem; padding-bottom: 0.5rem; }
         }
 
         @media (max-height: 640px) {
           .honors-popup-card {
-            height: calc(100dvh - 0.5rem);
+            height: min(var(--honors-popup-height, 620px), calc(var(--honors-viewport-height, 100vh) - 0.5rem));
           }
           .honors-title {
             padding-top: 0.75rem;
@@ -1184,21 +1424,135 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
             height: 1.6rem;
             width: 5rem;
           }
+          .card-podium-1 { height: clamp(185px, 32vh, 235px); }
+          .card-podium-2 { height: clamp(155px, 26vh, 195px); }
+          .card-podium-3 { height: clamp(150px, 25vh, 190px); }
+        }
+
+        @media (min-width: 900px) and (max-height: 640px) {
+          .honors-popup-viewport {
+            padding: 0.35rem 0.75rem;
+          }
+          .honors-popup-card {
+            width: min(var(--honors-popup-width, 980px), calc(var(--honors-viewport-width, 100vw) - 0.75rem));
+          }
+          .honors-stage {
+            padding: 0.45rem 3.5rem 0;
+          }
+          .honors-title h1 {
+            font-size: clamp(1.2rem, 4vh, 1.65rem);
+          }
+          .honors-eyebrow {
+            transform: scale(0.94);
+            transform-origin: top center;
+          }
+          .honors-podium-track {
+            max-width: 790px;
+            gap: clamp(0.55rem, 1.3vw, 0.9rem) !important;
+          }
+          .card-podium-1 { width: clamp(174px, 19vw, 208px); height: clamp(208px, 40vh, 258px); transform: scale(1.01); }
+          .card-podium-2 { width: clamp(152px, 17vw, 182px); height: clamp(178px, 34vh, 224px); }
+          .card-podium-3 { width: clamp(152px, 17vw, 182px); height: clamp(172px, 33vh, 218px); }
+          .podium-card-wrap {
+            --honors-medal-width: 5.3rem;
+            --honors-medal-height: 3.3rem;
+            --honors-laurel-width: 5.3rem;
+            --honors-laurel-height: 2.9rem;
+            --honors-medal-emblem-size: 2.38rem;
+            --honors-medal-crown-size: 0.74rem;
+            --honors-medal-number-size: 0.78rem;
+            --honors-ribbon-width: 0.52rem;
+            --honors-ribbon-height: 1.08rem;
+            --honors-ribbon-bottom: -1rem;
+            --honors-score-base-width: 7.4rem;
+          }
+          .card-podium-1 {
+            --honors-medal-width: 5.95rem;
+            --honors-medal-height: 3.7rem;
+            --honors-laurel-width: 5.95rem;
+            --honors-laurel-height: 3.24rem;
+            --honors-medal-emblem-size: 2.74rem;
+            --honors-medal-crown-size: 0.85rem;
+            --honors-medal-number-size: 0.9rem;
+            --honors-ribbon-width: 0.58rem;
+            --honors-ribbon-height: 1.2rem;
+            --honors-ribbon-bottom: -1.12rem;
+            --honors-score-base-width: 8.4rem;
+          }
+          .podium-base {
+            transform: scaleY(0.78);
+            transform-origin: top center;
+          }
+          .podium-copy h4 {
+            font-size: clamp(10px, 1.5vw, 13px) !important;
+            line-height: 1.08 !important;
+          }
+          .podium-copy p {
+            font-size: clamp(8px, 1.1vw, 10px) !important;
+          }
           .card-podium-1 { height: clamp(185px, 32dvh, 235px); }
           .card-podium-2 { height: clamp(155px, 26dvh, 195px); }
           .card-podium-3 { height: clamp(150px, 25dvh, 190px); }
         }
 
-        @media (orientation: landscape) and (max-height: 520px) {
+        @media (min-width: 900px) and (max-height: 580px) {
           .honors-popup-card {
-            width: min(94vw, 820px);
-            height: calc(100dvh - 0.5rem);
+            width: min(var(--honors-popup-width, 940px), calc(var(--honors-viewport-width, 100vw) - 0.75rem));
           }
           .honors-stage {
-            padding: 0.45rem 2.4rem 0;
+            padding: 0.25rem 3.25rem 0;
           }
           .honors-title h1 {
-            font-size: clamp(1.1rem, 4.2dvh, 1.55rem);
+            margin-top: 0.12rem;
+            font-size: clamp(1rem, 3.8vh, 1.35rem);
+          }
+          .honors-subtitle {
+            font-size: 0.5rem;
+            line-height: 1;
+            letter-spacing: 0.05em;
+          }
+          .honors-eyebrow {
+            transform: scale(0.88);
+          }
+          .card-podium-1 { width: clamp(150px, 18vw, 178px); height: clamp(172px, 38vh, 214px); }
+          .card-podium-2 { width: clamp(132px, 16vw, 158px); height: clamp(150px, 32vh, 188px); }
+          .card-podium-3 { width: clamp(132px, 16vw, 158px); height: clamp(146px, 31vh, 182px); }
+          .podium-card-shell {
+            border-radius: 0.9rem !important;
+            padding: 0.4rem 0.35rem 0.3rem !important;
+            padding-top: 1rem !important;
+          }
+          .podium-base {
+            display: none;
+          }
+          .honors-footer-ribbon {
+            min-height: 2.55rem;
+            padding-bottom: 0.25rem;
+          }
+          .honors-footer-ribbon svg {
+            display: none;
+          }
+          .honors-bottom-wave-art {
+            height: 6.9rem;
+          }
+        }
+
+        @media (orientation: landscape) and (max-height: 520px) {
+          .honors-popup-card {
+            width: min(var(--honors-popup-width, 960px), calc(var(--honors-viewport-width, 100vw) - 0.5rem));
+            height: calc(var(--honors-viewport-height, 100vh) - 0.5rem);
+          }
+          .honors-stage {
+            padding: 0.35rem 2.2rem 0;
+          }
+          .honors-title {
+            padding-top: 0;
+          }
+          .honors-title h1 {
+            font-size: clamp(1rem, 4.2vh, 1.35rem);
+          }
+          .honors-subtitle {
+            font-size: 0.58rem;
           }
           .honors-eyebrow {
             padding-top: 0.18rem;
@@ -1206,24 +1560,85 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
           }
           .honors-podium-track {
             flex-wrap: nowrap;
-            max-width: 720px;
-            gap: 0.65rem;
+            max-width: 760px;
+            gap: clamp(0.45rem, 1.1vw, 0.75rem) !important;
           }
-          .card-podium-1 { order: 0; width: clamp(160px, 24vw, 190px); height: clamp(205px, 58dvh, 260px); transform: scale(1.02); }
-          .card-podium-2 { order: 0; width: clamp(140px, 21vw, 170px); height: clamp(180px, 51dvh, 228px); }
-          .card-podium-3 { order: 0; width: clamp(140px, 21vw, 170px); height: clamp(174px, 50dvh, 222px); }
+          .card-podium-1 { order: 0; width: clamp(150px, 22vw, 178px); height: clamp(170px, 47vh, 205px); transform: scale(1.01); }
+          .card-podium-2 { order: 0; width: clamp(130px, 19vw, 158px); height: clamp(145px, 39vh, 174px); }
+          .card-podium-3 { order: 0; width: clamp(130px, 19vw, 158px); height: clamp(140px, 38vh, 170px); }
+          .podium-card-wrap {
+            --honors-medal-width: 3.65rem;
+            --honors-medal-height: 2.26rem;
+            --honors-laurel-width: 3.65rem;
+            --honors-laurel-height: 2.05rem;
+            --honors-medal-emblem-size: 1.72rem;
+            --honors-medal-crown-size: 0.52rem;
+            --honors-medal-number-size: 0.56rem;
+            --honors-ribbon-width: 0.38rem;
+            --honors-ribbon-height: 0.78rem;
+            --honors-ribbon-bottom: -0.72rem;
+            --honors-score-base-width: 5.9rem;
+          }
+          .card-podium-1 {
+            --honors-medal-width: 4.1rem;
+            --honors-medal-height: 2.55rem;
+            --honors-laurel-width: 4.1rem;
+            --honors-laurel-height: 2.28rem;
+            --honors-medal-emblem-size: 1.95rem;
+            --honors-medal-crown-size: 0.6rem;
+            --honors-medal-number-size: 0.64rem;
+            --honors-ribbon-width: 0.42rem;
+            --honors-ribbon-height: 0.86rem;
+            --honors-ribbon-bottom: -0.8rem;
+            --honors-score-base-width: 6.8rem;
+          }
+          .podium-card-shell {
+            border-radius: 0.85rem !important;
+            padding: 0.35rem 0.3rem 0.3rem !important;
+            padding-top: 0.95rem !important;
+          }
+          .podium-base {
+            display: none;
+          }
+          .podium-medal-header {
+            margin-bottom: -0.9rem !important;
+          }
+          .podium-monogram {
+            font-size: clamp(1.45rem, 5vw, 2.25rem) !important;
+          }
+          .card-podium-1 .podium-monogram {
+            font-size: clamp(1.8rem, 6vw, 2.8rem) !important;
+          }
+          .podium-copy h4 {
+            font-size: clamp(9px, 2.2vw, 12px) !important;
+            line-height: 1.05 !important;
+          }
+          .podium-copy p {
+            display: none;
+          }
+          .podium-copy {
+            padding-bottom: 0 !important;
+          }
           .honors-footer-ribbon {
-            min-height: 2.95rem;
-            padding-bottom: 0.35rem;
+            min-height: 2.25rem;
+            padding-bottom: 0.2rem;
           }
           .honors-bottom-wave-art {
-            height: 7.5rem;
+            height: 6.4rem;
+          }
+          .honors-footer-ribbon svg {
+            display: none;
           }
         }
       `}</style>
 
       <div
         ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={HONORS_DIALOG_TITLE_ID}
+        aria-describedby={HONORS_DIALOG_DESCRIPTION_ID}
+        tabIndex={-1}
         className={cn(
           'honors-popup-card is-premium-leaderboard relative pointer-events-auto overflow-hidden rounded-[1.2rem] sm:rounded-[1.8rem] transition-opacity duration-300',
           showCard ? 'opacity-100' : 'opacity-0 pointer-events-none',
@@ -1329,7 +1744,7 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
             border: '1px solid rgba(127, 29, 29, 0.2)',
             boxShadow: '0 8px 18px rgba(69,10,10,0.12), inset 0 1px 0 rgba(255,255,255,0.9)',
           }}
-          aria-label="Đóng"
+          aria-label="Đóng bảng vinh danh"
         >
           <X className="w-3.5 h-3.5 text-red-900/80 group-hover:text-red-950 group-hover:rotate-90 transition-all duration-300" />
         </button>
@@ -1342,7 +1757,7 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
             className="honors-panel-arrow pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-red-900/15 bg-white/90 text-red-900 shadow-md transition hover:scale-110 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 sm:h-9 sm:w-9"
             aria-label="Quay lại popup trước"
           >
-            <ChevronLeft className="h-4.5 w-4.5" strokeWidth={2.6} />
+            <ChevronLeft className="h-[18px] w-[18px]" strokeWidth={2.6} />
           </button>
           <button
             type="button"
@@ -1350,7 +1765,7 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
             className="honors-panel-arrow pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-red-900/15 bg-white/90 text-red-900 shadow-md transition hover:scale-110 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 sm:h-9 sm:w-9"
             aria-label="Đi tới popup tiếp theo"
           >
-            <ChevronRight className="h-4.5 w-4.5" strokeWidth={2.6} />
+            <ChevronRight className="h-[18px] w-[18px]" strokeWidth={2.6} />
           </button>
         </div>
 
@@ -1371,14 +1786,14 @@ function PopupUI({ cardRef, showCard, contentPhase, podium, onClose, activeConfe
               </div>
 
               {/* Main Headline */}
-              <h1 className="mx-auto mt-1.5 mb-1 max-w-[840px] font-black leading-[0.95]">
+              <h1 id={HONORS_DIALOG_TITLE_ID} className="mx-auto mt-1.5 mb-1 max-w-[840px] font-black leading-[0.95]">
                 VINH DANH NGÔI SAO ĐÀO TẠO
               </h1>
 
               {/* Subtitle with Gold Lines */}
               <div className="mx-auto flex max-w-[720px] items-center justify-center gap-2 sm:gap-3">
                 <span className="hidden h-px flex-1 bg-gradient-to-r from-transparent via-amber-400/60 to-transparent sm:block" />
-                <p className="honors-subtitle font-extrabold text-slate-700 text-[10px] sm:text-[11px] tracking-[0.08em] sm:tracking-[0.14em]">
+                <p id={HONORS_DIALOG_DESCRIPTION_ID} className="honors-subtitle font-extrabold text-slate-700 text-[10px] sm:text-[11px] tracking-[0.08em] sm:tracking-[0.14em]">
                   TẬN TÂM TRÊN TỪNG BÀI GIẢNG • TRUYỀN CẢM HƯNG MỖI NGÀY
                 </p>
                 <span className="hidden h-px flex-1 bg-gradient-to-r from-transparent via-amber-400/60 to-transparent sm:block" />
@@ -1483,6 +1898,7 @@ export function TeacherHonorsPopup({ isOpen, onOpen, onClose }: TeacherHonorsPop
   const particlesRef = useRef<Particle[]>([])
   const animStateRef = useRef<'idle' | 'in' | 'out'>('idle')
   const onCloseRef = useRef(onClose)
+  const previousFocusRef = useRef<HTMLElement | null>(null)
   const triggerOpenRef = useRef<(() => void) | null>(null)
   const triggerCloseRef = useRef<(() => void) | null>(null)
 
@@ -1598,10 +2014,124 @@ export function TeacherHonorsPopup({ isOpen, onOpen, onClose }: TeacherHonorsPop
   useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }, [])
   useEffect(() => {
     if (!renderCard) return
+
+    previousFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null
+
+    return () => {
+      const previousFocus = previousFocusRef.current
+      if (previousFocus && document.contains(previousFocus)) {
+        previousFocus.focus({ preventScroll: true })
+      }
+      previousFocusRef.current = null
+    }
+  }, [renderCard])
+
+  useEffect(() => {
+    if (!renderCard || !showCard) return
+
+    const focusTimer = window.setTimeout(() => {
+      cardRef.current?.focus({ preventScroll: true })
+    }, 0)
+
+    return () => {
+      window.clearTimeout(focusTimer)
+    }
+  }, [renderCard, showCard])
+
+  useEffect(() => {
+    if (!renderCard) return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.isComposing) {
+        event.preventDefault()
+        event.stopPropagation()
+        triggerCloseRef.current?.()
+        return
+      }
+
+      if (event.key !== 'Tab' || !showCard) return
+
+      const dialog = cardRef.current
+      if (!dialog) return
+
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(HONORS_FOCUSABLE_SELECTOR))
+        .filter(element => element.getClientRects().length > 0 && element.getAttribute('aria-hidden') !== 'true')
+
+      if (focusable.length === 0) {
+        event.preventDefault()
+        dialog.focus({ preventScroll: true })
+        return
+      }
+
+      const firstFocusable = focusable[0]
+      const lastFocusable = focusable[focusable.length - 1]
+      const activeElement = document.activeElement
+
+      if (!dialog.contains(activeElement)) {
+        event.preventDefault()
+        firstFocusable.focus({ preventScroll: true })
+        return
+      }
+
+      if (event.shiftKey && (activeElement === firstFocusable || activeElement === dialog)) {
+        event.preventDefault()
+        lastFocusable.focus({ preventScroll: true })
+      } else if (!event.shiftKey && activeElement === lastFocusable) {
+        event.preventDefault()
+        firstFocusable.focus({ preventScroll: true })
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, true)
+    }
+  }, [renderCard, showCard])
+
+  useEffect(() => {
+    if (!renderCard) return
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
       document.body.style.overflow = previousOverflow
+    }
+  }, [renderCard])
+
+  useEffect(() => {
+    if (!renderCard) return
+
+    const root = document.documentElement
+    const syncViewportSize = () => {
+      const scales = getHonorsResponsiveScales()
+      root.style.setProperty('--honors-viewport-width', `${scales.width}px`)
+      root.style.setProperty('--honors-viewport-height', `${scales.height}px`)
+      root.style.setProperty('--honors-popup-width', `${Math.round(scales.dialogWidth)}px`)
+      root.style.setProperty('--honors-popup-height', `${Math.round(scales.dialogHeight)}px`)
+      root.style.setProperty('--honors-ui-scale', scales.uiScale.toFixed(3))
+      root.style.setProperty('--honors-medal-scale', scales.medalScale.toFixed(3))
+      root.style.setProperty('--honors-score-scale', scales.scoreScale.toFixed(3))
+      root.style.setProperty('--honors-podium-top-pad', `${Math.round(scales.podiumTopPad)}px`)
+    }
+
+    syncViewportSize()
+    window.addEventListener('resize', syncViewportSize)
+    window.visualViewport?.addEventListener('resize', syncViewportSize)
+    window.visualViewport?.addEventListener('scroll', syncViewportSize)
+
+    return () => {
+      window.removeEventListener('resize', syncViewportSize)
+      window.visualViewport?.removeEventListener('resize', syncViewportSize)
+      window.visualViewport?.removeEventListener('scroll', syncViewportSize)
+      root.style.removeProperty('--honors-viewport-width')
+      root.style.removeProperty('--honors-viewport-height')
+      root.style.removeProperty('--honors-popup-width')
+      root.style.removeProperty('--honors-popup-height')
+      root.style.removeProperty('--honors-ui-scale')
+      root.style.removeProperty('--honors-medal-scale')
+      root.style.removeProperty('--honors-score-scale')
+      root.style.removeProperty('--honors-podium-top-pad')
     }
   }, [renderCard])
 
@@ -1642,11 +2172,11 @@ export function TeacherHonorsPopup({ isOpen, onOpen, onClose }: TeacherHonorsPop
 
   return createPortal(
     <>
-      {!performanceMode && <canvas ref={canvasRef} className="fixed inset-0 z-[60] pointer-events-none" style={{ opacity: 0, transition: 'opacity 0.15s' }} aria-hidden />}
+      {!performanceMode && <canvas ref={canvasRef} className="honors-transition-canvas fixed inset-0 z-modal-raised-custom pointer-events-none" style={{ opacity: 0, transition: 'opacity 0.15s' }} aria-hidden />}
       {renderCard && (
         <div
           ref={overlayRef}
-          className="honors-popup-overlay fixed inset-0 z-[55] bg-black/40 backdrop-blur-sm"
+          className="honors-popup-overlay fixed inset-0 z-modal-backdrop-custom bg-black/40 backdrop-blur-sm"
           style={{ opacity: performanceMode ? 1 : 0 }}
           onClick={triggerClose}
         />

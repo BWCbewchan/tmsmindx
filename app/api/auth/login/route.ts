@@ -129,6 +129,7 @@ export async function POST(request: NextRequest) {
             errorMessage = lastError;
         }
       }
+      console.error(`❌ [FIREBASE LOGIN FAILED] Email: "${inputEmail}" | Lỗi Firebase: ${lastError ?? 'UNKNOWN'} | Chi tiết: "${errorMessage}" (IP: ${ip})`);
       logLoginFailed({
         email: inputEmail.trim().toLowerCase(),
         ip,
@@ -138,6 +139,7 @@ export async function POST(request: NextRequest) {
 
       const threat = await checkAndRecordThreat(ip, 'LOGIN_FAIL');
       if (threat.blocked) {
+        console.error(`❌ [FIREBASE LOGIN FAILED] IP ${ip} bị khóa do thử quá nhiều lần.`);
         return NextResponse.json(
           { error: 'Quá nhiều lần thử. IP bị block tạm thời.' },
           { status: 429 },

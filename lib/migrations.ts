@@ -2569,6 +2569,241 @@ const migrations: Migration[] = [
       ADD COLUMN IF NOT EXISTS pedagogy_certificate_url TEXT;
     `,
   },
+  {
+    name: 'V104_check_cong_feedback_workflow',
+    version: 104,
+    sql: `
+      CREATE TABLE IF NOT EXISTS check_cong_feedback_settings (
+        id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        is_open BOOLEAN NOT NULL DEFAULT FALSE,
+        opens_at TIMESTAMP WITH TIME ZONE,
+        closes_at TIMESTAMP WITH TIME ZONE,
+        updated_by_email VARCHAR(255),
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      INSERT INTO check_cong_feedback_settings (id)
+      VALUES (1)
+      ON CONFLICT (id) DO NOTHING;
+
+      CREATE TABLE IF NOT EXISTS check_cong_feedbacks (
+        id BIGSERIAL PRIMARY KEY,
+        check_key VARCHAR(80) NOT NULL,
+        teacher_email VARCHAR(255) NOT NULL,
+        teacher_name VARCHAR(255),
+        username VARCHAR(100),
+        centre VARCHAR(100),
+        work_type VARCHAR(50),
+        class_name TEXT,
+        course TEXT,
+        course_line TEXT,
+        role_type VARCHAR(100),
+        slot_time TEXT,
+        status_snapshot VARCHAR(50),
+        student_count INTEGER,
+        slot_duration NUMERIC(8,2),
+        effective_duration NUMERIC(8,2),
+        feedback_content TEXT NOT NULL,
+        feedback_status VARCHAR(20) NOT NULL DEFAULT 'pending'
+          CHECK (feedback_status IN ('pending', 'approved', 'rejected')),
+        reviewer_email VARCHAR(255),
+        reviewer_note TEXT,
+        reviewed_at TIMESTAMP WITH TIME ZONE,
+        exported_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(check_key, teacher_email)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_check_cong_feedbacks_status_created
+        ON check_cong_feedbacks(feedback_status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_check_cong_feedbacks_teacher
+        ON check_cong_feedbacks(LOWER(teacher_email), created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_check_cong_feedbacks_check_key
+        ON check_cong_feedbacks(check_key);
+
+      DROP TRIGGER IF EXISTS trg_check_cong_feedback_settings_updated_at
+        ON check_cong_feedback_settings;
+      CREATE TRIGGER trg_check_cong_feedback_settings_updated_at
+      BEFORE UPDATE ON check_cong_feedback_settings
+      FOR EACH ROW
+      EXECUTE FUNCTION update_updated_at_column();
+
+      DROP TRIGGER IF EXISTS trg_check_cong_feedbacks_updated_at
+        ON check_cong_feedbacks;
+      CREATE TRIGGER trg_check_cong_feedbacks_updated_at
+      BEFORE UPDATE ON check_cong_feedbacks
+      FOR EACH ROW
+      EXECUTE FUNCTION update_updated_at_column();
+    `,
+  },
+  {
+    name: 'V105_quan_ly_qc',
+    version: 105,
+    sql: `
+      CREATE TABLE IF NOT EXISTS quan_ly_qc (
+        id BIGSERIAL PRIMARY KEY,
+        template_key VARCHAR(80) NOT NULL,
+        template_title VARCHAR(255) NOT NULL,
+        sheet_name VARCHAR(255),
+        class_lms_id VARCHAR(120) NOT NULL,
+        class_code VARCHAR(255),
+        class_name VARCHAR(500) NOT NULL,
+        center_lms_id VARCHAR(120),
+        center_name VARCHAR(255) NOT NULL,
+        teacher_name VARCHAR(500),
+        teacher_lms_id VARCHAR(120),
+        teacher_username VARCHAR(255),
+        teacher_code VARCHAR(120),
+        teacher_email VARCHAR(255),
+        teacher_rank VARCHAR(100),
+        assistant_name VARCHAR(255),
+        student_count INTEGER NOT NULL DEFAULT 0 CHECK (student_count >= 0),
+        session_lms_id VARCHAR(120),
+        session_index INTEGER,
+        session_date TIMESTAMP WITH TIME ZONE,
+        session_start_time TIMESTAMP WITH TIME ZONE,
+        session_end_time TIMESTAMP WITH TIME ZONE,
+        course_name VARCHAR(255),
+        course_line_name VARCHAR(255),
+        criteria_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+        answers JSONB NOT NULL DEFAULT '[]'::jsonb,
+        total_score NUMERIC(8,2) NOT NULL DEFAULT 0,
+        max_score NUMERIC(8,2) NOT NULL DEFAULT 0,
+        raw_total_score NUMERIC(8,2),
+        raw_max_score NUMERIC(8,2),
+        result_label VARCHAR(50),
+        general_note TEXT,
+        class_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+        signed BOOLEAN NOT NULL DEFAULT FALSE,
+        signed_by_email VARCHAR(255),
+        signed_at TIMESTAMP WITH TIME ZONE,
+        created_by_email VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_quan_ly_qc_created_at
+        ON quan_ly_qc(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_quan_ly_qc_created_by
+        ON quan_ly_qc(LOWER(created_by_email), created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_quan_ly_qc_class_lms
+        ON quan_ly_qc(class_lms_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_quan_ly_qc_center
+        ON quan_ly_qc(LOWER(center_name), created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_quan_ly_qc_template
+        ON quan_ly_qc(template_key, created_at DESC);
+
+      DROP TRIGGER IF EXISTS trg_quan_ly_qc_updated_at
+        ON quan_ly_qc;
+      CREATE TRIGGER trg_quan_ly_qc_updated_at
+      BEFORE UPDATE ON quan_ly_qc
+      FOR EACH ROW
+      EXECUTE FUNCTION update_updated_at_column();
+
+      INSERT INTO app_screens (route_path, label, group_name, sort_order, description, is_active)
+      VALUES (
+        '/admin/quan-ly-qc',
+        'Quản Lý Kiểm Tra Chất Lượng',
+        'Quản lý Giáo viên & Vận hành',
+        24,
+        'Tạo và lưu phiếu QC lớp học/giáo viên theo mẫu Google Sheet',
+        true
+      )
+      ON CONFLICT (route_path) DO UPDATE SET
+        label = EXCLUDED.label,
+        group_name = EXCLUDED.group_name,
+        description = EXCLUDED.description,
+        is_active = true;
+
+      INSERT INTO app_permissions (user_id, route_path, can_access)
+      SELECT u.id, '/admin/quan-ly-qc', true
+      FROM app_users u
+      WHERE u.role IN ('super_admin', 'admin', 'manager')
+      ON CONFLICT (user_id, route_path) DO UPDATE SET can_access = true;
+
+      DO $$
+      BEGIN
+        IF to_regclass('public.roles') IS NOT NULL AND to_regclass('public.role_permissions') IS NOT NULL THEN
+          INSERT INTO role_permissions (role_code, route_path)
+          SELECT r.role_code, '/admin/quan-ly-qc'
+          FROM roles r
+          WHERE r.role_code IN ('AD', 'TM', 'TC', 'TE', 'LEAD')
+          ON CONFLICT DO NOTHING;
+        END IF;
+      END $$;
+    `,
+  },
+  {
+    name: 'V105_portfolios',
+    version: 105,
+    sql: `
+      CREATE TABLE IF NOT EXISTS portfolios (
+        id SERIAL PRIMARY KEY,
+        student_lms_id VARCHAR(50) NOT NULL,
+        class_lms_id VARCHAR(50) NOT NULL,
+        student_name VARCHAR(255) NOT NULL,
+        class_name VARCHAR(255),
+        centre_name VARCHAR(255),
+        course_name VARCHAR(255),
+        public_slug VARCHAR(255) UNIQUE,
+        status VARCHAR(20) DEFAULT 'draft',
+        data JSONB DEFAULT '{}',
+        created_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(student_lms_id, class_lms_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_portfolios_class_lms_id
+        ON portfolios(class_lms_id);
+      CREATE INDEX IF NOT EXISTS idx_portfolios_student_lms_id
+        ON portfolios(student_lms_id);
+      CREATE INDEX IF NOT EXISTS idx_portfolios_status
+        ON portfolios(status);
+
+      DROP TRIGGER IF EXISTS trg_portfolios_updated_at ON portfolios;
+      CREATE TRIGGER trg_portfolios_updated_at
+      BEFORE UPDATE ON portfolios
+      FOR EACH ROW
+      EXECUTE FUNCTION update_updated_at_column();
+    `,
+  },
+  {
+    name: 'V106_portfolios_drop_student_id_not_null',
+    version: 106,
+    sql: `
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'portfolios' AND column_name = 'student_id'
+        ) THEN
+          ALTER TABLE portfolios ALTER COLUMN student_id DROP NOT NULL;
+        END IF;
+
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'portfolios' AND column_name = 'class_id'
+        ) THEN
+          ALTER TABLE portfolios ALTER COLUMN class_id DROP NOT NULL;
+        END IF;
+      END $$;
+    `,
+  },
+  {
+    name: 'V106_quan_ly_qc_teacher_account_and_scaled_score',
+    version: 106,
+    sql: `
+      ALTER TABLE quan_ly_qc
+        ADD COLUMN IF NOT EXISTS teacher_lms_id VARCHAR(120),
+        ADD COLUMN IF NOT EXISTS teacher_username VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS teacher_code VARCHAR(120),
+        ADD COLUMN IF NOT EXISTS teacher_email VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS raw_total_score NUMERIC(8,2),
+        ADD COLUMN IF NOT EXISTS raw_max_score NUMERIC(8,2);
+    `,
+  },
 ]
 
 // ========== HÀM CHẠY MIGRATIONS ==========

@@ -24,6 +24,17 @@ const THREAT_CONFIG = {
 
 export type ThreatType = keyof typeof THREAT_CONFIG;
 
+function isLocalDevelopmentIp(ip: string): boolean {
+  if (process.env.NODE_ENV === 'production') return false;
+  const normalized = ip.trim().toLowerCase();
+  return (
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized === 'localhost' ||
+    normalized === '::ffff:127.0.0.1'
+  );
+}
+
 /**
  * Ghi nhận 1 attempt và kiểm tra có bị block không.
  * Tự động block và ghi audit log nếu vượt ngưỡng.
@@ -32,6 +43,10 @@ export async function checkAndRecordThreat(
   ip:          string,
   threatType:  ThreatType
 ): Promise<ThreatCheckResult> {
+  if (isLocalDevelopmentIp(ip)) {
+    return { blocked: false, attemptCount: 0 };
+  }
+
   const cfg = THREAT_CONFIG[threatType];
 
   try {
@@ -71,6 +86,10 @@ export async function isIpBlocked(ip: string): Promise<{
   blockedUntil?: Date;
   threatType?: string;
 }> {
+  if (isLocalDevelopmentIp(ip)) {
+    return { blocked: false };
+  }
+
   try {
     const result = await pool.query<{
       threat_type:  string;
