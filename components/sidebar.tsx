@@ -12,6 +12,7 @@ import {
   BookOpen,
   CalendarDays,
   ChevronDown,
+  ClipboardCheck,
   DollarSign,
   FileText,
   GraduationCap,
@@ -228,6 +229,11 @@ export function Sidebar() {
       icon: Users,
       submenu: [
         { href: '/admin/page1', label: 'Hồ sơ Giáo viên' },
+        {
+          href: '/admin/quan-ly-qc',
+          label: 'Quản Lý Kiểm Tra Chất Lượng',
+          icon: ClipboardCheck,
+        },
         { href: '/admin/check-cong', label: 'Kiểm tra công' },
         {
           href: '/admin/page4/quan-ly-lich-lam-viec',
