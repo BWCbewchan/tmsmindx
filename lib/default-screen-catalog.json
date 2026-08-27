@@ -200,6 +200,14 @@
     "is_active": true
   },
   {
+    "route_path": "/admin/quan-ly-qc",
+    "label": "Quản Lý Kiểm Tra Chất Lượng",
+    "group_name": "Quản lý Giáo viên & Vận hành",
+    "sort_order": 24,
+    "description": "Tạo và lưu phiếu QC lớp học/giáo viên theo mẫu Google Sheet",
+    "is_active": true
+  },
+  {
     "route_path": "/admin/truyenthong",
     "label": "QL truyền thông",
     "group_name": "Nội dung",
