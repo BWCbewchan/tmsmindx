@@ -1,21 +1,19 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { 
   Search, 
   ChevronLeft, 
   ChevronRight, 
-  LayoutGrid, 
   WandSparkles, 
   Plus, 
   Loader2, 
-  Menu,
   X,
   ArrowDownAZ,
   ArrowUpZA
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { GenEntry } from '../types';
+import { GenEntry, GenTrainingProgressStatus } from '../types';
 
 interface GenSidebarProps {
   isOpen: boolean;
@@ -33,6 +31,8 @@ interface GenSidebarProps {
   suggestedNextGen?: string;
 }
 
+const GEN_PAGE_SIZE = 5;
+
 function sortGenEntries(a: GenEntry, b: GenEntry, order: 'asc' | 'desc') {
   const compareByCode = a.genCode.localeCompare(b.genCode, 'vi', { numeric: true });
   if (compareByCode !== 0) {
@@ -40,6 +40,40 @@ function sortGenEntries(a: GenEntry, b: GenEntry, order: 'asc' | 'desc') {
   }
   return a.regionCode.localeCompare(b.regionCode, 'vi');
 }
+
+function buildPageTabs(totalPages: number, currentPage: number): Array<number | 'gap'> {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const pages = new Set([1, totalPages, currentPage, currentPage - 1, currentPage + 1]);
+  if (currentPage <= 3) {
+    pages.add(2);
+    pages.add(3);
+    pages.add(4);
+  }
+  if (currentPage >= totalPages - 2) {
+    pages.add(totalPages - 1);
+    pages.add(totalPages - 2);
+    pages.add(totalPages - 3);
+  }
+
+  const sortedPages = Array.from(pages)
+    .filter((page) => page >= 1 && page <= totalPages)
+    .sort((a, b) => a - b);
+
+  return sortedPages.reduce<Array<number | 'gap'>>((acc, page, index) => {
+    if (index > 0 && page - sortedPages[index - 1] > 1) acc.push('gap');
+    acc.push(page);
+    return acc;
+  }, []);
+}
+
+const PROGRESS_STYLES: Record<GenTrainingProgressStatus, string> = {
+  not_open: 'border-slate-200 bg-slate-50 text-slate-600',
+  in_progress: 'border-sky-200 bg-sky-50 text-sky-700',
+  completed: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+};
 
 export default function GenSidebar({
   isOpen,
@@ -57,6 +91,21 @@ export default function GenSidebar({
 }: GenSidebarProps) {
   const [genSearchInput, setGenSearchInput] = useState('');
   const [genSortOrder, setGenSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [genPage, setGenPage] = useState(1);
+  const [recentGenKeys, setRecentGenKeys] = useState<string[]>([]);
+
+  useEffect(() => {
+    setGenPage(1);
+  }, [genSearchInput, genSortOrder, genEntries.length]);
+
+  useEffect(() => {
+    if (!activeGenKey) return;
+    setRecentGenKeys((previous) => [
+      activeGenKey,
+      ...previous.filter((key) => key !== activeGenKey),
+    ].slice(0, 8));
+    setGenPage(1);
+  }, [activeGenKey]);
 
   const filteredGens = useMemo(() => {
     const normalized = genSearchInput.trim().toLowerCase();
@@ -66,8 +115,34 @@ export default function GenSidebar({
         )
       : genEntries;
 
-    return [...candidates].sort((a, b) => sortGenEntries(a, b, genSortOrder));
-  }, [genEntries, genSearchInput, genSortOrder]);
+    return [...candidates].sort((a, b) => {
+      const recentA = recentGenKeys.indexOf(a.key);
+      const recentB = recentGenKeys.indexOf(b.key);
+      if (recentA !== recentB) {
+        if (recentA === -1) return 1;
+        if (recentB === -1) return -1;
+        return recentA - recentB;
+      }
+      return sortGenEntries(a, b, genSortOrder);
+    });
+  }, [genEntries, genSearchInput, genSortOrder, recentGenKeys]);
+
+  const genPageCount = Math.max(1, Math.ceil(filteredGens.length / GEN_PAGE_SIZE));
+  const currentGenPage = Math.min(genPage, genPageCount);
+  const pagedGens = filteredGens.slice(
+    (currentGenPage - 1) * GEN_PAGE_SIZE,
+    currentGenPage * GEN_PAGE_SIZE,
+  );
+  const pageTabs = buildPageTabs(genPageCount, currentGenPage);
+
+  const handleSelectEntry = (entry: GenEntry) => {
+    setRecentGenKeys((previous) => [
+      entry.key,
+      ...previous.filter((key) => key !== entry.key),
+    ].slice(0, 8));
+    setGenPage(1);
+    onSelectGen(entry);
+  };
 
   return (
     <AnimatePresence mode="wait">
@@ -132,16 +207,15 @@ export default function GenSidebar({
                 <p className="text-sm font-bold text-gray-900">Bộ lọc GEN</p>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded uppercase">{genEntries.length} GEN</span>
-                  {!showCreateGen && (
-                    <button
-                      type="button"
-                      onClick={onToggle}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-400 hover:bg-gray-50 hover:text-gray-900 transition-all duration-300 hover:rotate-90 hover:shadow-sm"
-                      title="Đóng bộ lọc"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={onToggle}
+                    className="inline-flex h-7 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 text-[10px] font-bold text-gray-500 transition hover:border-[#a1001f]/30 hover:bg-[#a1001f]/5 hover:text-[#a1001f]"
+                    title="Thu gọn bộ lọc GEN"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    Thu gọn
+                  </button>
                 </div>
               </div>
               <div className="mb-2 space-y-2">
@@ -156,7 +230,7 @@ export default function GenSidebar({
                   <button
                     type="button"
                     onClick={() => setGenSortOrder((order) => order === 'asc' ? 'desc' : 'asc')}
-                    title={genSortOrder === 'asc' ? 'Đang sắp xếp tăng dần' : 'Đang sắp xếp giảm dần'}
+                    title={genSortOrder === 'asc' ? 'GEN cũ nhất trước' : 'GEN mới nhất trước'}
                     className="absolute right-1.5 top-1/2 inline-flex h-8 min-w-10 -translate-y-1/2 items-center justify-center rounded-lg bg-[#a1001f] px-2 text-[10px] font-black uppercase text-white shadow-sm transition hover:bg-[#87001a]"
                   >
                     {genSortOrder === 'asc' ? <ArrowDownAZ className="h-4 w-4" /> : <ArrowUpZA className="h-4 w-4" />}
@@ -164,15 +238,16 @@ export default function GenSidebar({
                 </div>
               </div>
               
-              <div className="overflow-y-auto pr-1 space-y-1 custom-scrollbar">
-                {filteredGens.map((entry) => {
+              <div className="space-y-1 pr-1">
+                {pagedGens.map((entry) => {
                   const isActive = activeGenKey === entry.key;
+                  const progress = entry.trainingProgress;
                   return (
                     <button
                       key={entry.key}
                       type="button"
-                      onClick={() => onSelectGen(entry)}
-                      className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left transition-all ${
+                      onClick={() => handleSelectEntry(entry)}
+                      className={`flex w-full items-start justify-between rounded-xl border px-3 py-2.5 text-left transition-all ${
                         isActive
                           ? 'border-emerald-400 bg-emerald-50 text-emerald-700 shadow-sm'
                           : 'border-transparent bg-white text-gray-700 hover:bg-gray-50'
@@ -188,10 +263,27 @@ export default function GenSidebar({
                           )}
                         </div>
                         <p className="truncate text-[10px] font-medium text-gray-400 mt-0.5">{entry.regionLabel}</p>
+                        {progress && (
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${PROGRESS_STYLES[progress.status]}`}>
+                              {progress.label}
+                            </span>
+                            <span className="text-[10px] font-semibold text-gray-400">
+                              {progress.helper}
+                            </span>
+                          </div>
+                        )}
                       </div>
-                      <span className="ml-2 shrink-0 text-[10px] font-bold text-gray-400">
-                        {entry.count} UV
-                      </span>
+                      <div className="ml-2 flex shrink-0 flex-col items-end gap-1">
+                        <span className="text-[10px] font-bold text-gray-400">
+                          {entry.count} UV
+                        </span>
+                        {progress?.sessionCount ? (
+                          <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[9px] font-black text-gray-500">
+                            {progress.sessionCount} buổi
+                          </span>
+                        ) : null}
+                      </div>
                     </button>
                   );
                 })}
@@ -199,6 +291,52 @@ export default function GenSidebar({
                   <p className="py-8 text-center text-xs text-gray-400 font-medium italic">Không tìm thấy GEN phù hợp</p>
                 )}
               </div>
+
+              {filteredGens.length > GEN_PAGE_SIZE && (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 pt-3">
+                  <p className="text-[10px] font-bold uppercase text-gray-400">
+                    {((currentGenPage - 1) * GEN_PAGE_SIZE) + 1}-{Math.min(currentGenPage * GEN_PAGE_SIZE, filteredGens.length)} / {filteredGens.length}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setGenPage((page) => Math.max(1, page - 1))}
+                      disabled={currentGenPage <= 1}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      title="Trang trước"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                    </button>
+                    {pageTabs.map((page, index) =>
+                      page === 'gap' ? (
+                        <span key={`gap-${index}`} className="px-1 text-[10px] font-bold text-gray-300">...</span>
+                      ) : (
+                        <button
+                          key={page}
+                          type="button"
+                          onClick={() => setGenPage(page)}
+                          className={`h-7 min-w-7 rounded-lg px-2 text-[11px] font-black transition ${
+                            page === currentGenPage
+                              ? 'bg-[#a1001f] text-white shadow-sm'
+                              : 'border border-gray-200 bg-white text-gray-500 hover:bg-gray-50'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      ),
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setGenPage((page) => Math.min(genPageCount, page + 1))}
+                      disabled={currentGenPage >= genPageCount}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      title="Trang sau"
+                    >
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </section>
           </div>
         </motion.aside>

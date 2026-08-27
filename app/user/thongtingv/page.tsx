@@ -24,14 +24,18 @@ import { mapTeachersDbRowToTeacher } from '@/lib/teacher-db-mapper'
 import {
     Briefcase,
     Calendar,
+    ClipboardCheck,
     Clock,
+    DollarSign,
     Eye,
     EyeOff,
     Hash,
     Mail,
     MapPin,
+    MessageSquare,
     Phone,
     Search,
+    Send,
     Shield,
     Star,
     TrendingUp,
@@ -40,7 +44,7 @@ import {
     Users,
     X,
 } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import useSWR, { useSWRConfig } from 'swr'
 
@@ -143,6 +147,79 @@ interface TrainingAssignmentsResponse {
 type TeacherDbRow = Record<string, unknown>
 
 type AvailabilityPeriod = 'week' | 'month' | 'year'
+type TeacherInfoTab = 'profile' | 'checkCong' | 'checkCongFeedback'
+type CheckCongStatusFilter = 'all' | 'CHECKED' | 'UNCHECKED'
+
+interface CheckCongRecord {
+  checkKey: string
+  centre: string
+  type: string
+  className: string
+  course: string
+  courseLine: string
+  teacherName: string
+  workEmail: string
+  personalEmail: string
+  username: string
+  roleType: string
+  status: string
+  slotTime: string
+  slotDuration: number
+  effectiveDuration: number
+  studentCount: number | null
+  note?: string
+  managerNote?: string
+  confirmStatus?: string
+  confirmNote?: string
+  salaryAmount: number | null
+  salaryRule: string
+  payHours: number
+  feedback?: CheckCongFeedback | null
+}
+
+interface CheckCongFeedback {
+  id: number
+  feedbackContent: string
+  feedbackStatus: 'pending' | 'approved' | 'rejected'
+  reviewerNote?: string | null
+  reviewedAt?: string | null
+  createdAt?: string
+}
+
+interface CheckCongSummary {
+  totalRecords: number
+  checkedRecords: number
+  uncheckedRecords: number
+  classSessions: number
+  officeHours: number
+  totalSlotDuration: number
+  totalEffectiveDuration: number
+  estimatedSalary: number | null
+  grossEstimatedSalary: number | null
+  salaryTaxAmount: number | null
+  checkRate: number
+  monthLabel: string
+}
+
+interface CheckCongResponse {
+  success: boolean
+  summary: CheckCongSummary
+  records: CheckCongRecord[]
+  totalMatchedRecords: number
+  estimatedSalary: number | null
+  grossEstimatedSalary: number | null
+  salaryTaxAmount: number | null
+  feedbackSetting?: {
+    isOpen: boolean
+    opensAt: string | null
+    closesAt: string | null
+    canSubmit: boolean
+  }
+  teacher: {
+    rate: number | null
+    rank?: string | null
+  }
+}
 
 interface ApiError extends Error {
   info?: unknown
@@ -203,6 +280,39 @@ const InfoItem = memo(
   },
 )
 InfoItem.displayName = 'InfoItem'
+
+const SensitiveInlineValue = memo(
+  ({
+    value,
+    className = '',
+    mask = '••••••',
+  }: {
+    value: string
+    className?: string
+    mask?: string
+  }) => {
+    const [revealed, setRevealed] = useState(false)
+
+    return (
+      <div className="flex min-w-0 w-full items-center justify-between gap-2">
+        <span className={`min-w-0 flex-1 break-words ${className}`}>
+          {revealed ? value : mask}
+        </span>
+        <Button
+          type="button"
+          onClick={() => setRevealed((v) => !v)}
+          variant="ghost"
+          size="icon-sm"
+          className="h-6 w-6 shrink-0 text-gray-500 hover:text-[#a1001f]"
+          aria-label={revealed ? 'Ẩn' : 'Hiện'}
+        >
+          <Icon icon={revealed ? EyeOff : Eye} size="sm" />
+        </Button>
+      </div>
+    )
+  },
+)
+SensitiveInlineValue.displayName = 'SensitiveInlineValue'
 
 /** Gốc API (vd. https://www.tpsmindx.com). Để trống = gọi /api cùng origin (khuyến nghị khi deploy cùng domain). */
 const PROFILE_API_ORIGIN = (
@@ -376,6 +486,82 @@ function formatRateVnd(raw: string): string {
   }).format(Math.round(n))
 }
 
+function formatVndAmount(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return 'Chưa có rate'
+  return new Intl.NumberFormat('vi-VN', {
+    style: 'currency',
+    currency: 'VND',
+    maximumFractionDigits: 0,
+  }).format(Math.round(value))
+}
+
+function formatSlotTime(raw: string): string {
+  if (!raw) return '-'
+  const date = new Date(raw)
+  if (Number.isNaN(date.getTime())) return raw
+  return new Intl.DateTimeFormat('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(date)
+}
+
+function getCheckCongStatusLabel(status: string): 'Checked' | 'Unchecked' {
+  return status === 'CHECKED' ? 'Checked' : 'Unchecked'
+}
+
+function getFeedbackStatusLabel(status?: string): string {
+  if (status === 'approved') return 'Đã duyệt'
+  if (status === 'rejected') return 'Từ chối'
+  if (status === 'pending') return 'Chờ duyệt'
+  return 'Chưa phản hồi'
+}
+
+function getFeedbackStatusClass(status?: string): string {
+  if (status === 'approved') return 'bg-green-100 text-green-700'
+  if (status === 'rejected') return 'bg-red-100 text-red-700'
+  if (status === 'pending') return 'bg-amber-100 text-amber-700'
+  return 'bg-gray-100 text-gray-600'
+}
+
+function getCheckCongTitle(record: CheckCongRecord): string {
+  const className = normalizeCheckCongText(record.className)
+  if (className) return className
+
+  if (record.type === 'OFFICE_HOURS') return 'Trực trải nghiệm'
+
+  return (
+    normalizeCheckCongText(record.roleType) ||
+    normalizeCheckCongText(record.type) ||
+    'Ca check công'
+  )
+}
+
+function getCheckCongSubtitle(record: CheckCongRecord): string {
+  return [record.course, record.courseLine, record.teacherName]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .join(' · ')
+}
+
+function getCheckCongDetailType(record: CheckCongRecord): string {
+  if (record.type === 'OFFICE_HOURS') {
+    return normalizeCheckCongText(record.roleType) || 'Office hours'
+  }
+
+  return normalizeCheckCongText(record.type) || '-'
+}
+
+function normalizeCheckCongText(value: string | null | undefined): string {
+  const text = String(value ?? '').trim()
+  if (!text || text.toLowerCase() === 'undefined' || text.toLowerCase() === 'null') {
+    return ''
+  }
+  return text
+}
+
 const ICON_MAP: Record<string, React.ReactNode> = {
   hash: <Hash className="h-4 w-4" />,
   user: <User className="h-4 w-4" />,
@@ -485,6 +671,7 @@ export default function Page1() {
   const { user, token } = useAuth()
   const { mutate: globalMutate } = useSWRConfig()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const dispatch = useAppDispatch()
   const [searchCode, setSearchCode] = useState('')
   const [submitCode, setSubmitCode] = useState('')
@@ -499,6 +686,18 @@ export default function Page1() {
   const [selectedTableYear, setSelectedTableYear] = useState(
     String(new Date().getFullYear()),
   )
+  const [teacherInfoTab, setTeacherInfoTab] =
+    useState<TeacherInfoTab>('profile')
+  const [checkCongMonth, setCheckCongMonth] = useState('all')
+  const [checkCongStatusFilter, setCheckCongStatusFilter] =
+    useState<CheckCongStatusFilter>('all')
+  const [selectedCheckCongRecord, setSelectedCheckCongRecord] =
+    useState<CheckCongRecord | null>(null)
+  const [selectedCheckCongFeedbackRecord, setSelectedCheckCongFeedbackRecord] =
+    useState<CheckCongRecord | null>(null)
+  const [checkCongFeedbackText, setCheckCongFeedbackText] = useState('')
+  const [isSubmittingCheckCongFeedback, setIsSubmittingCheckCongFeedback] =
+    useState(false)
 
   // Debounce refs
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -767,6 +966,45 @@ export default function Page1() {
     ? mapTeachersDbRowToTeacher(dbRow)
     : null
 
+  const checkCongUrl =
+    teacher && user?.email
+      ? `/api/user/check-cong?month=${encodeURIComponent(checkCongMonth)}`
+      : null
+
+  const {
+    data: checkCongData,
+    isLoading: isLoadingCheckCong,
+    mutate: mutateCheckCong,
+  } =
+    useSWR<CheckCongResponse>(checkCongUrl, secureFetcher, {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      dedupingInterval: 120000,
+      shouldRetryOnError: false,
+    })
+
+  const filteredCheckCongRecords = useMemo(() => {
+    const records = checkCongData?.records ?? []
+    if (checkCongStatusFilter === 'all') return records
+    return records.filter((record) => record.status === checkCongStatusFilter)
+  }, [checkCongData?.records, checkCongStatusFilter])
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab')
+    if (
+      tabParam === 'profile' ||
+      tabParam === 'checkCong' ||
+      tabParam === 'checkCongFeedback'
+    ) {
+      setTeacherInfoTab(tabParam)
+    }
+  }, [searchParams])
+
+  const uncheckedCheckCongRecords = useMemo(
+    () => (checkCongData?.records ?? []).filter((record) => record.status === 'UNCHECKED'),
+    [checkCongData?.records],
+  )
+
   const {
     trainingData,
     expertiseData,
@@ -1002,6 +1240,12 @@ export default function Page1() {
       document.removeEventListener('keydown', handleEscKey)
     }
   }, [modalOpen])
+
+  useEffect(() => {
+    setCheckCongFeedbackText(
+      selectedCheckCongFeedbackRecord?.feedback?.feedbackContent || '',
+    )
+  }, [selectedCheckCongFeedbackRecord])
 
   // Handle teacher data errors
   useEffect(() => {
@@ -1243,6 +1487,43 @@ export default function Page1() {
       toast.error('Lỗi kết nối. Vui lòng thử lại.')
     } finally {
       setFeedbackSubmitting(false)
+    }
+  }
+
+  const handleCheckCongFeedbackSubmit = async () => {
+    if (!selectedCheckCongFeedbackRecord) return
+
+    setIsSubmittingCheckCongFeedback(true)
+    try {
+      const response = await fetch('/api/user/check-cong', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(token),
+        },
+        body: JSON.stringify({
+          checkKey: selectedCheckCongFeedbackRecord.checkKey,
+          content: checkCongFeedbackText.trim(),
+          month: checkCongMonth,
+        }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || result.success === false) {
+        throw new Error(result.error || 'Gửi phản hồi công thất bại')
+      }
+
+      toast.success('Đã gửi phản hồi công', {
+        message: 'Bộ phận phụ trách sẽ kiểm tra và phản hồi lại trên hệ thống.',
+      })
+      setCheckCongFeedbackText('')
+      setSelectedCheckCongFeedbackRecord(null)
+      await mutateCheckCong()
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Gửi phản hồi công thất bại',
+      )
+    } finally {
+      setIsSubmittingCheckCongFeedback(false)
     }
   }
 
@@ -1601,32 +1882,690 @@ export default function Page1() {
               </div>
             </div>
 
-            {/* Full Profile Grid */}
-            <div className="p-3 sm:p-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3">
-                {PROFILE_FIELDS.map(
-                  ({ key, label, icon, format, sensitive }) => {
-                    const raw = dbRow[key]
-                    if (
-                      raw == null ||
-                      String(raw).trim() === '' ||
-                      String(raw).trim() === 'N/A'
-                    )
-                      return null
-                    const display = format
-                      ? format(String(raw).trim())
-                      : String(raw).trim()
-                    return (
-                      <InfoItem
-                        key={key}
-                        icon={ICON_MAP[icon] || <Hash className="h-4 w-4" />}
-                        label={label}
-                        value={display}
-                        sensitive={sensitive}
-                      />
-                    )
+            <div className="border-b border-gray-200 bg-gray-50 px-3 py-2 sm:px-4">
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { value: 'profile' as const, label: 'Hồ sơ', icon: User },
+                  {
+                    value: 'checkCong' as const,
+                    label: 'Kiểm tra công & lương',
+                    icon: ClipboardCheck,
                   },
+                  {
+                    value: 'checkCongFeedback' as const,
+                    label: 'Phản hồi công',
+                    icon: MessageSquare,
+                  },
+                ].map((tab) => {
+                  const ActiveIcon = tab.icon
+                  const active = teacherInfoTab === tab.value
+                  return (
+                    <button
+                      key={tab.value}
+                      type="button"
+                      onClick={() => setTeacherInfoTab(tab.value)}
+                      className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+                        active
+                          ? 'bg-[#a1001f] text-white shadow-sm'
+                          : 'bg-white text-gray-700 border border-gray-200 hover:border-[#a1001f]/40 hover:text-[#a1001f]'
+                      }`}
+                    >
+                      <ActiveIcon className="h-4 w-4" />
+                      {tab.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {teacherInfoTab === 'profile' ? (
+              <div className="p-3 sm:p-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3">
+                  {PROFILE_FIELDS.map(
+                    ({ key, label, icon, format, sensitive }) => {
+                      const raw = dbRow[key]
+                      if (
+                        raw == null ||
+                        String(raw).trim() === '' ||
+                        String(raw).trim() === 'N/A'
+                      )
+                        return null
+                      const display = format
+                        ? format(String(raw).trim())
+                        : String(raw).trim()
+                      return (
+                        <InfoItem
+                          key={key}
+                          icon={ICON_MAP[icon] || <Hash className="h-4 w-4" />}
+                          label={label}
+                          value={display}
+                          sensitive={sensitive}
+                        />
+                      )
+                    },
+                  )}
+                </div>
+              </div>
+            ) : teacherInfoTab === 'checkCong' ? (
+              <div className="space-y-4 p-3 sm:p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-900">
+                      Công đã check của bạn
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      Chỉ hiển thị dữ liệu khớp email/username của tài khoản đang đăng nhập.
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <div className="flex rounded-lg border border-gray-200 bg-white p-1">
+                      {[
+                        { value: 'all' as const, label: 'All' },
+                        { value: 'CHECKED' as const, label: 'Checked' },
+                        { value: 'UNCHECKED' as const, label: 'Unchecked' },
+                      ].map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setCheckCongStatusFilter(option.value)}
+                          className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                            checkCongStatusFilter === option.value
+                              ? 'bg-[#a1001f] text-white shadow-sm'
+                              : 'text-gray-600 hover:bg-gray-50 hover:text-[#a1001f]'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                    <select
+                      value={checkCongMonth}
+                      onChange={(e) => setCheckCongMonth(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-[#a1001f] focus:outline-none focus:ring-2 focus:ring-[#a1001f]/20 sm:w-48"
+                    >
+                      <option value="all">Tất cả dữ liệu</option>
+                      {Array.from({ length: 18 }, (_, index) => {
+                        const date = new Date()
+                        date.setMonth(date.getMonth() - index)
+                        const value = `${date.getFullYear()}-${String(
+                          date.getMonth() + 1,
+                        ).padStart(2, '0')}`
+                        return (
+                          <option key={value} value={value}>
+                            Tháng {date.getMonth() + 1}/{date.getFullYear()}
+                          </option>
+                        )
+                      })}
+                    </select>
+                  </div>
+                </div>
+
+                {isLoadingCheckCong ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                      {Array.from({ length: 4 }).map((_, index) => (
+                        <div
+                          key={index}
+                          className="h-20 animate-pulse rounded-lg bg-gray-100"
+                        />
+                      ))}
+                    </div>
+                    <div className="h-40 animate-pulse rounded-lg bg-gray-100" />
+                  </div>
+                ) : !checkCongData?.success ||
+                  checkCongData.summary.totalRecords === 0 ? (
+                  <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-8 text-center">
+                    <ClipboardCheck className="mx-auto mb-2 h-10 w-10 text-gray-400" />
+                    <p className="text-sm font-semibold text-gray-800">
+                      Chưa có dữ liệu check công trong kỳ này
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Hệ thống đã tìm theo email MindX, email cá nhân và username.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                      <button
+                        type="button"
+                        onClick={() => setCheckCongStatusFilter('all')}
+                        className={`rounded-lg border-2 bg-white p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 ${
+                          checkCongStatusFilter === 'all'
+                            ? 'border-blue-500 shadow-blue-100'
+                            : 'border-gray-200 hover:border-blue-300'
+                        }`}
+                      >
+                        <div className="text-xs text-gray-500">Tổng số</div>
+                        <div className="mt-1 text-2xl font-bold text-gray-950">
+                          {checkCongData.summary.totalRecords}
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCheckCongStatusFilter('CHECKED')}
+                        className={`rounded-lg border bg-white p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 ${
+                          checkCongStatusFilter === 'CHECKED'
+                            ? 'border-green-500 ring-2 ring-green-100'
+                            : 'border-gray-200 hover:border-green-300'
+                        }`}
+                      >
+                        <div className="text-xs text-gray-500">Checked</div>
+                        <div className="mt-1 text-2xl font-bold text-gray-950">
+                          {checkCongData.summary.checkedRecords}
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCheckCongStatusFilter('UNCHECKED')}
+                        className={`rounded-lg border bg-white p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 ${
+                          checkCongStatusFilter === 'UNCHECKED'
+                            ? 'border-red-500 ring-2 ring-red-100'
+                            : 'border-gray-200 hover:border-red-300'
+                        }`}
+                      >
+                        <div className="text-xs text-gray-500">Unchecked</div>
+                        <div className="mt-1 text-2xl font-bold text-gray-950">
+                          {checkCongData.summary.uncheckedRecords}
+                        </div>
+                      </button>
+                      <div className="rounded-lg border border-gray-200 bg-[#f3f3f3] p-3">
+                        <div className="text-xs text-gray-500">Giờ đã check</div>
+                        <div className="mt-1 text-2xl font-bold text-[#a1001f]">
+                          {checkCongData.summary.totalEffectiveDuration.toFixed(1)}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-[#a1001f]/20 bg-red-50 p-3">
+                        <div className="flex items-center gap-1 text-xs text-[#a1001f]">
+                          <DollarSign className="h-3.5 w-3.5" />
+                          {Number(checkCongData.salaryTaxAmount || 0) > 0
+                            ? 'Lương dự tính (đã trừ thuế)'
+                            : 'Lương dự tính'}
+                        </div>
+                        <div className="mt-1">
+                          <SensitiveInlineValue
+                            value={formatVndAmount(checkCongData.estimatedSalary)}
+                            className="text-lg font-bold text-[#a1001f]"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="rounded-lg border border-gray-200 p-3 text-sm">
+                        <span className="text-gray-500">Rate theo giờ:</span>{' '}
+                        <SensitiveInlineValue
+                          value={formatVndAmount(checkCongData.teacher.rate)}
+                          className="text-sm font-bold text-gray-900"
+                        />
+                      </div>
+                      <div className="rounded-lg border border-gray-200 p-3 text-sm">
+                        <span className="text-gray-500">Lớp học:</span>{' '}
+                        <strong>{checkCongData.summary.classSessions}</strong>
+                      </div>
+                      <div className="rounded-lg border border-gray-200 p-3 text-sm">
+                        <span className="text-gray-500">Office hours:</span>{' '}
+                        <strong>{checkCongData.summary.officeHours}</strong>
+                      </div>
+                      <div className="rounded-lg border border-gray-200 p-3 text-sm">
+                        <span className="text-gray-500">Tỷ lệ check:</span>{' '}
+                        <strong>
+                          {checkCongData.summary.checkRate.toFixed(1)}%
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div className="max-h-[560px] overflow-auto rounded-lg border border-gray-200">
+                      <Table className="min-w-[1100px] text-xs">
+                        <TableHeader className="sticky top-0 z-10 bg-gray-50">
+                          <TableRow>
+                            <TableHead>Thời gian</TableHead>
+                            <TableHead>Loại</TableHead>
+                            <TableHead>Vai trò</TableHead>
+                            <TableHead>Lớp/OH</TableHead>
+                            <TableHead>Cơ sở</TableHead>
+                            <TableHead className="text-center">Students</TableHead>
+                            <TableHead className="text-center">Công</TableHead>
+                            <TableHead>Lương</TableHead>
+                            <TableHead className="text-center">Trạng thái</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredCheckCongRecords.length === 0 ? (
+                            <TableRow>
+                              <TableCell
+                                colSpan={9}
+                                className="py-8 text-center text-sm text-gray-500"
+                              >
+                                Không có dòng nào theo bộ lọc hiện tại.
+                              </TableCell>
+                            </TableRow>
+                          ) : filteredCheckCongRecords.map((record, index) => (
+                            <TableRow
+                              key={`${record.slotTime}-${index}`}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => setSelectedCheckCongRecord(record)}
+                              onKeyDown={(event) => {
+                                if (
+                                  event.key === 'Enter' ||
+                                  event.key === ' '
+                                ) {
+                                  event.preventDefault()
+                                  setSelectedCheckCongRecord(record)
+                                }
+                              }}
+                              className="cursor-pointer transition-colors hover:bg-red-50/60 focus:bg-red-50/60 focus:outline-none"
+                            >
+                              <TableCell className="font-medium text-gray-800">
+                                <div className="flex items-center gap-2">
+                                  <Eye className="h-3.5 w-3.5 text-gray-400" />
+                                  <span>{formatSlotTime(record.slotTime)}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>{record.type || '-'}</TableCell>
+                              <TableCell>{record.roleType || '-'}</TableCell>
+                              <TableCell>
+                                {getCheckCongTitle(record)}
+                              </TableCell>
+                              <TableCell>{record.centre || '-'}</TableCell>
+                              <TableCell className="text-center font-semibold">
+                                {record.studentCount ?? '-'}
+                              </TableCell>
+                              <TableCell className="text-center font-semibold">
+                                {record.payHours || record.effectiveDuration || record.slotDuration}
+                              </TableCell>
+                              <TableCell>
+                                <div className="font-semibold text-gray-900">
+                                  {formatVndAmount(record.salaryAmount)}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <span
+                                  className={`rounded-full px-2 py-1 text-[10px] font-bold ${
+                                    record.status === 'CHECKED'
+                                      ? 'bg-green-100 text-green-700'
+                                      : 'bg-red-100 text-red-700'
+                                  }`}
+                                >
+                                  {record.status === 'CHECKED'
+                                    ? 'Checked'
+                                    : 'Unchecked'}
+                                </span>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </>
                 )}
+              </div>
+            ) : (
+              <div className="space-y-4 p-3 sm:p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-900">
+                      Phản hồi công Unchecked
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      Chỉ hiển thị những ca chưa check để bạn gửi yêu cầu kiểm tra lại.
+                    </p>
+                  </div>
+                  <select
+                    value={checkCongMonth}
+                    onChange={(e) => setCheckCongMonth(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-[#a1001f] focus:outline-none focus:ring-2 focus:ring-[#a1001f]/20 sm:w-48"
+                  >
+                    <option value="all">Tất cả dữ liệu</option>
+                    {Array.from({ length: 18 }, (_, index) => {
+                      const date = new Date()
+                      date.setMonth(date.getMonth() - index)
+                      const value = `${date.getFullYear()}-${String(
+                        date.getMonth() + 1,
+                      ).padStart(2, '0')}`
+                      return (
+                        <option key={value} value={value}>
+                          Tháng {date.getMonth() + 1}/{date.getFullYear()}
+                        </option>
+                      )
+                    })}
+                  </select>
+                </div>
+
+                {isLoadingCheckCong ? (
+                  <div className="grid gap-3 lg:grid-cols-[1fr_380px]">
+                    <div className="space-y-3">
+                      {Array.from({ length: 3 }).map((_, index) => (
+                        <div
+                          key={index}
+                          className="h-24 animate-pulse rounded-lg bg-gray-100"
+                        />
+                      ))}
+                    </div>
+                    <div className="h-56 animate-pulse rounded-lg bg-gray-100" />
+                  </div>
+                ) : uncheckedCheckCongRecords.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-8 text-center">
+                    <MessageSquare className="mx-auto mb-2 h-10 w-10 text-gray-400" />
+                    <p className="text-sm font-semibold text-gray-800">
+                      Không có công Unchecked cần phản hồi
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Khi có ca chưa check, bạn sẽ thấy danh sách ở tab này.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
+                    <div className="max-h-[560px] space-y-3 overflow-y-auto pr-1">
+                      {uncheckedCheckCongRecords.map((record, index) => {
+                        const active =
+                          selectedCheckCongFeedbackRecord?.checkKey ===
+                          record.checkKey
+                        return (
+                          <button
+                            key={`${record.checkKey}-${index}`}
+                            type="button"
+                            onClick={() => setSelectedCheckCongFeedbackRecord(record)}
+                            className={`w-full rounded-lg border bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-[#a1001f]/40 hover:shadow-md ${
+                              active
+                                ? 'border-[#a1001f] ring-2 ring-[#a1001f]/10'
+                                : 'border-gray-200'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="rounded-full bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700">
+                                    Unchecked
+                                  </span>
+                                  <span
+                                    className={`rounded-full px-2 py-1 text-[10px] font-bold ${getFeedbackStatusClass(
+                                      record.feedback?.feedbackStatus,
+                                    )}`}
+                                  >
+                                    {getFeedbackStatusLabel(
+                                      record.feedback?.feedbackStatus,
+                                    )}
+                                  </span>
+                                </div>
+                                <p className="mt-2 truncate text-sm font-bold text-gray-950">
+                                  {getCheckCongTitle(record)}
+                                </p>
+                                <p className="mt-1 text-xs text-gray-500">
+                                  {formatSlotTime(record.slotTime)} · {record.centre || 'Chưa có cơ sở'}
+                                </p>
+                              </div>
+                              <div className="shrink-0 rounded-lg bg-gray-50 px-3 py-2 text-center">
+                                <div className="text-[10px] font-semibold uppercase text-gray-500">
+                                  Công
+                                </div>
+                                <div className="text-sm font-bold text-gray-950">
+                                  {record.payHours ||
+                                    record.effectiveDuration ||
+                                    record.slotDuration}
+                                </div>
+                              </div>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                      {selectedCheckCongFeedbackRecord ? (
+                        <div className="space-y-4">
+                          <div>
+                            <div className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                              Công cần phản hồi
+                            </div>
+                            <h4 className="mt-1 text-base font-bold text-gray-950">
+                              {getCheckCongTitle(selectedCheckCongFeedbackRecord)}
+                            </h4>
+                            <p className="mt-1 text-xs text-gray-500">
+                              {formatSlotTime(selectedCheckCongFeedbackRecord.slotTime)}
+                            </p>
+                            <p className="mt-1 text-xs text-gray-500">
+                              {selectedCheckCongFeedbackRecord.centre || '-'} ·{' '}
+                              {selectedCheckCongFeedbackRecord.type || '-'}
+                            </p>
+                          </div>
+
+                          <span
+                            className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${getFeedbackStatusClass(
+                              selectedCheckCongFeedbackRecord.feedback
+                                ?.feedbackStatus,
+                            )}`}
+                          >
+                            {getFeedbackStatusLabel(
+                              selectedCheckCongFeedbackRecord.feedback
+                                ?.feedbackStatus,
+                            )}
+                          </span>
+
+                          {selectedCheckCongFeedbackRecord.feedback?.reviewerNote ? (
+                            <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-700">
+                              <span className="font-semibold text-gray-900">
+                                Ghi chú duyệt:
+                              </span>{' '}
+                              {selectedCheckCongFeedbackRecord.feedback.reviewerNote}
+                            </div>
+                          ) : null}
+
+                          {!checkCongData?.feedbackSetting?.canSubmit ? (
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                              Hiện chưa trong thời gian mở phản hồi công.
+                            </div>
+                          ) : (
+                            <>
+                              <textarea
+                                value={checkCongFeedbackText}
+                                onChange={(event) =>
+                                  setCheckCongFeedbackText(event.target.value)
+                                }
+                                rows={5}
+                                placeholder="Nhập lý do hoặc ghi chú nếu có..."
+                                className="w-full resize-none rounded-lg border border-gray-300 bg-white p-3 text-sm text-gray-900 focus:border-[#a1001f] focus:outline-none focus:ring-2 focus:ring-[#a1001f]/15"
+                              />
+                              <Button
+                                type="button"
+                                variant="mindx"
+                                className="w-full"
+                                onClick={handleCheckCongFeedbackSubmit}
+                                disabled={isSubmittingCheckCongFeedback}
+                              >
+                                <Send className="h-4 w-4" />
+                                {isSubmittingCheckCongFeedback
+                                  ? 'Đang gửi...'
+                                  : selectedCheckCongFeedbackRecord.feedback
+                                    ? 'Gửi lại phản hồi'
+                                    : 'Gửi phản hồi'}
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex min-h-56 flex-col items-center justify-center rounded-lg border border-dashed border-gray-300 bg-white px-4 text-center">
+                          <MessageSquare className="mb-2 h-9 w-9 text-gray-400" />
+                          <p className="text-sm font-semibold text-gray-800">
+                            Chọn một ca Unchecked
+                          </p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            Thông tin phản hồi sẽ hiện ở đây.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {selectedCheckCongRecord && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-3 sm:p-4"
+            onClick={() => setSelectedCheckCongRecord(null)}
+          >
+            <div
+              className="max-h-[88vh] w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="bg-[#a1001f] px-5 py-4 text-white sm:px-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-white/75">
+                      {selectedCheckCongRecord.centre || 'Chưa có cơ sở'} ·{' '}
+                      {formatSlotTime(selectedCheckCongRecord.slotTime)}
+                    </p>
+                    <h3 className="mt-1 truncate text-xl font-bold">
+                      {getCheckCongTitle(selectedCheckCongRecord)}
+                    </h3>
+                    <p className="mt-1 text-sm text-white/85">
+                      {getCheckCongSubtitle(selectedCheckCongRecord) || 'Chưa có thông tin môn học'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCheckCongRecord(null)}
+                    className="rounded-full p-2 text-white/80 transition-colors hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/70"
+                    aria-label="Đóng chi tiết check công"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-[calc(88vh-92px)] overflow-y-auto">
+                <div className="grid grid-cols-1 gap-6 px-5 py-5 sm:grid-cols-2 sm:px-6">
+                  <div className="space-y-4">
+                    {[
+                      {
+                        label: 'Cơ sở',
+                        value: selectedCheckCongRecord.centre || '-',
+                      },
+                      {
+                        label: 'Giáo viên',
+                        value: selectedCheckCongRecord.teacherName || '-',
+                      },
+                      {
+                        label: 'Khung giờ',
+                        value: formatSlotTime(selectedCheckCongRecord.slotTime),
+                      },
+                      {
+                        label: 'Rank lương',
+                        value:
+                          normalizeCheckCongText(checkCongData?.teacher.rank) ||
+                          '-',
+                      },
+                    ].map((item) => (
+                      <div key={item.label}>
+                        <div className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                          {item.label}
+                        </div>
+                        <div className="mt-1 text-sm font-semibold text-gray-900">
+                          {item.value}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="space-y-4">
+                    {[
+                      {
+                        label: 'Loại',
+                        value: getCheckCongDetailType(selectedCheckCongRecord),
+                      },
+                      {
+                        label: 'Bộ môn',
+                        value:
+                          [
+                            selectedCheckCongRecord.course,
+                            selectedCheckCongRecord.courseLine,
+                          ]
+                            .map((item) => normalizeCheckCongText(item))
+                            .filter(Boolean)
+                            .join(', ') || '-',
+                      },
+                      {
+                        label: 'Số học viên',
+                        value:
+                          selectedCheckCongRecord.studentCount == null
+                            ? '-'
+                            : String(selectedCheckCongRecord.studentCount),
+                      },
+                      {
+                        label: 'Trạng thái',
+                        value: getCheckCongStatusLabel(selectedCheckCongRecord.status),
+                      },
+                    ].map((item) => (
+                      <div key={item.label}>
+                        <div className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                          {item.label}
+                        </div>
+                        <div className="mt-1 text-sm font-semibold text-gray-900">
+                          {item.value}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-100 px-5 py-4 sm:px-6">
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                    Note tư vấn
+                  </div>
+                  <div className="mt-1 space-y-1 text-sm font-semibold leading-relaxed text-gray-900">
+                    {[
+                      normalizeCheckCongText(selectedCheckCongRecord.note),
+                      normalizeCheckCongText(selectedCheckCongRecord.managerNote),
+                      normalizeCheckCongText(selectedCheckCongRecord.confirmStatus)
+                        ? `Confirm: ${normalizeCheckCongText(selectedCheckCongRecord.confirmStatus)}`
+                        : '',
+                      normalizeCheckCongText(selectedCheckCongRecord.confirmNote),
+                    ].filter(Boolean).length > 0 ? (
+                      [
+                        normalizeCheckCongText(selectedCheckCongRecord.note),
+                        normalizeCheckCongText(selectedCheckCongRecord.managerNote),
+                        normalizeCheckCongText(selectedCheckCongRecord.confirmStatus)
+                          ? `Confirm: ${normalizeCheckCongText(selectedCheckCongRecord.confirmStatus)}`
+                          : '',
+                        normalizeCheckCongText(selectedCheckCongRecord.confirmNote),
+                      ]
+                        .filter(Boolean)
+                        .map((note, index) => <p key={`${note}-${index}`}>{note}</p>)
+                    ) : (
+                      <p>Không có</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-100 bg-gray-50 px-5 py-4 sm:px-6">
+                  <div className="mb-3 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                    Case / trạng thái
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-gray-900">
+                        {getCheckCongTitle(selectedCheckCongRecord)}
+                      </p>
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        {selectedCheckCongRecord.studentCount ?? 0} học viên ·{' '}
+                        {selectedCheckCongRecord.username || selectedCheckCongRecord.workEmail || '-'}
+                      </p>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold ${
+                        selectedCheckCongRecord.status === 'CHECKED'
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-red-100 text-red-700'
+                      }`}
+                    >
+                      {getCheckCongStatusLabel(selectedCheckCongRecord.status)}
+                    </span>
+                  </div>
+                </div>
+
               </div>
             </div>
           </div>

@@ -49,31 +49,7 @@ export default function HrCandidateStats({ summary, statusFilter, onFilterChange
         </div>
       </div>
 
-      {/* Status filter cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {[
-          { value: 'all', label: 'Tất cả', count: summary.total, icon: Users, color: 'blue' },
-          { value: 'assigned', label: 'Đã có GEN', count: summary.assigned, icon: UserCheck, color: 'emerald' },
-          { value: 'unassigned', label: 'Chưa có GEN', count: summary.unassigned, icon: UserX, color: 'red' },
-        ].map(({ value, label, count, icon: Icon, color }) => (
-          <button key={value} type="button" onClick={() => onFilterChange(value)}
-            className={`group relative overflow-hidden rounded-2xl text-left transition-all duration-300 ${
-              statusFilter === value
-                ? `ring-2 ring-${color}-500 shadow-md scale-[1.01] border border-${color}-200 bg-${color}-50/80`
-                : 'hover:scale-[1.01] hover:shadow-sm border border-gray-200 bg-white'
-            }`}>
-            <div className="p-5">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-bold uppercase tracking-wider text-gray-500">{label}</p>
-                <div className={`rounded-xl p-2 ${statusFilter === value ? `bg-${color}-100 text-${color}-600` : 'bg-gray-50 text-gray-400'}`}>
-                  <Icon className="h-4 w-4" />
-                </div>
-              </div>
-              <p className="mt-3 text-3xl font-extrabold text-gray-900">{count}</p>
-            </div>
-          </button>
-        ))}
-      </div>
+
 
       {/* Region filter */}
       <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">

@@ -182,7 +182,7 @@ const handleGet = async (request: NextRequest) => {
     const [rowsResult, countResult, summaryResult, genSummaryResult, gensResult] = await Promise.all([
       pool.query(
         `SELECT c.id, c.full_name, c.email, c.phone, c.region_code, c.desired_campus,
-                c.work_block, c.subject_code, c.gen_id, c.candidate_code, c.status, c.source,
+                c.work_block, c.subject_code, c.pedagogy_certificate_url, c.gen_id, c.candidate_code, c.status, c.source,
                 c.created_by_email, c.updated_by_email, c.created_at, c.updated_at,
                 g.gen_name
          FROM hr_candidates c
@@ -240,6 +240,7 @@ const handleGet = async (request: NextRequest) => {
       desired_campus: r.desired_campus || '',
       work_block: r.work_block || '',
       subject_code: r.subject_code || '',
+      pedagogy_certificate_url: r.pedagogy_certificate_url || '',
       gen_id: r.gen_id,
       gen_name: r.gen_name || '',
       candidate_code: r.candidate_code || '',

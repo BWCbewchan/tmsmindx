@@ -69,9 +69,96 @@
 
 .k12-markdown blockquote {
   margin: 1rem 0;
-  border-left: 4px solid #e5e7eb;
-  padding-left: 0.85rem;
-  color: #4b5563;
+  border-left: 4px solid #a1001f;
+  background-color: #fff7f8;
+  padding: 0.75rem 1rem;
+  border-radius: 0 8px 8px 0;
+  color: #334155;
+}
+
+.k12-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.25rem 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  background-color: #ffffff;
+}
+
+.k12-markdown th {
+  background-color: #f8fafc;
+  color: #0f172a;
+  font-weight: 600;
+  text-align: left;
+  padding: 10px 14px;
+  border: 1px solid #cbd5e1;
+}
+
+.k12-markdown td {
+  padding: 10px 14px;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  vertical-align: top;
+}
+
+.k12-markdown tr:hover td {
+  background-color: #f8fafc;
+}
+
+.k12-markdown mark {
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-weight: 500;
+  display: inline;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  font-style: normal;
+}
+
+.k12-markdown mark[style*="color: green"],
+.k12-markdown mark[style*="color:green"] {
+  background-color: #dcfce7 !important;
+  color: #14532d !important;
+  border: 1px solid #bbf7d0;
+}
+
+.k12-markdown mark[style*="color: blue"],
+.k12-markdown mark[style*="color:blue"] {
+  background-color: #dbeafe !important;
+  color: #1e3a8a !important;
+  border: 1px solid #bfdbfe;
+}
+
+.k12-markdown mark[style*="color: orange"],
+.k12-markdown mark[style*="color:orange"] {
+  background-color: #ffedd5 !important;
+  color: #7c2d12 !important;
+  border: 1px solid #fed7aa;
+}
+
+.k12-markdown mark[style*="color: yellow"],
+.k12-markdown mark[style*="color:yellow"] {
+  background-color: #fef9c3 !important;
+  color: #713f12 !important;
+  border: 1px solid #fef08a;
+}
+
+.k12-markdown mark[style*="color: red"],
+.k12-markdown mark[style*="color:red"] {
+  background-color: #fee2e2 !important;
+  color: #7f1d1d !important;
+  border: 1px solid #fecaca;
+}
+
+.k12-markdown mark[style*="color: purple"],
+.k12-markdown mark[style*="color:purple"] {
+  background-color: #f3e8ff !important;
+  color: #581c87 !important;
+  border: 1px solid #e9d5ff;
 }
 
 .k12-markdown code {

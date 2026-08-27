@@ -32,6 +32,33 @@ const SESSION_STYLES = [
   { color: 'text-cyan-600', bg: 'bg-cyan-50', border: 'border-cyan-100' },
 ] as const;
 
+function ScheduleRowsSkeleton() {
+  return (
+    <div className="animate-pulse divide-y divide-gray-100">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div
+          key={index}
+          className="grid grid-cols-[48px_minmax(0,1fr)_84px] items-center gap-2 px-3 py-4 sm:grid-cols-[64px_1fr_140px_120px] sm:gap-3 sm:px-4"
+        >
+          <div className="h-9 w-9 rounded-xl bg-gray-200" />
+          <div className="min-w-0 space-y-2">
+            <div className="h-4 w-28 rounded bg-gray-200" />
+            <div className="h-3 w-64 max-w-full rounded bg-gray-200" />
+            <div className="h-3 w-52 max-w-full rounded bg-gray-100" />
+          </div>
+          <div className="hidden sm:block">
+            <div className="h-7 w-20 rounded-full bg-gray-200" />
+          </div>
+          <div className="flex justify-end gap-2">
+            <div className="h-9 w-9 rounded-xl bg-gray-200" />
+            <div className="h-9 w-9 rounded-xl bg-gray-200" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 type SessionSchedule = {
   date: string;
@@ -418,6 +445,7 @@ export default function GenSchedulingTab({
                 <button
                   type="button"
                   onClick={handleAddSession}
+                  disabled={loading}
                   className="inline-flex items-center gap-2 rounded-xl bg-[#a1001f] px-4 py-2 text-xs font-black text-white shadow-sm shadow-[#a1001f]/20 transition hover:bg-[#87001a]"
                 >
                   <Plus className="h-4 w-4" />
@@ -432,7 +460,9 @@ export default function GenSchedulingTab({
                   <span className="hidden sm:block">Hình thức</span>
                   <span className="text-right">Thao tác</span>
                 </div>
-                {activeSessionNumbers.map((sessionNumber) => {
+                {loading ? (
+                  <ScheduleRowsSkeleton />
+                ) : activeSessionNumbers.map((sessionNumber) => {
                   const schedule = getSchedule(activeGenKey, sessionNumber);
                   const sessionStyle = getSessionStyle(sessionNumber);
                   return (

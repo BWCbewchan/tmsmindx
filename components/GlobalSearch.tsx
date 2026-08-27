@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, X, Home, Bell, Megaphone, GraduationCap, FileText, BookOpen, CalendarDays, BarChart3, Users, Settings, DollarSign, Mail } from 'lucide-react'
+import { Search, X, Home, Bell, Megaphone, GraduationCap, FileText, BookOpen, CalendarDays, BarChart3, Users, Settings, DollarSign, Mail, Video } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { checkHrefPermission } from '@/lib/menu-permissions'
 import { cn } from '@/lib/utils'
@@ -35,8 +35,11 @@ const adminSearchItems: SearchItem[] = [
   { label: 'Bảng Điều Khiển', href: '/admin/dashboard', icon: Home, group: 'Trang chính' },
   { label: 'Thông báo', href: '/admin/thong-bao', icon: Bell, group: 'Trang chính' },
   { label: 'Quản lý Truyền Thông', href: '/admin/truyenthong', icon: Megaphone, group: 'Trang chính' },
+  { label: 'Đào tạo đầu vào - Thông tin ứng viên sau phỏng vấn', href: '/admin/hr-candidates', icon: Users, group: 'Đào tạo đầu vào' },
   { label: 'Đào tạo đầu vào - Miền Nam (HCM + Tỉnh Nam)', href: '/admin/hr-candidates/gen-planner?region=south', icon: Users, group: 'Giáo viên & Vận hành' },
   { label: 'Đào tạo đầu vào - Miền Bắc (HN + Tỉnh Bắc + Tỉnh Trung)', href: '/admin/hr-candidates/gen-planner?region=north', icon: Users, group: 'Giáo viên & Vận hành' },
+  { label: 'Đào tạo đầu vào - Quản lý video đào tạo', href: '/admin/hr-onboarding/videos', icon: Video, group: 'Đào tạo đầu vào', keywords: ['video onboarding', 'video dau vao'] },
+  { label: 'Đào tạo đầu vào - Thư viện bài kiểm tra', href: '/admin/hr-candidates/input-training-tests', icon: GraduationCap, group: 'Đào tạo đầu vào', keywords: ['quiz dau vao', 'bai kiem tra dau vao'] },
   { label: 'Hồ sơ Giáo viên', href: '/admin/page1', icon: Users, group: 'Giáo viên & Vận hành' },
   { label: 'Quản lý lịch làm việc', href: '/admin/page4/quan-ly-lich-lam-viec', icon: CalendarDays, group: 'Giáo viên & Vận hành' },
   { label: 'Lịch sự kiện', href: '/admin/page4/lich-danh-gia', icon: CalendarDays, group: 'Giáo viên & Vận hành' },

@@ -61,6 +61,11 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+function isValidCenterName(value: string) {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, ' ');
+  return Boolean(normalized) && !['#n/a', 'n/a', 'na', 'active'].includes(normalized);
+}
+
 function StatTile({
   label,
   value,
@@ -80,14 +85,14 @@ function StatTile({
   }[tone];
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-wide text-gray-500">{label}</p>
-          <p className="mt-2 text-3xl font-black text-gray-950">{value}</p>
+          <p className="mt-2 text-2xl font-black text-gray-950 sm:text-3xl">{value}</p>
         </div>
-        <span className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border ${toneClass}`}>
-          <Icon className="h-5 w-5" />
+        <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border sm:h-10 sm:w-10 ${toneClass}`}>
+          <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
         </span>
       </div>
     </div>
@@ -128,7 +133,7 @@ export default function PedagogyTrainingPage() {
   }, [fetchData]);
 
   const availableCenters = useMemo(() => {
-    const centers = new Set((data?.rows || []).map((row) => row.center).filter(Boolean));
+    const centers = new Set((data?.rows || []).map((row) => row.center).filter(isValidCenterName));
     return Array.from(centers).sort((a, b) => a.localeCompare(b, 'vi'));
   }, [data?.rows]);
 
@@ -163,7 +168,7 @@ export default function PedagogyTrainingPage() {
           </div>
         )}
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <section className="grid grid-cols-2 gap-3 sm:gap-4">
           <StatTile
             label="Tổng giáo viên"
             value={loading ? '...' : data?.summary.total || 0}
@@ -207,22 +212,21 @@ export default function PedagogyTrainingPage() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="max-h-[calc(100vh-220px)] overflow-auto">
             <table className="min-w-[1280px] divide-y divide-gray-100">
-              <thead className="bg-white">
+              <thead className="sticky top-0 z-30 bg-white shadow-sm">
                 <tr>
-                  <th rowSpan={2} className="sticky left-0 z-20 min-w-56 border-r border-gray-100 bg-white px-4 py-3 text-left text-xs font-black uppercase tracking-wide text-gray-500">Full name</th>
-                  <th rowSpan={2} className="min-w-28 px-4 py-3 text-left text-xs font-black uppercase tracking-wide text-gray-500">Code</th>
-                  <th rowSpan={2} className="min-w-52 px-4 py-3 text-left text-xs font-black uppercase tracking-wide text-gray-500">Cơ sở</th>
-                  <th rowSpan={2} className="min-w-32 px-4 py-3 text-left text-xs font-black uppercase tracking-wide text-gray-500">Status</th>
-                  <th rowSpan={2} className="min-w-28 px-4 py-3 text-left text-xs font-black uppercase tracking-wide text-gray-500">Khối</th>
+                  <th rowSpan={2} className="sticky left-0 z-40 min-w-56 border-r border-gray-100 bg-white px-4 py-3 text-left text-xs font-black uppercase tracking-wide text-gray-500">Full name</th>
+                  <th rowSpan={2} className="min-w-28 bg-white px-4 py-3 text-left text-xs font-black uppercase tracking-wide text-gray-500">Code</th>
+                  <th rowSpan={2} className="min-w-52 bg-white px-4 py-3 text-left text-xs font-black uppercase tracking-wide text-gray-500">Cơ sở</th>
+                  <th rowSpan={2} className="min-w-32 bg-white px-4 py-3 text-left text-xs font-black uppercase tracking-wide text-gray-500">Status</th>
+                  <th rowSpan={2} className="min-w-28 bg-white px-4 py-3 text-left text-xs font-black uppercase tracking-wide text-gray-500">Khối</th>
                   <th colSpan={7} className="border-x border-gray-100 bg-[#a1001f]/5 px-4 py-2 text-center text-xs font-black uppercase tracking-wide text-[#a1001f]">Tập huấn sư phạm</th>
-                  <th rowSpan={2} className="min-w-28 px-4 py-3 text-left text-xs font-black uppercase tracking-wide text-gray-500">Total Lesson</th>
-                  <th rowSpan={2} className="min-w-32 px-4 py-3 text-left text-xs font-black uppercase tracking-wide text-gray-500">Status</th>
+                  <th rowSpan={2} className="min-w-48 bg-white px-4 py-3 text-left text-xs font-black uppercase tracking-wide text-gray-500">Trạng thái tập huấn</th>
                 </tr>
                 <tr>
                   {['Lesson 1', 'Lesson 2', 'Lesson 3', 'Lesson 4', 'Điểm Duyệt giảng 70%', 'Điểm Lý thuyết 30%', 'Total Score'].map((header) => (
-                    <th key={header} className="min-w-28 border-t border-gray-100 px-4 py-3 text-left text-xs font-black uppercase tracking-wide text-gray-500">
+                    <th key={header} className="min-w-28 border-t border-gray-100 bg-white px-4 py-3 text-left text-xs font-black uppercase tracking-wide text-gray-500">
                       {header}
                     </th>
                   ))}
@@ -230,12 +234,18 @@ export default function PedagogyTrainingPage() {
               </thead>
               <tbody className="divide-y divide-gray-100 bg-white">
                 {loading ? (
-                  <tr>
-                    <td colSpan={15} className="px-4 py-10 text-center text-sm font-semibold text-gray-500">Đang tải dữ liệu...</td>
-                  </tr>
+                  Array.from({ length: 8 }).map((_, rowIndex) => (
+                    <tr key={rowIndex} className="animate-pulse">
+                      {Array.from({ length: 13 }).map((__, colIndex) => (
+                        <td key={colIndex} className="px-4 py-3">
+                          <div className={`h-4 rounded bg-gray-100 ${colIndex === 0 ? 'w-40 bg-gray-200' : colIndex % 3 === 0 ? 'w-24' : 'w-16'}`} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
                 ) : pagedRows.length === 0 ? (
                   <tr>
-                    <td colSpan={15} className="px-4 py-10 text-center text-sm font-semibold text-gray-500">Không có dữ liệu phù hợp.</td>
+                    <td colSpan={13} className="px-4 py-10 text-center text-sm font-semibold text-gray-500">Không có dữ liệu phù hợp.</td>
                   </tr>
                 ) : pagedRows.map((row) => (
                   <tr key={`${row.key}-${row.rowNumber}`} className="hover:bg-gray-50/80">
@@ -251,8 +261,15 @@ export default function PedagogyTrainingPage() {
                     <td className="px-4 py-3 text-sm font-bold text-gray-900">{row.reviewScore70 || '-'}</td>
                     <td className="px-4 py-3 text-sm font-bold text-gray-900">{row.theoryScore30 || '-'}</td>
                     <td className="px-4 py-3 text-sm font-bold text-gray-900">{row.totalScore || '-'}</td>
-                    <td className="px-4 py-3 text-sm font-bold text-gray-900">{row.totalLesson || '-'}</td>
-                    <td className="px-4 py-3 text-sm font-bold text-gray-900">{row.trainingStatus || '-'}</td>
+                    <td className="px-4 py-3 text-sm font-bold">
+                      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ring-1 ${
+                        row.trainingStatus === 'Đã hoàn thành tập huấn'
+                          ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                          : 'bg-amber-50 text-amber-700 ring-amber-200'
+                      }`}>
+                        {row.trainingStatus || 'Chưa hoàn thành tập huấn'}
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -3,6 +3,7 @@ import { requireBearerSession } from '@/lib/datasource-api-auth';
 import pool from '@/lib/db';
 import { getLeaderAreas } from '@/lib/teaching-leaders';
 import { NextRequest, NextResponse } from 'next/server';
+import { syncDoc57OrgTable } from '@/lib/k12-doc57-sync';
 
 /** null = chưa kiểm tra; migration V53 thêm cột areas */
 let teachingLeadersHasAreasColumn: boolean | null = null;
@@ -109,6 +110,35 @@ export async function GET(request: NextRequest) {
             query += ' ORDER BY region, full_name';
         } else if (table === 'roles') {
             query = 'SELECT r.*, COUNT(tl.code)::int as leader_count FROM roles r LEFT JOIN teaching_leaders tl ON tl.role_code = r.role_code GROUP BY r.role_code ORDER BY r.department, r.role_name';
+        } else if (table === 'tps_accounts') {
+            const accRes = await pool.query(`
+                SELECT 
+                    u.email,
+                    COALESCE(u.display_name, u.email) as full_name,
+                    COALESCE(u.username, LOWER(SPLIT_PART(u.email, '@', 1))) as code,
+                    COALESCE(
+                        (
+                            SELECT json_agg(DISTINCT c.full_name)
+                            FROM (
+                                SELECT c.full_name
+                                FROM manager_centers mc
+                                JOIN centers c ON c.id = mc.center_id
+                                WHERE mc.user_id = u.id
+                                UNION ALL
+                                SELECT trim(un.x) AS full_name
+                                FROM teaching_leaders tl,
+                                     unnest(string_to_array(tl.center, ',')) AS un(x)
+                                WHERE LOWER(TRIM(tl.email)) = LOWER(TRIM(u.email))
+                                  AND trim(un.x) <> '' AND trim(un.x) <> 'Không có center (Nhóm quản lý)'
+                            ) c
+                        ),
+                        '[]'::json
+                    ) as centers
+                FROM app_users u
+                WHERE u.email IS NOT NULL AND trim(u.email) <> ''
+                ORDER BY u.display_name ASC, u.email ASC
+            `);
+            return NextResponse.json({ rows: accRes.rows });
         }
 
         const result = await pool.query(query, params);
@@ -233,6 +263,7 @@ export async function POST(request: NextRequest) {
                 );
             }
             await syncTeachingLeaderAppUser(email || null, full_name || null, status);
+            await syncDoc57OrgTable();
             return NextResponse.json({ success: true });
         }
         return NextResponse.json({ error: 'Table not supported' }, { status: 400 });
@@ -274,12 +305,14 @@ export async function PUT(request: NextRequest) {
                 );
             }
             await syncTeachingLeaderAppUser(email || null, full_name || null, status);
+            await syncDoc57OrgTable();
             return NextResponse.json({ success: true });
         }
 
         if (table === 'teaching_leaders_status') {
             const { code, status } = data;
             await pool.query('UPDATE teaching_leaders SET status=$2 WHERE code=$1', [code, status]);
+            await syncDoc57OrgTable();
             return NextResponse.json({ success: true });
         }
 
@@ -358,6 +391,7 @@ export async function DELETE(request: NextRequest) {
 
         if (table === 'teaching_leaders' && code) {
             await pool.query('DELETE FROM teaching_leaders WHERE code=$1', [code]);
+            await syncDoc57OrgTable();
             return NextResponse.json({ success: true });
         }
         return NextResponse.json({ error: 'Missing params' }, { status: 400 });
