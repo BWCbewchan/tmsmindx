@@ -376,7 +376,7 @@ export default function AppLayout({
         }
 
         // Default routes allowed for all management users
-        const PORTFOLIO_QC_ROUTES = ['/admin/portfolio-qc', '/admin/deal-luong', '/admin/tao-deal-luong']
+        const PORTFOLIO_QC_ROUTES = ['/admin/portfolio-qc', '/admin/portfolio', '/admin/deal-luong', '/admin/tao-deal-luong']
         const effectivePermissions = Array.from(
           new Set([...permissions, ...PORTFOLIO_QC_ROUTES]),
         )
