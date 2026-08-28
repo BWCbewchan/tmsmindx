@@ -2804,6 +2804,16 @@ const migrations: Migration[] = [
         ADD COLUMN IF NOT EXISTS raw_max_score NUMERIC(8,2);
     `,
   },
+  {
+    name: 'V107_communications_thumbnail_position_text',
+    version: 107,
+    sql: `
+      ALTER TABLE communications
+        ADD COLUMN IF NOT EXISTS thumbnail_position TEXT DEFAULT '50% 50%';
+      ALTER TABLE communications
+        ALTER COLUMN thumbnail_position TYPE TEXT;
+    `,
+  },
 ]
 
 // ========== HÀM CHẠY MIGRATIONS ==========
