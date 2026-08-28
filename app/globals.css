@@ -84,31 +84,68 @@
   margin: 1.25rem 0;
   font-size: 0.875rem;
   line-height: 1.5;
-  border-radius: 8px;
+  border-radius: 0.5rem;
   overflow: hidden;
-  border: 1px solid #cbd5e1;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e5e7eb;
   background-color: #ffffff;
 }
 
 .k12-markdown th {
-  background-color: #f8fafc;
-  color: #0f172a;
+  background-color: #f9fafb;
+  color: #374151;
   font-weight: 600;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   text-align: left;
-  padding: 10px 14px;
-  border: 1px solid #cbd5e1;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e5e7eb;
+  vertical-align: middle;
 }
 
 .k12-markdown td {
-  padding: 10px 14px;
-  border: 1px solid #cbd5e1;
-  color: #334155;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e5e7eb;
+  color: #111827;
+  font-size: 0.875rem;
   vertical-align: top;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.k12-markdown tr {
+  border-bottom: 1px solid #e5e7eb;
+  transition: background-color 0.15s ease;
+}
+
+.k12-markdown tr:hover {
+  background-color: #f9fafb;
 }
 
 .k12-markdown tr:hover td {
-  background-color: #f8fafc;
+  background-color: #f9fafb;
+}
+
+@keyframes k12HeadingFocusFlash {
+  0% {
+    background-color: rgba(254, 226, 226, 0.95);
+    box-shadow: 0 0 0 6px rgba(254, 202, 202, 0.85);
+  }
+  35% {
+    background-color: rgba(254, 226, 226, 0.65);
+    box-shadow: 0 0 0 4px rgba(254, 202, 202, 0.5);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+.k12-heading-focused {
+  animation: k12HeadingFocusFlash 2.4s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+  border-radius: 6px;
+  outline: none;
+  scroll-margin-top: 90px;
 }
 
 .k12-markdown mark {

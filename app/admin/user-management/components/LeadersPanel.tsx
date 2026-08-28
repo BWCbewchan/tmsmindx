@@ -12,6 +12,8 @@ import { Icon } from "@/components/ui/primitives/icon";
 interface Leader {
     code: string;
     full_name: string;
+    email?: string;
+    phone?: string;
     role_code: string;
     role_name: string;
     center: string;
@@ -19,7 +21,7 @@ interface Leader {
     area: string;
     areas?: string[];
     status: string;
-    joined_date: string;
+    joined_date?: string;
 }
 interface Filters { areas: string[]; roleCodes: { role_code: string; role_name: string }[]; statuses: string[]; }
 
@@ -289,11 +291,17 @@ export default function LeadersPanel() {
                                     </p>
                                 </div>
                             )}
-                            <div><label className="block text-xs font-semibold text-gray-700 mb-1">Code</label>
+                            <div><label className="block text-xs font-semibold text-gray-700 mb-1">Code *</label>
                                 <input value={editLeader.code} onChange={e => setEditLeader({ ...editLeader, code: e.target.value })} required disabled={!isNew}
                                     className="w-full border rounded-lg px-3 py-1.5 text-sm disabled:bg-gray-100 focus:outline-none focus:border-blue-500" /></div>
-                            <div><label className="block text-xs font-semibold text-gray-700 mb-1">Họ tên</label>
+                            <div><label className="block text-xs font-semibold text-gray-700 mb-1">Họ tên *</label>
                                 <input value={editLeader.full_name} onChange={e => setEditLeader({ ...editLeader, full_name: e.target.value })} required
+                                    className="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500" /></div>
+                            <div><label className="block text-xs font-semibold text-gray-700 mb-1">Email</label>
+                                <input value={editLeader.email || ''} onChange={e => setEditLeader({ ...editLeader, email: e.target.value })} placeholder="example@mindx.edu.vn"
+                                    className="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500" /></div>
+                            <div><label className="block text-xs font-semibold text-gray-700 mb-1">Số điện thoại (SĐT)</label>
+                                <input value={editLeader.phone || ''} onChange={e => setEditLeader({ ...editLeader, phone: e.target.value })} placeholder="0912345678"
                                     className="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500" /></div>
                             <div><label className="block text-xs font-semibold text-gray-700 mb-1">Role Code</label>
                                 <select value={editLeader.role_code} onChange={e => { const rc = filters.roleCodes.find(r => r.role_code === e.target.value); setEditLeader({ ...editLeader, role_code: e.target.value, role_name: rc?.role_name || '' }); }}

@@ -234,7 +234,7 @@ export async function POST(request: NextRequest) {
         }
 
         if (table === 'teaching_leaders') {
-            const { code, full_name, email, role_code, role_name, center, courses, area, areas, status } = data;
+            const { code, full_name, email, phone, role_code, role_name, center, courses, area, areas, status } = data;
             const areasList: string[] = Array.isArray(areas)
                 ? areas.map(String).map((s: string) => s.trim()).filter(Boolean)
                 : area != null && String(area).trim()
@@ -247,19 +247,19 @@ export async function POST(request: NextRequest) {
 
             if (hasAreas) {
                 await pool.query(
-                    `INSERT INTO teaching_leaders (code, full_name, email, role_code, role_name, center, courses, area, areas, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10) ON CONFLICT (code) DO UPDATE SET
-         full_name=EXCLUDED.full_name, email=EXCLUDED.email, role_code=EXCLUDED.role_code, role_name=EXCLUDED.role_name,
+                    `INSERT INTO teaching_leaders (code, full_name, email, phone, role_code, role_name, center, courses, area, areas, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11) ON CONFLICT (code) DO UPDATE SET
+         full_name=EXCLUDED.full_name, email=EXCLUDED.email, phone=EXCLUDED.phone, role_code=EXCLUDED.role_code, role_name=EXCLUDED.role_name,
          center=EXCLUDED.center, courses=EXCLUDED.courses, area=EXCLUDED.area, areas=EXCLUDED.areas, status=EXCLUDED.status`,
-                    [code, full_name, email || null, role_code, role_name, center, courses || null, primaryArea, JSON.stringify(areasList), status || 'Active'],
+                    [code, full_name, email || null, phone || null, role_code, role_name, center, courses || null, primaryArea, JSON.stringify(areasList), status || 'Active'],
                 );
             } else {
                 await pool.query(
-                    `INSERT INTO teaching_leaders (code, full_name, email, role_code, role_name, center, courses, area, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (code) DO UPDATE SET
-         full_name=EXCLUDED.full_name, email=EXCLUDED.email, role_code=EXCLUDED.role_code, role_name=EXCLUDED.role_name,
+                    `INSERT INTO teaching_leaders (code, full_name, email, phone, role_code, role_name, center, courses, area, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (code) DO UPDATE SET
+         full_name=EXCLUDED.full_name, email=EXCLUDED.email, phone=EXCLUDED.phone, role_code=EXCLUDED.role_code, role_name=EXCLUDED.role_name,
          center=EXCLUDED.center, courses=EXCLUDED.courses, area=EXCLUDED.area, status=EXCLUDED.status`,
-                    [code, full_name, email || null, role_code, role_name, center, courses || null, areaLegacy, status || 'Active'],
+                    [code, full_name, email || null, phone || null, role_code, role_name, center, courses || null, areaLegacy, status || 'Active'],
                 );
             }
             await syncTeachingLeaderAppUser(email || null, full_name || null, status);
@@ -282,7 +282,7 @@ export async function PUT(request: NextRequest) {
         const { table, ...data } = body;
 
         if (table === 'teaching_leaders') {
-            const { code, full_name, email, role_code, role_name, center, courses, area, areas, status } = data;
+            const { code, full_name, email, phone, role_code, role_name, center, courses, area, areas, status } = data;
             const areasList: string[] = Array.isArray(areas)
                 ? areas.map(String).map((s: string) => s.trim()).filter(Boolean)
                 : area != null && String(area).trim()
@@ -295,13 +295,13 @@ export async function PUT(request: NextRequest) {
 
             if (hasAreas) {
                 await pool.query(
-                    `UPDATE teaching_leaders SET full_name=$2, email=$3, role_code=$4, role_name=$5, center=$6, courses=$7, area=$8, areas=$9::jsonb, status=$10 WHERE code=$1`,
-                    [code, full_name, email || null, role_code, role_name, center, courses || null, primaryArea, JSON.stringify(areasList), status],
+                    `UPDATE teaching_leaders SET full_name=$2, email=$3, phone=$4, role_code=$5, role_name=$6, center=$7, courses=$8, area=$9, areas=$10::jsonb, status=$11 WHERE code=$1`,
+                    [code, full_name, email || null, phone || null, role_code, role_name, center, courses || null, primaryArea, JSON.stringify(areasList), status],
                 );
             } else {
                 await pool.query(
-                    `UPDATE teaching_leaders SET full_name=$2, email=$3, role_code=$4, role_name=$5, center=$6, courses=$7, area=$8, status=$9 WHERE code=$1`,
-                    [code, full_name, email || null, role_code, role_name, center, courses || null, areaLegacy, status],
+                    `UPDATE teaching_leaders SET full_name=$2, email=$3, phone=$4, role_code=$5, role_name=$6, center=$7, courses=$8, area=$9, status=$10 WHERE code=$1`,
+                    [code, full_name, email || null, phone || null, role_code, role_name, center, courses || null, areaLegacy, status],
                 );
             }
             await syncTeachingLeaderAppUser(email || null, full_name || null, status);

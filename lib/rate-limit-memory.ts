@@ -3,6 +3,10 @@ import { NextResponse } from 'next/server';
 
 const buckets = new Map<string, { count: number; resetAt: number }>();
 
+function effectiveLimit(limit: number): number {
+  return process.env.NODE_ENV === 'development' ? Math.max(limit, 1000) : limit;
+}
+
 export function clientIpFromRequest(request: NextRequest): string {
   const xf = request.headers.get('x-forwarded-for');
   if (xf) return xf.split(',')[0].trim();
@@ -22,7 +26,8 @@ export function rateLimitOr429(
     buckets.set(key, b);
   }
   b.count += 1;
-  if (b.count > limit) {
+  const effective = effectiveLimit(limit);
+  if (b.count > effective) {
     return NextResponse.json(
       { success: false, error: 'Quá nhiều yêu cầu. Vui lòng thử lại sau.' },
       { status: 429 },
@@ -82,7 +87,8 @@ export async function rateLimitOr429Async(
 ): Promise<NextResponse | null> {
   const redisCount = await redisFixedWindowCount(key, windowMs);
   if (redisCount != null) {
-    if (redisCount > limit) {
+    const effective = effectiveLimit(limit);
+    if (redisCount > effective) {
       return NextResponse.json(
         { success: false, error: 'Qua nhieu yeu cau. Vui long thu lai sau.' },
         { status: 429 },

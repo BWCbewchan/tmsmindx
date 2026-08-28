@@ -119,6 +119,9 @@ async function _resolveAppUserAccess(normalized: string): Promise<AppUserAccess>
     const hasTrainingInputRole = roleCodes.some(
       (code) => code === 'HR' || code === 'TE' || code === 'TF',
     )
+    const hasManagementRole = roleCodes.some(
+      (code) => ['HR', 'TE', 'TF', 'LEADER', 'TC', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(code),
+    )
     const hasAdminPerms = permissions.some((p) => p.startsWith('/admin'))
     const effectiveRole =
       assignedCenters.length > 0 &&
@@ -129,6 +132,7 @@ async function _resolveAppUserAccess(normalized: string): Promise<AppUserAccess>
       appUser.is_active &&
       (['super_admin', 'admin', 'manager'].includes(effectiveRole) ||
         hasAdminPerms ||
+        hasManagementRole ||
         hasTrainingInputRole)
 
     return {

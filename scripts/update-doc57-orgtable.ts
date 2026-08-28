@@ -120,10 +120,10 @@ async function updateDoc57OrgTableWithLatestTps() {
 <td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #0f172a; text-align: center;">${getPhone('Lê Hồng Quân', 'quanlh@mindx.com.vn')}</td>
 </tr>
 <tr>
-<td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #0f172a; font-weight: 500;">Phan Hồ Triều Tiên</td>
+<td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #0f172a; font-weight: 500;">Thái Thị Hồng Đào</td>
 <td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #475569;">Art Leader</td>
-<td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #2563eb;">tienpht@mindx.com.vn</td>
-<td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #0f172a; text-align: center;">${getPhone('Phan Hồ Triều Tiên', 'tienpht@mindx.com.vn')}</td>
+<td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #2563eb;">daotth@mindx.com.vn</td>
+<td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #0f172a; text-align: center;">${getPhone('Thái Thị Hồng Đào', 'daotth@mindx.com.vn')}</td>
 </tr>
 <tr>
 <td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #0f172a; font-weight: 500;">Hà Vũ Thanh Huyền</td>
@@ -147,10 +147,10 @@ async function updateDoc57OrgTableWithLatestTps() {
 <td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #0f172a; text-align: center;">${getPhone('Lê Hồng Quân', 'quanlh@mindx.com.vn')}</td>
 </tr>
 <tr>
-<td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #0f172a; font-weight: 500;">Phan Hồ Triều Tiên</td>
+<td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #0f172a; font-weight: 500;">Thái Thị Hồng Đào</td>
 <td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #475569;">Art Leader</td>
-<td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #2563eb;">tienpht@mindx.com.vn</td>
-<td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #0f172a; text-align: center;">${getPhone('Phan Hồ Triều Tiên', 'tienpht@mindx.com.vn')}</td>
+<td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #2563eb;">daotth@mindx.com.vn</td>
+<td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #0f172a; text-align: center;">${getPhone('Thái Thị Hồng Đào', 'daotth@mindx.com.vn')}</td>
 </tr>
 <tr>
 <td style="border: 1px solid #cbd5e1; padding: 8px 12px; color: #0f172a; font-weight: 500;">Hà Vũ Thanh Huyền</td>
