@@ -2857,8 +2857,6 @@ const migrations: Migration[] = [
         ALTER COLUMN thumbnail_position TYPE TEXT;
     `,
   },
-    `,
-  },
 ]
 
 // ========== HÀM CHẠY MIGRATIONS ==========
