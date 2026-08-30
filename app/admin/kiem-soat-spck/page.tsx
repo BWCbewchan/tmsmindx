@@ -4,9 +4,10 @@ import { useState, useCallback, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import ClassFilterToolbar, {
   type FilterState,
-} from '@/components/portfolio-qc/ClassFilterToolbar';
-import ClassListTable from '@/components/portfolio-qc/ClassListTable';
-import type { PortfolioQCClass } from '@/lib/portfolio-qc/types';
+} from '@/components/portfolio/ClassFilterToolbar';
+import ClassListTable from '@/components/portfolio/ClassListTable';
+import PortfolioQCStatsCards from '@/components/portfolio/PortfolioQCStatsCards';
+import type { PortfolioQCClass } from '@/lib/portfolio/types';
 import { Sparkles } from 'lucide-react';
 
 interface CentreOption {
@@ -25,28 +26,29 @@ function normalizeVietnamese(str: string): string {
     .trim();
 }
 
-export default function PortfolioQCPage() {
+export default function KiemSoatSpckPage() {
   const { user } = useAuth();
   const [classes, setClasses] = useState<PortfolioQCClass[]>([]);
   const [centres, setCentres] = useState<CentreOption[]>([]);
   const [teacherOptions, setTeacherOptions] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [hasSearched, setHasSearched] = useState(false);
-  const [pagination, setPagination] = useState({
-    total: 0,
-    pageIndex: 0,
-    itemsPerPage: 50,
-  });
+  const [pageIndex, setPageIndex] = useState(0);
+  const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [currentFilters, setCurrentFilters] = useState<FilterState | null>(
-    null,
-  );
+  const [currentFilters, setCurrentFilters] = useState<FilterState | null>(null);
 
-  // Fetch classes from API
+  // Fetch classes from API with append mode support
   const fetchClasses = useCallback(
-    async (filters: FilterState, pageIndex = 0) => {
-      setIsLoading(true);
-      setError(null);
+    async (filters: FilterState, targetPageIndex = 0, isAppend = false) => {
+      if (isAppend) {
+        setIsLoadingMore(true);
+      } else {
+        setIsLoading(true);
+        setError(null);
+      }
       setCurrentFilters(filters);
 
       try {
@@ -60,11 +62,11 @@ export default function PortfolioQCPage() {
         const searchQuery = filters.classSearch || filters.teacherSearch;
         if (searchQuery) params.set('search', searchQuery);
         if (filters.qcStatus) params.set('qcStatus', filters.qcStatus);
-        params.set('pageIndex', String(pageIndex));
+        params.set('pageIndex', String(targetPageIndex));
         params.set('itemsPerPage', '50');
 
         const res = await fetch(
-          `/api/admin/portfolio-qc/classes?${params.toString()}`,
+          `/api/admin/portfolio/classes?${params.toString()}`,
         );
         const responseText = await res.text();
         let data: {
@@ -93,7 +95,7 @@ export default function PortfolioQCPage() {
 
           let filteredClasses = rawClasses;
 
-          // Client-side filter by teacher name if provided using accent-insensitive normalization
+          // Client-side filter by teacher name if provided
           if (filters.teacherSearch) {
             const searchNorm = normalizeVietnamese(filters.teacherSearch);
             filteredClasses = filteredClasses.filter((cls: PortfolioQCClass) => {
@@ -109,16 +111,21 @@ export default function PortfolioQCPage() {
             );
           }
 
-          setClasses(filteredClasses);
-          const rawTotal = data.pagination?.total || filteredClasses.length;
-          const displayTotal = (filters.qcStatus || filters.teacherSearch) ? filteredClasses.length : rawTotal;
-          setPagination({
-            total: displayTotal,
-            pageIndex: data.pagination?.pageIndex || 0,
-            itemsPerPage: data.pagination?.itemsPerPage || 100,
-          });
+          if (isAppend) {
+            setClasses((prev) => {
+              const existingIds = new Set(prev.map((c) => c.id));
+              const newItems = filteredClasses.filter((c) => !existingIds.has(c.id));
+              return [...prev, ...newItems];
+            });
+          } else {
+            setClasses(filteredClasses);
+          }
 
-          // Store accessible centres if returned
+          setPageIndex(targetPageIndex);
+          const rawTotal = data.pagination?.total || (isAppend ? classes.length + filteredClasses.length : filteredClasses.length);
+          setTotal(rawTotal);
+          setHasMore(rawClasses.length > 0);
+
           if (data.accessibleCenters) {
             setCentres(data.accessibleCenters);
           }
@@ -127,21 +134,26 @@ export default function PortfolioQCPage() {
           if (msg.includes('Authentication token is missing') || msg.includes('token LMS')) {
             msg = 'Tài khoản chưa có token kết nối LMS hoặc phiên kết nối LMS đã hết hạn. Vui lòng đăng xuất và đăng nhập lại bằng tài khoản LMS/Firebase.';
           }
-          setError(msg);
-          setClasses([]);
+          if (!isAppend) {
+            setError(msg);
+            setClasses([]);
+          }
         }
 
         setHasSearched(true);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Lỗi kết nối tới server';
-        setError(message || 'Lỗi kết nối tới server');
-        setClasses([]);
+        if (!isAppend) {
+          setError(message || 'Lỗi kết nối tới server');
+          setClasses([]);
+        }
         setHasSearched(true);
       } finally {
         setIsLoading(false);
+        setIsLoadingMore(false);
       }
     },
-    [],
+    [classes.length],
   );
 
   // Load centres and auto-fetch classes on mount
@@ -154,46 +166,36 @@ export default function PortfolioQCPage() {
       teacherSearch: '',
       classSearch: '',
     };
-    fetchClasses(initialFilter, 0);
-  }, [fetchClasses]);
+    fetchClasses(initialFilter, 0, false);
+  }, []);
 
   const handleFilter = useCallback(
     (filters: FilterState) => {
-      fetchClasses(filters, 0);
+      fetchClasses(filters, 0, false);
     },
     [fetchClasses],
   );
 
-  const handlePageChange = useCallback(
-    (page: number) => {
-      if (currentFilters) {
-        fetchClasses(currentFilters, page);
-      }
-    },
-    [currentFilters, fetchClasses],
-  );
-
-  // Stats summary
-  const totalStudents = classes.reduce((sum, c) => sum + c.totalStudents, 0);
-  const totalSubmitted = classes.reduce((sum, c) => sum + c.submittedCount, 0);
-  const completedClasses = classes.filter(
-    (c) => c.qcStatus === 'completed',
-  ).length;
+  const handleLoadMore = useCallback(() => {
+    if (!isLoading && !isLoadingMore && hasMore && currentFilters) {
+      fetchClasses(currentFilters, pageIndex + 1, true);
+    }
+  }, [currentFilters, fetchClasses, hasMore, isLoading, isLoadingMore, pageIndex]);
 
   return (
     <div className="max-w-[1400px] mx-auto px-4 py-6 space-y-5">
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 bg-gradient-to-br from-mindx-red to-mindx-red-dark rounded-xl flex items-center justify-center shadow-sm">
+          <div className="w-9.5 h-9.5 bg-gradient-to-br from-mindx-red to-mindx-red-dark rounded-xl flex items-center justify-center shadow-sm">
             <Sparkles size={18} className="text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-neutral-800">
-              Kiểm Soát Portfolio (QC)
+            <h1 className="text-xl font-bold text-neutral-900">
+              Kiểm soát Sản phẩm cuối khóa
             </h1>
             <p className="text-xs text-neutral-500 mt-0.5">
-              Quản lý tiến độ sản phẩm cuối khoá
+              Theo dõi tỷ lệ nộp bài, tình trạng điểm CP1/CP2 & báo cáo khuyết thông tin
             </p>
           </div>
         </div>
@@ -207,44 +209,9 @@ export default function PortfolioQCPage() {
         isLoading={isLoading}
       />
 
-      {/* Stats Summary — only show when classes loaded */}
-      {hasSearched && classes.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm">
-            <div className="text-2xl font-bold text-neutral-800">
-              {classes.length}
-            </div>
-            <div className="text-xs text-neutral-500 mt-0.5">Tổng lớp</div>
-          </div>
-          <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm">
-            <div className="text-2xl font-bold text-neutral-800">
-              {totalStudents}
-            </div>
-            <div className="text-xs text-neutral-500 mt-0.5">Tổng học viên</div>
-          </div>
-          <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm">
-            <div className="text-2xl font-bold text-emerald-600">
-              {totalSubmitted}
-              <span className="text-sm font-normal text-neutral-400">
-                /{totalStudents}
-              </span>
-            </div>
-            <div className="text-xs text-neutral-500 mt-0.5">
-              Đã nộp sản phẩm
-            </div>
-          </div>
-          <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm">
-            <div className="text-2xl font-bold text-emerald-600">
-              {completedClasses}
-              <span className="text-sm font-normal text-neutral-400">
-                /{classes.length}
-              </span>
-            </div>
-            <div className="text-xs text-neutral-500 mt-0.5">
-              Lớp đạt yêu cầu
-            </div>
-          </div>
-        </div>
+      {/* Enhanced Stats Summary Cards */}
+      {hasSearched && (
+        <PortfolioQCStatsCards classes={classes} isLoading={isLoading} totalClasses={total || classes.length} />
       )}
 
       {/* Error */}
@@ -258,10 +225,10 @@ export default function PortfolioQCPage() {
       <ClassListTable
         classes={classes}
         isLoading={isLoading}
-        total={pagination.total}
-        pageIndex={pagination.pageIndex}
-        itemsPerPage={pagination.itemsPerPage}
-        onPageChange={handlePageChange}
+        isLoadingMore={isLoadingMore}
+        hasMore={hasMore}
+        onLoadMore={handleLoadMore}
+        total={total}
       />
     </div>
   );

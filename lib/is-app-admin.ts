@@ -51,9 +51,12 @@ export async function isAppAdminByEmail(email: string | undefined | null): Promi
       (r.role_code || '').toUpperCase()
     );
     const hasTrainingInputRole = roleCodes.some((code) => code === 'HR' || code === 'TE' || code === 'TF');
+    const hasManagementRole = roleCodes.some((code) =>
+      ['HR', 'TE', 'TF', 'LEADER', 'TC', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(code),
+    );
     const hasAdminPerms = permissions.some((p) => p.startsWith('/admin'));
 
-    return hasAdminPerms || hasTrainingInputRole;
+    return hasAdminPerms || hasManagementRole || hasTrainingInputRole;
   } catch (e) {
     console.error('isAppAdminByEmail:', e);
     return false;

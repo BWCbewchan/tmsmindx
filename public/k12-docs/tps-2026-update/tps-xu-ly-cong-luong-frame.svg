@@ -1,0 +1,246 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 620" width="1080" height="620" style="background:#f8fafc; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <defs>
+    <filter id="shadow" x="-3%" y="-3%" width="106%" height="108%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.08" />
+    </filter>
+    <filter id="cardShadow" x="-2%" y="-2%" width="104%" height="106%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.04" />
+    </filter>
+    <linearGradient id="primaryGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a1001f" />
+      <stop offset="100%" stop-color="#7a0017" />
+    </linearGradient>
+    <linearGradient id="badgeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#fee2e2" />
+      <stop offset="100%" stop-color="#fecaca" />
+    </linearGradient>
+  </defs>
+
+  <!-- Main Window Frame -->
+  <g transform="translate(20, 20)">
+    <!-- Container -->
+    <rect width="1040" height="580" rx="14" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#shadow)" />
+
+    <!-- Browser / App Header Bar -->
+    <path d="M 0 14 C 0 6.268 6.268 0 14 0 L 1026 0 C 1033.732 0 1040 6.268 1040 14 L 1040 48 L 0 48 Z" fill="#ffffff" stroke="#f1f5f9" stroke-width="1" />
+    <circle cx="24" cy="24" r="5.5" fill="#ef4444" />
+    <circle cx="42" cy="24" r="5.5" fill="#f59e0b" />
+    <circle cx="60" cy="24" r="5.5" fill="#10b981" />
+
+    <!-- Breadcrumb / URL Bar in App -->
+    <rect x="90" y="10" width="460" height="28" rx="6" fill="#f8fafc" stroke="#e2e8f0" />
+    <text x="105" y="28" font-size="12" fill="#64748b" font-weight="500">tps.mindx.edu.vn/admin/timesheet-management</text>
+    <rect x="565" y="10" width="130" height="28" rx="6" fill="#eff6ff" stroke="#bfdbfe" />
+    <text x="580" y="28" font-size="11" fill="#1d4ed8" font-weight="600">● Live Connection</text>
+
+    <!-- Top Navigation Header -->
+    <g transform="translate(0, 48)">
+      <rect width="1040" height="56" fill="#ffffff" stroke="#f1f5f9" stroke-width="1" />
+      
+      <!-- Brand Logo -->
+      <rect x="24" y="12" width="32" height="32" rx="8" fill="url(#primaryGrad)" />
+      <text x="32" y="33" font-size="14" font-weight="800" fill="#ffffff">MX</text>
+      <text x="66" y="32" font-size="15" font-weight="700" fill="#0f172a">TPS MINDX</text>
+      <rect x="156" y="16" width="1" height="24" fill="#e2e8f0" />
+      <text x="172" y="32" font-size="14" font-weight="600" fill="#a1001f">Quản lý Công &amp; Lương Giảng Dạy</text>
+
+      <!-- Action Buttons Right -->
+      <rect x="760" y="12" width="120" height="32" rx="6" fill="#ffffff" stroke="#cbd5e1" />
+      <text x="780" y="32" font-size="12" font-weight="600" fill="#334155">⬇ Xuất Excel</text>
+      
+      <rect x="890" y="12" width="126" height="32" rx="6" fill="url(#primaryGrad)" />
+      <text x="906" y="32" font-size="12" font-weight="600" fill="#ffffff">✓ Chốt Kỳ Công</text>
+    </g>
+
+    <!-- Filter & Control Bar -->
+    <g transform="translate(24, 120)">
+      <!-- Filter 1: Kỳ tính công -->
+      <text x="0" y="-8" font-size="11" font-weight="600" fill="#475569">KỲ TÍNH CÔNG</text>
+      <rect x="0" y="0" width="160" height="36" rx="6" fill="#ffffff" stroke="#cbd5e1" />
+      <text x="12" y="22" font-size="13" fill="#0f172a" font-weight="500">Tháng 08 / 2026</text>
+      <text x="140" y="22" font-size="11" fill="#94a3b8">▼</text>
+
+      <!-- Filter 2: Cơ sở -->
+      <text x="175" y="-8" font-size="11" font-weight="600" fill="#475569">CƠ SỞ / KHU VỰC</text>
+      <rect x="175" y="0" width="180" height="36" rx="6" fill="#ffffff" stroke="#cbd5e1" />
+      <text x="187" y="22" font-size="13" fill="#0f172a" font-weight="500">Tất cả cơ sở HN &amp; HCM</text>
+      <text x="335" y="22" font-size="11" fill="#94a3b8">▼</text>
+
+      <!-- Filter 3: Trạng thái điểm danh -->
+      <text x="370" y="-8" font-size="11" font-weight="600" fill="#475569">TRẠNG THÁI CÔNG</text>
+      <rect x="370" y="0" width="170" height="36" rx="6" fill="#ffffff" stroke="#cbd5e1" />
+      <text x="382" y="22" font-size="13" fill="#0f172a" font-weight="500">Tất cả trạng thái</text>
+      <text x="520" y="22" font-size="11" fill="#94a3b8">▼</text>
+
+      <!-- Search Input -->
+      <text x="555" y="-8" font-size="11" font-weight="600" fill="#475569">TÌM KIẾM GIÁO VIÊN / LỚP</text>
+      <rect x="555" y="0" width="280" height="36" rx="6" fill="#ffffff" stroke="#cbd5e1" />
+      <text x="570" y="22" font-size="13" fill="#94a3b8">Nhập tên, mã GV hoặc mã lớp...</text>
+
+      <!-- Filter Button -->
+      <rect x="850" y="0" width="142" height="36" rx="6" fill="#f8fafc" stroke="#cbd5e1" />
+      <text x="880" y="22" font-size="12" font-weight="600" fill="#0f172a">⚡ Lọc Dữ Liệu</text>
+    </g>
+
+    <!-- KPI / Metric Cards -->
+    <g transform="translate(24, 185)">
+      <!-- Card 1 -->
+      <rect x="0" y="0" width="235" height="72" rx="8" fill="#f8fafc" stroke="#e2e8f0" filter="url(#cardShadow)" />
+      <text x="14" y="24" font-size="11" font-weight="600" fill="#64748b">TỔNG BUỔI DẠY (SESSIONS)</text>
+      <text x="14" y="52" font-size="22" font-weight="800" fill="#0f172a">1,482</text>
+      <rect x="170" y="16" width="50" height="20" rx="10" fill="#dcfce7" />
+      <text x="178" y="30" font-size="10" font-weight="700" fill="#166534">98.5%</text>
+
+      <!-- Card 2 -->
+      <rect x="252" y="0" width="235" height="72" rx="8" fill="#f8fafc" stroke="#e2e8f0" filter="url(#cardShadow)" />
+      <text x="266" y="24" font-size="11" font-weight="600" fill="#64748b">TỔNG GIỜ CÔNG HỢP LỆ</text>
+      <text x="266" y="52" font-size="22" font-weight="800" fill="#a1001f">2,964 <tspan font-size="14" font-weight="500" fill="#64748b">giờ</tspan></text>
+
+      <!-- Card 3 -->
+      <rect x="504" y="0" width="235" height="72" rx="8" fill="#f8fafc" stroke="#e2e8f0" filter="url(#cardShadow)" />
+      <text x="518" y="24" font-size="11" font-weight="600" fill="#64748b">CÔNG CA TRẢI NGHIỆM (OH)</text>
+      <text x="518" y="52" font-size="22" font-weight="800" fill="#0284c7">320 <tspan font-size="14" font-weight="500" fill="#64748b">ca</tspan></text>
+
+      <!-- Card 4 -->
+      <rect x="756" y="0" width="236" height="72" rx="8" fill="#fff7ed" stroke="#fdba74" filter="url(#cardShadow)" />
+      <text x="770" y="24" font-size="11" font-weight="600" fill="#c2410c">KHIẾU NẠI / CHỜ DUYỆT</text>
+      <text x="770" y="52" font-size="22" font-weight="800" fill="#ea580c">12 <tspan font-size="13" font-weight="600" fill="#c2410c">yêu cầu</tspan></text>
+      <rect x="918" y="16" width="60" height="20" rx="10" fill="#ffedd5" />
+      <text x="926" y="30" font-size="10" font-weight="700" fill="#9a3412">Xử lý ngay</text>
+    </g>
+
+    <!-- Timesheet Table Section -->
+    <g transform="translate(24, 275)">
+      <!-- Table Header -->
+      <rect x="0" y="0" width="992" height="36" rx="6" fill="#f1f5f9" stroke="#e2e8f0" />
+      <text x="16" y="22" font-size="11" font-weight="700" fill="#334155">GIÁO VIÊN</text>
+      <text x="170" y="22" font-size="11" font-weight="700" fill="#334155">MÃ LỚP / CA DẠY</text>
+      <text x="330" y="22" font-size="11" font-weight="700" fill="#334155">NGÀY &amp; THỜI GIAN</text>
+      <text x="490" y="22" font-size="11" font-weight="700" fill="#334155">ĐIỂM DANH (LMS)</text>
+      <text x="640" y="22" font-size="11" font-weight="700" fill="#334155">SỐ GIỜ</text>
+      <text x="730" y="22" font-size="11" font-weight="700" fill="#334155">TRẠNG THÁI CÔNG</text>
+      <text x="880" y="22" font-size="11" font-weight="700" fill="#334155">THAO TÁC</text>
+
+      <!-- Row 1 -->
+      <g transform="translate(0, 42)">
+        <rect width="992" height="48" rx="4" fill="#ffffff" stroke="#f1f5f9" />
+        <circle cx="28" cy="24" r="14" fill="#fee2e2" />
+        <text x="22" y="28" font-size="11" font-weight="700" fill="#991b1b">TH</text>
+        <text x="50" y="22" font-size="12" font-weight="600" fill="#0f172a">Trần Tuấn Hưng</text>
+        <text x="50" y="36" font-size="10" fill="#64748b">I1163 · CS Nguyễn Chí Thanh</text>
+
+        <text x="170" y="22" font-size="12" font-weight="600" fill="#0f172a">K12-PY-2408-A</text>
+        <text x="170" y="36" font-size="10" fill="#64748b">Lập trình Python Game</text>
+
+        <text x="330" y="22" font-size="12" fill="#0f172a">15/08/2026 · 18:00 - 20:00</text>
+        <text x="330" y="36" font-size="10" fill="#10b981">● Check-in đúng giờ (17:52)</text>
+
+        <rect x="490" y="14" width="105" height="22" rx="11" fill="#dcfce7" />
+        <text x="502" y="29" font-size="11" font-weight="600" fill="#166534">✓ Đã điểm danh</text>
+
+        <text x="640" y="30" font-size="13" font-weight="700" fill="#0f172a">2.0 h</text>
+
+        <rect x="730" y="14" width="95" height="22" rx="11" fill="#ecfdf5" stroke="#a7f3d0" />
+        <text x="742" y="29" font-size="11" font-weight="600" fill="#047857">Đạt tiêu chuẩn</text>
+
+        <rect x="880" y="12" width="95" height="24" rx="4" fill="#f8fafc" stroke="#cbd5e1" />
+        <text x="895" y="28" font-size="11" font-weight="600" fill="#334155">Chi tiết ➔</text>
+      </g>
+
+      <!-- Row 2 -->
+      <g transform="translate(0, 96)">
+        <rect width="992" height="48" rx="4" fill="#ffffff" stroke="#f1f5f9" />
+        <circle cx="28" cy="24" r="14" fill="#e0f2fe" />
+        <text x="22" y="28" font-size="11" font-weight="700" fill="#0369a1">MA</text>
+        <text x="50" y="22" font-size="12" font-weight="600" fill="#0f172a">Nguyễn Minh Anh</text>
+        <text x="50" y="36" font-size="10" fill="#64748b">I1088 · CS Cầu Giấy</text>
+
+        <text x="170" y="22" font-size="12" font-weight="600" fill="#0284c7">TRIAL-RB-HN02</text>
+        <text x="170" y="36" font-size="10" fill="#64748b">Ca trải nghiệm Robotics</text>
+
+        <text x="330" y="22" font-size="12" fill="#0f172a">16/08/2026 · 09:00 - 11:00</text>
+        <text x="330" y="36" font-size="10" fill="#10b981">● Check-in đúng giờ (08:45)</text>
+
+        <rect x="490" y="14" width="105" height="22" rx="11" fill="#e0f2fe" />
+        <text x="504" y="29" font-size="11" font-weight="600" fill="#0369a1">✓ Ca hoàn thành</text>
+
+        <text x="640" y="30" font-size="13" font-weight="700" fill="#0f172a">2.0 h</text>
+
+        <rect x="730" y="14" width="95" height="22" rx="11" fill="#ecfdf5" stroke="#a7f3d0" />
+        <text x="742" y="29" font-size="11" font-weight="600" fill="#047857">Đạt tiêu chuẩn</text>
+
+        <rect x="880" y="12" width="95" height="24" rx="4" fill="#f8fafc" stroke="#cbd5e1" />
+        <text x="895" y="28" font-size="11" font-weight="600" fill="#334155">Chi tiết ➔</text>
+      </g>
+
+      <!-- Row 3 (Pending review item) -->
+      <g transform="translate(0, 150)">
+        <rect width="992" height="48" rx="4" fill="#fffbeb" stroke="#fde68a" />
+        <circle cx="28" cy="24" r="14" fill="#fef3c7" />
+        <text x="22" y="28" font-size="11" font-weight="700" fill="#b45309">QD</text>
+        <text x="50" y="22" font-size="12" font-weight="600" fill="#0f172a">Lê Quang Dũng</text>
+        <text x="50" y="36" font-size="10" fill="#64748b">I1205 · CS Đống Đa</text>
+
+        <text x="170" y="22" font-size="12" font-weight="600" fill="#b45309">K12-WD-2407-B</text>
+        <text x="170" y="36" font-size="10" fill="#64748b">Dạy thay (Sub teacher)</text>
+
+        <text x="330" y="22" font-size="12" fill="#0f172a">17/08/2026 · 19:30 - 21:30</text>
+        <text x="330" y="36" font-size="10" fill="#eab308">⚠️ Yêu cầu bổ sung công</text>
+
+        <rect x="490" y="14" width="105" height="22" rx="11" fill="#fef3c7" />
+        <text x="500" y="29" font-size="11" font-weight="600" fill="#b45309">⏳ Chờ TE duyệt</text>
+
+        <text x="640" y="30" font-size="13" font-weight="700" fill="#b45309">2.0 h</text>
+
+        <rect x="730" y="14" width="95" height="22" rx="11" fill="#fff7ed" stroke="#fed7aa" />
+        <text x="742" y="29" font-size="11" font-weight="600" fill="#c2410c">Cần xác minh</text>
+
+        <!-- Approve action buttons -->
+        <rect x="880" y="12" width="44" height="24" rx="4" fill="#16a34a" />
+        <text x="893" y="28" font-size="11" font-weight="700" fill="#ffffff">✓</text>
+        <rect x="930" y="12" width="44" height="24" rx="4" fill="#ef4444" />
+        <text x="944" y="28" font-size="11" font-weight="700" fill="#ffffff">✕</text>
+      </g>
+
+      <!-- Pagination / Summary Footer -->
+      <g transform="translate(0, 208)">
+        <text x="10" y="20" font-size="11" fill="#64748b">Hiển thị 1 - 3 trên tổng số 1,482 ca dạy (Trang 1/50)</text>
+        <rect x="800" y="4" width="30" height="24" rx="4" fill="#f1f5f9" />
+        <text x="810" y="20" font-size="11" fill="#334155">«</text>
+        <rect x="836" y="4" width="30" height="24" rx="4" fill="#a1001f" />
+        <text x="847" y="20" font-size="11" font-weight="700" fill="#ffffff">1</text>
+        <rect x="872" y="4" width="30" height="24" rx="4" fill="#f1f5f9" />
+        <text x="882" y="20" font-size="11" fill="#334155">2</text>
+        <rect x="908" y="4" width="30" height="24" rx="4" fill="#f1f5f9" />
+        <text x="918" y="20" font-size="11" fill="#334155">3</text>
+        <rect x="944" y="4" width="30" height="24" rx="4" fill="#f1f5f9" />
+        <text x="954" y="20" font-size="11" fill="#334155">»</text>
+      </g>
+    </g>
+
+    <!-- Annotation Callouts -->
+    <!-- Callout 1 -->
+    <g transform="translate(20, 105)">
+      <circle cx="0" cy="0" r="10" fill="#a1001f" stroke="#ffffff" stroke-width="2" />
+      <text x="-4" y="4" font-size="11" font-weight="700" fill="#ffffff">1</text>
+    </g>
+
+    <!-- Callout 2 -->
+    <g transform="translate(20, 180)">
+      <circle cx="0" cy="0" r="10" fill="#a1001f" stroke="#ffffff" stroke-width="2" />
+      <text x="-4" y="4" font-size="11" font-weight="700" fill="#ffffff">2</text>
+    </g>
+
+    <!-- Callout 3 -->
+    <g transform="translate(20, 270)">
+      <circle cx="0" cy="0" r="10" fill="#a1001f" stroke="#ffffff" stroke-width="2" />
+      <text x="-4" y="4" font-size="11" font-weight="700" fill="#ffffff">3</text>
+    </g>
+
+    <!-- Callout 4 -->
+    <g transform="translate(900, 35)">
+      <circle cx="0" cy="0" r="10" fill="#a1001f" stroke="#ffffff" stroke-width="2" />
+      <text x="-4" y="4" font-size="11" font-weight="700" fill="#ffffff">4</text>
+    </g>
+  </g>
+</svg>

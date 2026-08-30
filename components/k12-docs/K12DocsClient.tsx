@@ -5,7 +5,11 @@ import ImageLightbox from '@/components/ImageLightbox'
 import { normalizeStorageUrl } from '@/lib/storage-url'
 import { cn } from '@/lib/utils'
 import {
+  Bookmark,
+  BookmarkCheck,
   ChevronRight,
+  Hash,
+  ImageIcon,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
@@ -19,6 +23,7 @@ import {
   useState,
   useEffect,
   useRef,
+  useCallback,
 } from 'react'
 import Markdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
@@ -161,14 +166,45 @@ function normalizeGitbookMarkdown(raw: string) {
   return content
 }
 
-function decodeHtmlEntities(input: string) {
-  return input
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
+const HTML_ENTITIES_MAP: Record<string, string> = {
+  '&aacute;': 'á', '&Aacute;': 'Á',
+  '&agrave;': 'à', '&Agrave;': 'À',
+  '&acirc;': 'â', '&Acirc;': 'Â',
+  '&atilde;': 'ã', '&Atilde;': 'Ã',
+  '&eacute;': 'é', '&Eacute;': 'É',
+  '&egrave;': 'è', '&Egrave;': 'È',
+  '&ecirc;': 'ê', '&Ecirc;': 'Ê',
+  '&iacute;': 'í', '&Iacute;': 'Í',
+  '&igrave;': 'ì', '&Igrave;': 'Ì',
+  '&oacute;': 'ó', '&Oacute;': 'Ó',
+  '&ograve;': 'ò', '&Ograve;': 'Ò',
+  '&ocirc;': 'ô', '&Ocirc;': 'Ô',
+  '&otilde;': 'õ', '&Otilde;': 'Õ',
+  '&uacute;': 'ú', '&Uacute;': 'Ú',
+  '&ugrave;': 'ù', '&Ugrave;': 'Ù',
+  '&yacute;': 'ý', '&Yacute;': 'Ý',
+  '&nbsp;': ' ',
+  '&amp;': '&',
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  '&#39;': "'",
+  '&apos;': "'",
+}
+
+function decodeHtmlEntities(input: string): string {
+  if (!input) return ''
+  let str = input
+  for (const [entity, char] of Object.entries(HTML_ENTITIES_MAP)) {
+    str = str.replaceAll(entity, char)
+  }
+  str = str.replace(/&#x([0-9a-f]+);/gi, (_, hex: string) =>
+    String.fromCodePoint(parseInt(hex, 16)),
+  )
+  str = str.replace(/&#([0-9]+);/g, (_, dec: string) =>
+    String.fromCodePoint(parseInt(dec, 10)),
+  )
+  return str
 }
 
 function buildSearchPreview(content: string, maxLength = 120) {
@@ -196,6 +232,18 @@ function mapGitbookHref(href: string, basePath: string, documents: K12ClientDocI
   
   // If it's an external URL
   if (cleanHref.startsWith('http://') || cleanHref.startsWith('https://')) {
+    // Check if it's a PD MindX URL (e.g. pd.mindx.edu.vn or pdmindx.com)
+    if (cleanHref.includes('pd.mindx.edu.vn') || cleanHref.includes('pdmindx.com')) {
+      const urlObj = new URL(cleanHref, 'http://localhost')
+      const subPageId = urlObj.searchParams.get('sub_page_id') || urlObj.searchParams.get('id')
+      if (subPageId) {
+        const idMatch = documents.find(doc => String(doc.id) === String(subPageId))
+        if (idMatch) {
+          return `${basePath}?doc=${encodeURIComponent(idMatch.slug)}${hash}`
+        }
+      }
+    }
+
     // Check if it's a GitBook URL that should be converted
     const gitbookMarker = 'cxohok12.gitbook.io/quy-trinh-quy-dinh-danh-cho-giao-vien/'
     const markerIndex = cleanHref.indexOf(gitbookMarker)
@@ -229,12 +277,13 @@ function mapGitbookHref(href: string, basePath: string, documents: K12ClientDocI
       // Return with extracted path even if not found (might be valid)
       return `${basePath}?doc=${encodeURIComponent(extractedPath)}${hash}`
     }
-    // Not a GitBook URL, return as-is
+    // Other external URLs return as-is
     return href
   }
 
-  // Remove common prefixes for relative paths
+  // Remove common prefixes for relative paths and normalize ../ or ./
   const extractedPath = cleanHref
+    .replace(/^(\.\.\/|\.\/)+/g, '')
     .replace(/^\/quy-trinh-quy-dinh-danh-cho-giao-vien\//, '')
     .replace(/^quy-trinh-quy-dinh-danh-cho-giao-vien\//, '')
     .replace(/^\//, '')
@@ -274,6 +323,81 @@ function getPlainText(node: unknown): string {
     return getPlainText(props.children)
   }
   return ''
+}
+
+function findHeadingElement(id: string, text?: string): HTMLElement | null {
+  if (typeof document === 'undefined') return null
+
+  // 1. Khớp ID trực tiếp
+  let el = document.getElementById(id)
+  if (el) return el
+
+  // 2. Khớp URI component đã giải mã
+  try {
+    const decoded = decodeURIComponent(id)
+    el = document.getElementById(decoded)
+    if (el) return el
+  } catch {}
+
+  // 3. Fallback: Quét tất cả thẻ heading trong container bài viết
+  const container = document.querySelector('.k12-markdown')
+  if (container) {
+    const headings = Array.from(
+      container.querySelectorAll('h1, h2, h3, h4, h5, h6'),
+    ) as HTMLElement[]
+
+    // 3a. Khớp theo id attribute
+    for (const h of headings) {
+      if (h.id === id || h.id.startsWith(`${id}-`)) {
+        return h
+      }
+    }
+
+    // 3b. Khớp theo slugify của nội dung heading
+    for (const h of headings) {
+      const hText = (h.textContent || '').replace(/#\s*$/, '').trim()
+      if (slugify(hText) === id || (text && slugify(hText) === slugify(text))) {
+        return h
+      }
+    }
+
+    // 3c. Khớp theo text thô
+    if (text) {
+      const cleanTarget = text.toLowerCase().trim()
+      for (const h of headings) {
+        const hText = (h.textContent || '')
+          .replace(/#\s*$/, '')
+          .toLowerCase()
+          .trim()
+        if (
+          hText === cleanTarget ||
+          hText.includes(cleanTarget) ||
+          cleanTarget.includes(hText)
+        ) {
+          return h
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+function getScrollParent(node: HTMLElement | null): HTMLElement | Window {
+  if (typeof window === 'undefined' || !node) return window
+  let parent: HTMLElement | null = node.parentElement
+  while (parent && parent !== document.body && parent !== document.documentElement) {
+    const style = window.getComputedStyle(parent)
+    const overflowY = style.overflowY
+    const isScrollable =
+      (overflowY === 'auto' || overflowY === 'scroll') &&
+      parent.scrollHeight > parent.clientHeight
+    if (isScrollable) {
+      return parent
+    }
+    parent = parent.parentElement
+  }
+  return window
 }
 
 function findFirstAnchor(
@@ -325,7 +449,8 @@ function extractImagesFromMarkdown(
     const alt = (match[1] || '').trim() || 'image'
     const rawSrc = (match[2] || '').trim()
     if (!rawSrc) continue
-    const src = normalizeStorageUrl(rawSrc)
+    const cleanSrc = decodeHtmlEntities(rawSrc)
+    const src = normalizeStorageUrl(cleanSrc)
     if (seen.has(src)) continue
     seen.add(src)
     images.push({ src, alt })
@@ -334,13 +459,73 @@ function extractImagesFromMarkdown(
   while ((match = htmlImageRegex.exec(content)) !== null) {
     const rawSrc = (match[1] || '').trim()
     if (!rawSrc) continue
-    const src = normalizeStorageUrl(rawSrc)
+    const cleanSrc = decodeHtmlEntities(rawSrc)
+    const src = normalizeStorageUrl(cleanSrc)
     if (seen.has(src)) continue
     seen.add(src)
     images.push({ src, alt: 'image' })
   }
 
   return images
+}
+
+function DocImage({
+  src,
+  alt,
+  title,
+  onZoom,
+}: {
+  src: string
+  alt: string
+  title?: string
+  onZoom: () => void
+}) {
+  const [hasError, setHasError] = useState(false)
+
+  useEffect(() => {
+    setHasError(false)
+  }, [src])
+
+  if (hasError) {
+    return (
+      <span className="my-4 block rounded-xl border border-dashed border-gray-300 bg-gray-50/80 p-4 text-center">
+        <span className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-400">
+          <ImageIcon className="h-5 w-5" />
+        </span>
+        <span className="mt-2 block text-xs font-semibold text-gray-700">
+          {alt || title || 'Hình ảnh minh họa'}
+        </span>
+        <span className="mt-0.5 block text-[11px] text-gray-400">
+          (Hình ảnh từ tài liệu nguồn hiện đang được đồng bộ)
+        </span>
+      </span>
+    )
+  }
+
+  return (
+    <span className="my-5 block w-full text-center">
+      <span className="relative inline-block w-full max-w-4xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xs">
+        <img
+          src={src}
+          alt={alt}
+          title={title}
+          loading="lazy"
+          onError={() => setHasError(true)}
+          className="h-auto w-full max-h-[640px] cursor-zoom-in object-contain block mx-auto rounded-lg"
+          onClick={onZoom}
+        />
+      </span>
+      {(title ||
+        (alt &&
+          alt !== 'image' &&
+          alt !== 'Hình ảnh minh họa' &&
+          alt !== 'Hình ảnh minh họa quy trình')) && (
+        <span className="mt-1.5 block text-center text-xs text-gray-500 italic">
+          {title || alt}
+        </span>
+      )}
+    </span>
+  )
 }
 
 export default function K12DocsClient({
@@ -361,6 +546,38 @@ export default function K12DocsClient({
   const [isMobileViewport, setIsMobileViewport] = useState(false)
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const [pendingDocSlug, setPendingDocSlug] = useState<string | null>(null)
+  const [activeHeadingId, setActiveHeadingId] = useState<string>('')
+  const [bookmarkedSlugs, setBookmarkedSlugs] = useState<string[]>([])
+  const isManualScrollRef = useRef(false)
+  const scrollLockTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('k12_bookmarked_docs')
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed)) {
+          setBookmarkedSlugs(parsed)
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const toggleBookmark = (slug: string) => {
+    setBookmarkedSlugs((prev) => {
+      const next = prev.includes(slug)
+        ? prev.filter((s) => s !== slug)
+        : [...prev, slug]
+      try {
+        localStorage.setItem('k12_bookmarked_docs', JSON.stringify(next))
+      } catch {
+        // ignore
+      }
+      return next
+    })
+  }
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(max-width: 1023px)')
@@ -384,6 +601,235 @@ export default function K12DocsClient({
     const effective = selectedSlug || defaultSlug
     return documents.find((doc) => doc.slug === effective) || documents[0]
   }, [documents, selectedSlug, defaultSlug])
+
+  // Trích xuất headings trong trang hiện tại (kèm fallback client-side)
+  const activeDocHeadings = useMemo(() => {
+    if (selectedDoc?.headings && selectedDoc.headings.length > 0) {
+      return selectedDoc.headings
+    }
+    if (!selectedDoc?.content) return []
+    const result: Array<{ id: string; text: string; level: number }> = []
+    const headingRegex = /^(#{1,6})\s+(.+)$/gm
+    let match: RegExpExecArray | null
+    const idCounts = new Map<string, number>()
+
+    while ((match = headingRegex.exec(selectedDoc.content)) !== null) {
+      const hashes = match[1]
+      const rawText = match[2].trim()
+      const text = rawText
+        .replace(/<[^>]+>/g, '')
+        .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
+        .replace(/[*_`~]/g, '')
+        .replace(/\\/g, '')
+        .trim()
+      if (!text) continue
+      const baseId = slugify(text) || 'section'
+      const count = idCounts.get(baseId) || 0
+      idCounts.set(baseId, count + 1)
+      const uniqueId = count === 0 ? baseId : `${baseId}-${count}`
+      result.push({ id: uniqueId, text, level: hashes.length })
+    }
+
+    const htmlHeadingRegex = /<h([1-6])\b([^>]*)>([\s\S]*?)<\/h\1>/gi
+    while ((match = htmlHeadingRegex.exec(selectedDoc.content)) !== null) {
+      const level = Number(match[1])
+      const attrs = match[2] || ''
+      const idMatch = /\bid=["']([^"']+)["']/i.exec(attrs)
+      const rawText = match[3] || ''
+      const text = rawText
+        .replace(/<[^>]+>/g, '')
+        .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
+        .replace(/[*_`~]/g, '')
+        .replace(/\\/g, '')
+        .trim()
+      if (!text) continue
+      const baseId = idMatch ? idMatch[1] : slugify(text) || 'section'
+      const count = idCounts.get(baseId) || 0
+      idCounts.set(baseId, count + 1)
+      const uniqueId = count === 0 ? baseId : `${baseId}-${count}`
+      result.push({ id: uniqueId, text, level })
+    }
+
+    return result
+  }, [selectedDoc?.content, selectedDoc?.headings])
+
+  // ScrollSpy: Tự động đánh dấu heading đang đọc khi cuộn trang
+  useEffect(() => {
+    if (!activeDocHeadings?.length) {
+      setActiveHeadingId('')
+      return
+    }
+
+    let ticking = false
+    const onScroll = () => {
+      // Bỏ qua scrollspy nếu vừa click mục lục
+      if (isManualScrollRef.current) return
+      if (ticking) return
+      ticking = true
+      requestAnimationFrame(() => {
+        ticking = false
+        if (isManualScrollRef.current) return
+
+        const headingEls = activeDocHeadings
+          .map((h) => findHeadingElement(h.id, h.text))
+          .filter(Boolean) as HTMLElement[]
+
+        if (headingEls.length === 0) return
+
+        const scrollParent = getScrollParent(headingEls[0])
+        const isWin = scrollParent === window
+
+        // Kiểm tra cuộn gần cuối trang
+        if (isWin) {
+          if (
+            window.innerHeight + window.scrollY >=
+            document.documentElement.scrollHeight - 70
+          ) {
+            setActiveHeadingId(activeDocHeadings[activeDocHeadings.length - 1].id)
+            return
+          }
+        } else {
+          const container = scrollParent as HTMLElement
+          if (
+            container.clientHeight + container.scrollTop >=
+            container.scrollHeight - 70
+          ) {
+            setActiveHeadingId(activeDocHeadings[activeDocHeadings.length - 1].id)
+            return
+          }
+        }
+
+        const scrollThreshold = isWin
+          ? window.scrollY + 110
+          : (scrollParent as HTMLElement).scrollTop + 110
+        let currentId = activeDocHeadings[0]?.id || ''
+
+        for (let i = 0; i < headingEls.length; i++) {
+          const el = headingEls[i]
+          let elTop = 0
+          if (isWin) {
+            elTop = el.getBoundingClientRect().top + window.scrollY
+          } else {
+            const container = scrollParent as HTMLElement
+            elTop =
+              el.getBoundingClientRect().top -
+              container.getBoundingClientRect().top +
+              container.scrollTop
+          }
+          if (elTop <= scrollThreshold) {
+            currentId = activeDocHeadings[i]?.id || el.id
+          } else {
+            break
+          }
+        }
+        setActiveHeadingId(currentId)
+      })
+    }
+
+    window.addEventListener('scroll', onScroll, { passive: true })
+    const firstEl = findHeadingElement(
+      activeDocHeadings[0]?.id,
+      activeDocHeadings[0]?.text,
+    )
+    const scrollParent = getScrollParent(
+      firstEl || (document.querySelector('.k12-markdown') as HTMLElement),
+    )
+    if (scrollParent !== window) {
+      scrollParent.addEventListener('scroll', onScroll, { passive: true })
+    }
+
+    onScroll()
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      if (scrollParent !== window) {
+        scrollParent.removeEventListener('scroll', onScroll)
+      }
+    }
+  }, [activeDocHeadings, selectedDoc?.slug])
+
+  const scrollToAndFocusHeading = useCallback(
+    (id: string, text?: string, smooth = true) => {
+      setActiveHeadingId(id)
+
+      // Khóa ScrollSpy tạm thời trong lúc cuộn mượt
+      isManualScrollRef.current = true
+      if (scrollLockTimerRef.current) {
+        clearTimeout(scrollLockTimerRef.current)
+      }
+      scrollLockTimerRef.current = setTimeout(() => {
+        isManualScrollRef.current = false
+      }, 1000)
+
+      const el = findHeadingElement(id, text)
+      if (el) {
+        const scrollParent = getScrollParent(el)
+
+        if (scrollParent === window) {
+          const yOffset = -85
+          const y = el.getBoundingClientRect().top + window.pageYOffset + yOffset
+          window.scrollTo({
+            top: Math.max(0, y),
+            behavior: smooth ? 'smooth' : 'auto',
+          })
+        } else {
+          const container = scrollParent as HTMLElement
+          const containerRect = container.getBoundingClientRect()
+          const elRect = el.getBoundingClientRect()
+          const targetScrollTop =
+            container.scrollTop + (elRect.top - containerRect.top) - 85
+          container.scrollTo({
+            top: Math.max(0, targetScrollTop),
+            behavior: smooth ? 'smooth' : 'auto',
+          })
+        }
+
+        // Gọi scrollIntoView làm lớp bổ sung
+        try {
+          el.scrollIntoView({
+            behavior: smooth ? 'smooth' : 'auto',
+            block: 'start',
+          })
+        } catch {}
+
+        // Apply visual focus & flash highlight
+        el.tabIndex = -1
+        try {
+          el.focus({ preventScroll: true })
+        } catch {}
+
+        el.classList.remove('k12-heading-focused')
+        void el.offsetWidth // force reflow
+        el.classList.add('k12-heading-focused')
+        setTimeout(() => {
+          el.classList.remove('k12-heading-focused')
+        }, 2400)
+      }
+    },
+    [],
+  )
+
+  const handleHeadingClick = (
+    e: React.MouseEvent<HTMLAnchorElement>,
+    id: string,
+    text?: string,
+  ) => {
+    e.preventDefault()
+    scrollToAndFocusHeading(id, text, true)
+    window.history.replaceState(null, '', `#${id}`)
+  }
+
+  // Tự động focus & cuộn tới heading nếu URL có hash (#heading-id)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const hash = window.location.hash.replace(/^#/, '')
+    if (hash && activeDocHeadings?.length) {
+      const match = activeDocHeadings.find((h) => h.id === hash)
+      const timer = setTimeout(() => {
+        scrollToAndFocusHeading(hash, match?.text, false)
+      }, 250)
+      return () => clearTimeout(timer)
+    }
+  }, [selectedDoc?.slug, activeDocHeadings, scrollToAndFocusHeading])
 
   // Tìm các trang con của trang hiện tại
   const childPages = useMemo(() => {
@@ -600,7 +1046,7 @@ export default function K12DocsClient({
                   />
                 )}
 
-                <span className="min-w-0 flex-1">
+                <span className="min-w-0 flex-1 flex items-center justify-between gap-1">
                   <span
                     className={cn(
                       isMiniToc
@@ -611,6 +1057,15 @@ export default function K12DocsClient({
                   >
                     {node.title}
                   </span>
+                  {bookmarkedSlugs.includes(node.slug!) && (
+                    <BookmarkCheck
+                      className={cn(
+                        'h-3.5 w-3.5 shrink-0',
+                        isActive ? 'text-amber-300' : 'text-amber-500',
+                      )}
+                      aria-label="Đã đánh dấu"
+                    />
+                  )}
                 </span>
               </div>
             ) : hasChildren ? (
@@ -722,9 +1177,13 @@ export default function K12DocsClient({
       <div
         className={cn(
           'grid grid-cols-1 gap-4 lg:[transition:grid-template-columns_320ms_ease]',
-          isMiniToc
-            ? 'lg:grid-cols-[120px_minmax(0,1fr)_220px]'
-            : 'lg:grid-cols-[300px_minmax(0,1fr)_220px]',
+          activeDocHeadings.length === 0
+            ? isMiniToc
+              ? 'lg:grid-cols-[120px_minmax(0,1fr)]'
+              : 'lg:grid-cols-[300px_minmax(0,1fr)]'
+            : isMiniToc
+              ? 'lg:grid-cols-[120px_minmax(0,1fr)_240px]'
+              : 'lg:grid-cols-[300px_minmax(0,1fr)_240px]',
         )}
       >
         <aside
@@ -733,7 +1192,7 @@ export default function K12DocsClient({
             'lg:sticky lg:top-4',
             isMiniToc
               ? 'lg:h-auto lg:overflow-hidden'
-              : 'lg:h-[calc(100vh-120px)] lg:overflow-y-auto',
+              : 'lg:h-[calc(100vh-120px)] lg:overflow-y-auto custom-scrollbar',
           )}
         >
           <div className="mb-2 space-y-2">
@@ -780,6 +1239,84 @@ export default function K12DocsClient({
             </div>
           ) : selectedDoc ? (
             <>
+              {/* Header Action Bar: Doc Category & Bookmark Button */}
+              <div className="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
+                <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
+                  <span className="inline-block px-2 py-0.5 rounded bg-gray-100 text-gray-600">
+                    {selectedDoc.type === 'section' ? 'Thư mục / Chuyên mục' : 'Tài liệu / Quy định'}
+                  </span>
+                  {selectedDoc.topic && (
+                    <span className="text-gray-400">· {selectedDoc.topic}</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleBookmark(selectedDoc.slug)}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors',
+                    bookmarkedSlugs.includes(selectedDoc.slug)
+                      ? 'border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 shadow-xs'
+                      : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900',
+                  )}
+                  title={
+                    bookmarkedSlugs.includes(selectedDoc.slug)
+                      ? 'Bỏ đánh dấu tài liệu'
+                      : 'Đánh dấu tài liệu này'
+                  }
+                >
+                  {bookmarkedSlugs.includes(selectedDoc.slug) ? (
+                    <>
+                      <BookmarkCheck className="h-3.5 w-3.5 text-amber-600" />
+                      <span>Đã đánh dấu</span>
+                    </>
+                  ) : (
+                    <>
+                      <Bookmark className="h-3.5 w-3.5 text-gray-400" />
+                      <span>Đánh dấu mục này</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Mobile Quick In-Page TOC (Hiện trên mobile khi tài liệu có headings) */}
+              {activeDocHeadings.length > 0 && (
+                <div className="lg:hidden mb-5 rounded-xl border border-slate-200 bg-slate-50/80 p-3 shadow-xs">
+                  <details className="group">
+                    <summary className="flex items-center justify-between cursor-pointer list-none font-semibold text-xs text-slate-800 uppercase tracking-wider select-none">
+                      <span className="flex items-center gap-2">
+                        <span className="inline-block w-2 h-2 rounded-full bg-[#a1001f]" />
+                        Mục trong trang ({activeDocHeadings.length})
+                      </span>
+                      <ChevronRight className="h-4 w-4 text-slate-400 transition-transform duration-200 group-open:rotate-90" />
+                    </summary>
+                    <nav className="mt-2.5 pt-2.5 border-t border-slate-200 space-y-1" aria-label="Mục trong trang (mobile)">
+                      {activeDocHeadings.map((heading) => {
+                        const isActive = activeHeadingId === heading.id
+                        return (
+                          <a
+                            key={`mobile-${heading.level}-${heading.id}-${heading.text}`}
+                            href={`#${heading.id}`}
+                            onClick={(e) => handleHeadingClick(e, heading.id, heading.text)}
+                            className={cn(
+                              'flex items-center justify-between py-1.5 px-2 rounded-md text-xs transition-colors',
+                              isActive
+                                ? 'bg-red-50 text-[#a1001f] font-semibold border-l-2 border-[#a1001f]'
+                                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border-l-2 border-transparent',
+                            )}
+                            style={{ paddingLeft: `${8 + Math.max(0, heading.level - 1) * 8}px` }}
+                          >
+                            <span className="line-clamp-1">{heading.text}</span>
+                            {isActive && (
+                              <span className="ml-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#a1001f]" />
+                            )}
+                          </a>
+                        )
+                      })}
+                    </nav>
+                  </details>
+                </div>
+              )}
+
               <div className="k12-markdown text-gray-800">
                 <Markdown
                   remarkPlugins={[remarkGfm]}
@@ -842,92 +1379,223 @@ export default function K12DocsClient({
                         </div>
                       )
                     },
-                    h1: ({ children }) => {
-                      const text = String(children)
-                      const id = slugify(text)
+                    h1: ({ node, children, ...props }: any) => {
+                      const text = getPlainText(children)
+                      const id = props.id || slugify(text)
                       return (
                         <h1
                           id={id}
-                          className="mt-6 scroll-mt-24 text-3xl font-bold text-gray-900"
+                          className="group relative mt-7 mb-3.5 scroll-mt-24 text-2xl sm:text-3xl font-bold tracking-tight text-gray-900 flex items-center gap-2"
                         >
-                          {children}
+                          <span>{children}</span>
+                          <a
+                            href={`#${id}`}
+                            onClick={(e) => handleHeadingClick(e, id, text)}
+                            className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-[#a1001f] transition-opacity text-xl font-normal select-none"
+                            title="Liên kết mục này"
+                          >
+                            #
+                          </a>
                         </h1>
                       )
                     },
-                    h2: ({ children }) => {
-                      const text = String(children)
-                      const id = slugify(text)
+                    h2: ({ node, children, ...props }: any) => {
+                      const text = getPlainText(children)
+                      const id = props.id || slugify(text)
                       return (
                         <h2
                           id={id}
-                          className="mt-6 scroll-mt-24 text-2xl font-semibold text-gray-900"
+                          className="group relative mt-6 mb-2.5 scroll-mt-24 text-xl sm:text-2xl font-bold tracking-tight text-gray-900 flex items-center gap-2 border-b border-gray-100 pb-1.5"
                         >
-                          {children}
+                          <span>{children}</span>
+                          <a
+                            href={`#${id}`}
+                            onClick={(e) => handleHeadingClick(e, id, text)}
+                            className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-[#a1001f] transition-opacity text-lg font-normal select-none"
+                            title="Liên kết mục này"
+                          >
+                            #
+                          </a>
                         </h2>
                       )
                     },
-                    h3: ({ children }) => {
-                      const text = String(children)
-                      const id = slugify(text)
+                    h3: ({ node, children, ...props }: any) => {
+                      const text = getPlainText(children)
+                      const id = props.id || slugify(text)
                       return (
                         <h3
                           id={id}
-                          className="mt-5 scroll-mt-24 text-xl font-semibold text-gray-900"
+                          className="group relative mt-5 mb-2 scroll-mt-24 text-lg sm:text-xl font-semibold text-gray-900 flex items-center gap-2"
                         >
-                          {children}
+                          <span>{children}</span>
+                          <a
+                            href={`#${id}`}
+                            onClick={(e) => handleHeadingClick(e, id, text)}
+                            className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-[#a1001f] transition-opacity text-base font-normal select-none"
+                            title="Liên kết mục này"
+                          >
+                            #
+                          </a>
                         </h3>
                       )
                     },
-                    img: ({ src, alt }) => {
+                    h4: ({ node, children, ...props }: any) => {
+                      const text = getPlainText(children)
+                      const id = props.id || slugify(text)
+                      return (
+                        <h4
+                          id={id}
+                          className="group relative mt-4 mb-1.5 scroll-mt-24 text-base sm:text-lg font-semibold text-gray-900 flex items-center gap-2"
+                        >
+                          <span>{children}</span>
+                          <a
+                            href={`#${id}`}
+                            onClick={(e) => handleHeadingClick(e, id, text)}
+                            className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-[#a1001f] transition-opacity text-sm font-normal select-none"
+                            title="Liên kết mục này"
+                          >
+                            #
+                          </a>
+                        </h4>
+                      )
+                    },
+                    h5: ({ node, children, ...props }: any) => {
+                      const text = getPlainText(children)
+                      const id = props.id || slugify(text)
+                      return (
+                        <h5
+                          id={id}
+                          className="group relative mt-3.5 mb-1 scroll-mt-24 text-sm sm:text-base font-semibold text-gray-900 flex items-center gap-2"
+                        >
+                          <span>{children}</span>
+                          <a
+                            href={`#${id}`}
+                            onClick={(e) => handleHeadingClick(e, id, text)}
+                            className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-[#a1001f] transition-opacity text-xs font-normal select-none"
+                            title="Liên kết mục này"
+                          >
+                            #
+                          </a>
+                        </h5>
+                      )
+                    },
+                    h6: ({ node, children, ...props }: any) => {
+                      const text = getPlainText(children)
+                      const id = props.id || slugify(text)
+                      return (
+                        <h6
+                          id={id}
+                          className="group relative mt-3 mb-1 scroll-mt-24 text-xs sm:text-sm font-semibold uppercase tracking-wider text-gray-600 flex items-center gap-2"
+                        >
+                          <span>{children}</span>
+                          <a
+                            href={`#${id}`}
+                            onClick={(e) => handleHeadingClick(e, id, text)}
+                            className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-[#a1001f] transition-opacity text-xs font-normal select-none"
+                            title="Liên kết mục này"
+                          >
+                            #
+                          </a>
+                        </h6>
+                      )
+                    },
+                    img: ({ src, alt, title }: any) => {
                       if (!src) return null
                       const rawSrc = typeof src === 'string' ? src : undefined
-                      const normalizedSrc = normalizeStorageUrl(rawSrc)
+                      const cleanSrc = rawSrc ? decodeHtmlEntities(rawSrc).trim() : ''
+                      const normalizedSrc = normalizeStorageUrl(cleanSrc)
+                      const altText =
+                        typeof alt === 'string' && alt.trim()
+                          ? alt.trim()
+                          : typeof title === 'string' && title.trim()
+                            ? title.trim()
+                            : 'Hình ảnh minh họa'
                       const imageIndex = galleryImages.findIndex(
-                        (image) => image.src === normalizedSrc,
+                        (image) =>
+                          image.src === normalizedSrc || image.src === cleanSrc,
                       )
                       return (
-                        <img
+                        <DocImage
                           src={normalizedSrc}
-                          alt={typeof alt === 'string' ? alt : 'image'}
-                          loading="lazy"
-                          className="my-3 max-h-130 w-auto max-w-full cursor-zoom-in rounded-lg border border-gray-200 object-contain"
-                          onClick={() => {
+                          alt={altText}
+                          title={typeof title === 'string' ? title : undefined}
+                          onZoom={() => {
                             if (galleryImages.length === 0) return
                             setLightboxIndex(imageIndex >= 0 ? imageIndex : 0)
                           }}
                         />
                       )
                     },
-                    table: ({ children }) => (
-                      <div className="my-4 overflow-x-auto rounded-lg border border-slate-300 shadow-xs">
-                        <table className="w-full border-collapse text-sm text-slate-800 bg-white">
+                    p: ({ node, children, className, ...props }: any) => (
+                      <div className={cn('my-3 leading-relaxed text-gray-800', className)} {...props}>
+                        {children}
+                      </div>
+                    ),
+                    figure: ({ node, children, className, ...props }: any) => (
+                      <div className={cn('my-5 block text-center', className)} {...props}>
+                        {children}
+                      </div>
+                    ),
+                    figcaption: ({ node, children, className, ...props }: any) => (
+                      <div className={cn('mt-1.5 block text-center text-xs text-gray-500 italic', className)} {...props}>
+                        {children}
+                      </div>
+                    ),
+                    table: ({ node, children, className, ...props }: any) => (
+                      <div className="relative my-5 w-full overflow-x-auto rounded-lg border border-gray-200 bg-white">
+                        <table className={cn('w-full border-collapse caption-bottom text-sm text-gray-900', className)} {...props}>
                           {children}
                         </table>
                       </div>
                     ),
-                    th: ({ node, children, ...props }: any) => {
-                      const rowSpan = props.rowSpan || props.rowspan
-                      const colSpan = props.colSpan || props.colspan
+                    thead: ({ node, children, className, ...props }: any) => (
+                      <thead className={cn('bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold', className)} {...props}>
+                        {children}
+                      </thead>
+                    ),
+                    tbody: ({ node, children, className, ...props }: any) => (
+                      <tbody className={cn('bg-white divide-y divide-gray-200 text-gray-900', className)} {...props}>
+                        {children}
+                      </tbody>
+                    ),
+                    tr: ({ node, children, className, ...props }: any) => (
+                      <tr className={cn('border-b border-gray-200 transition-colors hover:bg-gray-50', className)} {...props}>
+                        {children}
+                      </tr>
+                    ),
+                    th: ({ node, children, style, className, ...props }: any) => {
+                      const rSpan = props.rowSpan ?? props.rowspan
+                      const cSpan = props.colSpan ?? props.colspan
+                      const rowSpan = rSpan && Number(rSpan) > 0 ? Number(rSpan) : undefined
+                      const colSpan = cSpan && Number(cSpan) > 0 ? Number(cSpan) : undefined
                       return (
                         <th
-                          {...props}
-                          rowSpan={rowSpan ? Number(rowSpan) : undefined}
-                          colSpan={colSpan ? Number(colSpan) : undefined}
-                          className="border border-slate-300 bg-slate-50 px-3.5 py-2.5 text-left font-semibold text-slate-900"
+                          rowSpan={rowSpan}
+                          colSpan={colSpan}
+                          style={style}
+                          className={cn(
+                            'h-10 border border-gray-200 bg-gray-50 px-4 py-3 text-left align-middle text-xs font-semibold uppercase tracking-wider text-gray-700',
+                            className
+                          )}
                         >
                           {children}
                         </th>
                       )
                     },
-                    td: ({ node, children, ...props }: any) => {
-                      const rowSpan = props.rowSpan || props.rowspan
-                      const colSpan = props.colSpan || props.colspan
+                    td: ({ node, children, style, className, ...props }: any) => {
+                      const rSpan = props.rowSpan ?? props.rowspan
+                      const cSpan = props.colSpan ?? props.colspan
+                      const rowSpan = rSpan && Number(rSpan) > 0 ? Number(rSpan) : undefined
+                      const colSpan = cSpan && Number(cSpan) > 0 ? Number(cSpan) : undefined
                       return (
                         <td
-                          {...props}
-                          rowSpan={rowSpan ? Number(rowSpan) : undefined}
-                          colSpan={colSpan ? Number(colSpan) : undefined}
-                          className="border border-slate-300 px-3.5 py-2.5 text-slate-700 align-top"
+                          rowSpan={rowSpan}
+                          colSpan={colSpan}
+                          style={style}
+                          className={cn(
+                            'border border-gray-200 px-4 py-3 align-top text-sm text-gray-900 leading-relaxed break-words',
+                            className
+                          )}
                         >
                           {children}
                         </td>
@@ -1169,29 +1837,47 @@ export default function K12DocsClient({
           )}
         </article>
 
-        <aside className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm lg:sticky lg:top-4 lg:h-[calc(100vh-120px)] lg:overflow-y-auto">
-          <h2 className="mb-2 text-sm font-semibold text-gray-900">
-            Mục trong trang
-          </h2>
-          {!selectedDoc || selectedDoc.headings.length === 0 ? (
-            <p className="text-xs text-gray-500">
-              Trang này chưa có heading để điều hướng.
-            </p>
-          ) : (
-            <div className="space-y-1">
-              {selectedDoc.headings.map((heading) => (
-                <a
-                  key={`${heading.level}-${heading.id}-${heading.text}`}
-                  href={`#${heading.id}`}
-                  className="block rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                  style={{ paddingLeft: `${8 + (heading.level - 1) * 10}px` }}
-                >
-                  {heading.text}
-                </a>
-              ))}
+        {activeDocHeadings.length > 0 && (
+          <aside className="hidden lg:block rounded-xl border border-gray-200 bg-white p-3.5 shadow-sm lg:sticky lg:top-4 lg:h-[calc(100vh-120px)] lg:overflow-y-auto custom-scrollbar">
+            <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-gray-100">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#a1001f]" />
+                Mục trong trang
+              </h2>
+              <span className="text-[11px] font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                {activeDocHeadings.length}
+              </span>
             </div>
-          )}
-        </aside>
+            <nav className="space-y-0.5" aria-label="Mục trong trang">
+              {activeDocHeadings.map((heading) => {
+                const isActive = activeHeadingId === heading.id
+                const indentPadding = `${8 + Math.max(0, heading.level - 1) * 10}px`
+                const isTopLevel = heading.level <= 1
+
+                return (
+                  <a
+                    key={`${heading.level}-${heading.id}-${heading.text}`}
+                    href={`#${heading.id}`}
+                    onClick={(e) => handleHeadingClick(e, heading.id, heading.text)}
+                    className={cn(
+                      'group flex items-center justify-between rounded-lg py-1.5 pr-2.5 text-xs transition-all duration-150 leading-snug',
+                      isTopLevel ? 'font-semibold text-slate-800' : 'text-slate-600 font-normal',
+                      isActive
+                        ? 'bg-red-50 text-[#a1001f] font-semibold border-l-[3px] border-[#a1001f] shadow-xs'
+                        : 'hover:bg-slate-100/80 hover:text-slate-900 border-l-[3px] border-transparent',
+                    )}
+                    style={{ paddingLeft: indentPadding }}
+                  >
+                    <span className="line-clamp-2 min-w-0 flex-1">{heading.text}</span>
+                    {isActive && (
+                      <span className="ml-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#a1001f]" />
+                    )}
+                  </a>
+                )
+              })}
+            </nav>
+          </aside>
+        )}
       </div>
 
       {lightboxIndex !== null && galleryImages.length > 0 && (

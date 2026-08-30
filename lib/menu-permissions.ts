@@ -7,6 +7,27 @@ export function normalizeRoleToken(value?: string): string {
     .replace(/[\s-]+/g, '_')
 }
 
+export function isPortfolioAllowedUser(user: any): boolean {
+  if (!user) return false
+  const normalizedRole = normalizeRoleToken(user.role)
+  const rawRoles = user.userRoles || user.roleCodes || []
+  const roleCodes = rawRoles.map((code: any) =>
+    typeof code === 'string'
+      ? normalizeRoleToken(code)
+      : normalizeRoleToken(code?.role_code || code?.code),
+  )
+
+  const isSuperAdmin =
+    normalizedRole === 'super_admin' ||
+    roleCodes.some((code: string) => code === 'super_admin')
+
+  if (isSuperAdmin) return true
+
+  return roleCodes.some((code: string) =>
+    ['tegl', 'tegl+', 'tm'].includes(code),
+  )
+}
+
 export function checkHrefPermission(href: string, user: any): boolean {
   if (!user) return false
 
@@ -30,8 +51,22 @@ export function checkHrefPermission(href: string, user: any): boolean {
     return false
   }
 
-  // Check role codes for training input
+  const isPortfolioRoute =
+    targetPath === '/admin/kiem-soat-spck' ||
+    targetPath.startsWith('/admin/kiem-soat-spck/') ||
+    targetPath === '/admin/portfolio' ||
+    targetPath.startsWith('/admin/portfolio/')
+
+  if (isPortfolioRoute) {
+    return isPortfolioAllowedUser(user)
+  }
+
+  // Check role codes for training input & management roles
   const roleCodes = (user.userRoles || []).map((code: string) => normalizeRoleToken(code))
+  const hasManagementRole =
+    ['manager', 'admin', 'super_admin'].includes(normalizedRole) ||
+    roleCodes.some((code: string) => ['leader', 'te', 'tc', 'manager', 'admin', 'super_admin'].includes(code))
+
   const hasTrainingInputRole = roleCodes.some(
     (code: string) => code === 'hr' || code === 'te' || code === 'tf',
   )
@@ -43,18 +78,42 @@ export function checkHrefPermission(href: string, user: any): boolean {
     return true
   }
 
-  if (targetPath === '/admin/portfolio-qc' || targetPath === '/admin/portfolio') {
-    return true
+  // Base permissions, deal-luong and portfolio
+  const MANAGER_DEFAULT_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong']
+  if (isPortfolioAllowedUser(user)) {
+    MANAGER_DEFAULT_ROUTES.push('/admin/kiem-soat-spck', '/admin/portfolio')
   }
-
-  // Base permissions, deal-luong and portfolio-qc
-  const MANAGER_DEFAULT_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong', '/admin/portfolio-qc', '/admin/portfolio']
   const basePermissions = filterManagementPermissions(user.permissions || [])
   const permissions = Array.from(new Set([...basePermissions, ...MANAGER_DEFAULT_ROUTES]))
 
+  const hasAnyK12Access = permissions.some((p) => {
+    const normalizedPath = p.split('?')[0]
+    return (
+      normalizedPath === '/admin/page2' ||
+      normalizedPath.startsWith('/admin/page2/')
+    )
+  })
+
+  const hasAnyK12LeaderAccess = permissions.some((p) => {
+    const normalizedPath = p.split('?')[0]
+    return (
+      normalizedPath === '/admin/quy-trinh-quy-dinh-leader' ||
+      normalizedPath.startsWith('/admin/quy-trinh-quy-dinh-leader/')
+    )
+  })
+
+  const k12Routes = hasAnyK12Access ? ['/admin/page2', '/admin/page2/manage'] : []
+  const k12LeaderRoutes = (hasAnyK12LeaderAccess || hasManagementRole)
+    ? ['/admin/quy-trinh-quy-dinh-leader', '/admin/quy-trinh-quy-dinh-leader/manage']
+    : []
+
+  const effectivePermissions = Array.from(
+    new Set([...permissions, ...k12Routes, ...k12LeaderRoutes]),
+  )
+
   const hasPermissionForHref = (h: string) => {
     const t = h.split('?')[0]
-    return permissions.some(
+    return effectivePermissions.some(
       (p) =>
         t === p ||
         t.startsWith(`${p}/`) ||
@@ -77,9 +136,19 @@ export function getFilteredAdminMenuItems(adminMenuItems: any[], user: any, path
 
   if (isSuperAdmin) return adminMenuItems
 
-  const MANAGER_DEFAULT_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong', '/admin/portfolio-qc', '/admin/portfolio']
+  const MANAGER_DEFAULT_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong']
+  if (isPortfolioAllowedUser(user)) {
+    MANAGER_DEFAULT_ROUTES.push('/admin/kiem-soat-spck', '/admin/portfolio')
+  }
   const basePermissions = filterManagementPermissions(user.permissions || [])
   const permissions = Array.from(new Set([...basePermissions, ...MANAGER_DEFAULT_ROUTES]))
+
+  const roleCodes = (user.userRoles || []).map((code: string) =>
+    normalizeRoleToken(code),
+  )
+  const hasManagementRole =
+    ['manager', 'admin', 'super_admin'].includes(normalizedRole) ||
+    roleCodes.some((code: string) => ['leader', 'te', 'tc', 'manager', 'admin', 'super_admin'].includes(code))
 
   const hasAnyK12Access = permissions.some((p) => {
     const normalizedPath = p.split('?')[0]
@@ -89,15 +158,23 @@ export function getFilteredAdminMenuItems(adminMenuItems: any[], user: any, path
     )
   })
 
-  const effectivePermissions = hasAnyK12Access
-    ? Array.from(
-      new Set([...permissions, '/admin/page2', '/admin/page2/manage']),
+  const hasAnyK12LeaderAccess = permissions.some((p) => {
+    const normalizedPath = p.split('?')[0]
+    return (
+      normalizedPath === '/admin/quy-trinh-quy-dinh-leader' ||
+      normalizedPath.startsWith('/admin/quy-trinh-quy-dinh-leader/')
     )
-    : permissions
+  })
 
-  const roleCodes = (user.userRoles || []).map((code: string) =>
-    normalizeRoleToken(code),
+  const k12Routes = hasAnyK12Access ? ['/admin/page2', '/admin/page2/manage'] : []
+  const k12LeaderRoutes = (hasAnyK12LeaderAccess || hasManagementRole)
+    ? ['/admin/quy-trinh-quy-dinh-leader', '/admin/quy-trinh-quy-dinh-leader/manage']
+    : []
+
+  const effectivePermissions = Array.from(
+    new Set([...permissions, ...k12Routes, ...k12LeaderRoutes]),
   )
+
   const hasTrainingInputRole = roleCodes.some(
     (code: string) => code === 'hr' || code === 'te' || code === 'tf',
   )
@@ -106,7 +183,7 @@ export function getFilteredAdminMenuItems(adminMenuItems: any[], user: any, path
 
   const hasPermissionForHref = (href: string) => {
     const targetPath = href.split('?')[0]
-    return permissions.some(
+    return effectivePermissions.some(
       (p) =>
         targetPath === p ||
         targetPath.startsWith(`${p}/`) ||
@@ -117,12 +194,22 @@ export function getFilteredAdminMenuItems(adminMenuItems: any[], user: any, path
   const filterMenuItemsByPermissions = (items: any[]): any[] => {
     return items
       .map((item) => {
-        const isK12PolicyGroup =
+        const isK12TeacherGroup =
           item?.label === 'Quy Trình, Quy Định K12 Teaching' ||
+          item?.label === 'Quy Trình, Quy Định K12 Teaching (Giáo Viên)' ||
           item?.groupLabel === 'Quy Trình K12' ||
+          item?.groupLabel === 'Quy Trình K12 (Giáo Viên)' ||
           item?.label === 'Quy Trình K12'
+
+        const isK12LeaderGroup =
+          item?.label === 'Quy Trình, Quy Định K12 Teaching - Leader/TE/TC' ||
+          item?.groupLabel === 'Quy Trình K12 Leader' ||
+          item?.groupLabel === 'Quy Trình K12 (Leader/TE/TC)' ||
+          item?.label === 'Quy Trình K12 Leader' ||
+          item?.label === 'Quy Trình K12 (Leader/TE/TC)'
+
         if (
-          isK12PolicyGroup &&
+          isK12TeacherGroup &&
           (item?.submenu || item?.items)
         ) {
           const canOpenK12Group =
@@ -131,6 +218,32 @@ export function getFilteredAdminMenuItems(adminMenuItems: any[], user: any, path
             pathname.startsWith('/admin/page2')
 
           if (canOpenK12Group) {
+            if (item.items) {
+              const filteredSubItems = filterMenuItemsByPermissions(item.items)
+              if (filteredSubItems.length > 0) {
+                return { ...item, items: filteredSubItems }
+              }
+            } else if (item.submenu) {
+              const filteredSubmenu = filterMenuItemsByPermissions(item.submenu)
+              if (filteredSubmenu.length > 0) {
+                return { ...item, submenu: filteredSubmenu }
+              }
+            }
+          }
+          return null
+        }
+
+        if (
+          isK12LeaderGroup &&
+          (item?.submenu || item?.items)
+        ) {
+          const canOpenLeaderGroup =
+            hasManagementRole ||
+            hasPermissionForHref('/admin/quy-trinh-quy-dinh-leader') ||
+            hasPermissionForHref('/admin/quy-trinh-quy-dinh-leader/manage') ||
+            pathname.startsWith('/admin/quy-trinh-quy-dinh-leader')
+
+          if (canOpenLeaderGroup) {
             if (item.items) {
               const filteredSubItems = filterMenuItemsByPermissions(item.items)
               if (filteredSubItems.length > 0) {

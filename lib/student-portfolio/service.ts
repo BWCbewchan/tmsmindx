@@ -1391,10 +1391,10 @@ function rewardTransactionAward(item: RewardTransactionItem): StudentPortfolioDa
   if (!isAwardType) return null;
 
   const prizeMap: Record<string, { title: string; level: 'gold' | 'silver' | 'bronze' | 'merit' }> = {
-    FIRST_PRIZE: { title: 'Đạt giải nhất Demo/SPCK', level: 'gold' },
-    SECOND_PRIZE: { title: 'Đạt giải nhì Demo/SPCK', level: 'silver' },
-    THIRD_PRIZE: { title: 'Đạt giải ba Demo/SPCK', level: 'bronze' },
-    CONSOLATION_PRIZE: { title: 'Đạt giải khuyến khích Demo/SPCK', level: 'merit' },
+    FIRST_PRIZE: { title: 'Đạt giải nhất', level: 'gold' },
+    SECOND_PRIZE: { title: 'Đạt giải nhì', level: 'silver' },
+    THIRD_PRIZE: { title: 'Đạt giải ba', level: 'bronze' },
+    CONSOLATION_PRIZE: { title: 'Đạt giải khuyến khích', level: 'merit' },
   };
 
   const fallbackPrize = directText.includes('giai nhat') || directText.includes('first')
@@ -1820,7 +1820,7 @@ export function normalizePortfolioData(data: StudentPortfolioData): StudentPortf
         : /nhi|nhì/i.test(text)
         ? 'silver'
         : 'bronze';
-      const awardTitleStr = /giải|giai/i.test(titleText) ? titleText : 'Đạt giải ba Demo/SPCK';
+      const awardTitleStr = titleText || 'Tuyên dương thành tích';
       if (!achievements.some((a) => a.title === awardTitleStr)) {
         achievements.push({
           title: awardTitleStr,
@@ -1832,11 +1832,8 @@ export function normalizePortfolioData(data: StudentPortfolioData): StudentPortf
     }
   });
 
-  // Filter out test achievements
-  const realAchievements = achievements.filter((a) => {
-    if (sameText(a.title, 'Test thành tích') || sameText(a.subtitle, 'Thành tích test')) return false;
-    return Boolean(a.title && /giải|giai|nhất|nhì|ba|khuyến khích|spck|demo/i.test(`${a.title} ${a.subtitle || ''}`));
-  });
+  // Preserve all valid user-created achievements
+  const realAchievements = achievements.filter((a) => Boolean(a.title && a.title.trim()));
 
   const rawJourney = Array.isArray(data.learningJourney) ? data.learningJourney : [];
   const assignedAwardIndices = new Set<number>();

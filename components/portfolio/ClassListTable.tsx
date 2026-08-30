@@ -1,18 +1,18 @@
 'use client';
 
-import { useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
-import type { PortfolioQCClass } from '@/lib/portfolio-qc/types';
+import { useState, useRef, useEffect } from 'react';
+import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import type { PortfolioQCClass } from '@/lib/portfolio/types';
 import SubmissionProgressBar from './SubmissionProgressBar';
 import StudentDetailPanel from './StudentDetailPanel';
 
 interface ClassListTableProps {
   classes: PortfolioQCClass[];
   isLoading?: boolean;
+  isLoadingMore?: boolean;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
   total?: number;
-  pageIndex?: number;
-  itemsPerPage?: number;
-  onPageChange?: (page: number) => void;
 }
 
 function QCStatusBadge({ status }: { status: PortfolioQCClass['qcStatus'] }) {
@@ -71,16 +71,36 @@ function CourseLineTag({ tag }: { tag: string }) {
 export default function ClassListTable({
   classes,
   isLoading = false,
+  isLoadingMore = false,
+  hasMore = false,
+  onLoadMore,
   total = 0,
-  pageIndex = 0,
-  itemsPerPage = 100,
-  onPageChange,
 }: ClassListTableProps) {
   const [expandedClassId, setExpandedClassId] = useState<string | null>(null);
+  const observerTargetRef = useRef<HTMLDivElement>(null);
 
   const toggleExpand = (classId: string) => {
     setExpandedClassId((prev) => (prev === classId ? null : classId));
   };
+
+  // IntersectionObserver for auto scroll-to-load-more
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoadingMore && !isLoading) {
+          onLoadMore?.();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    const target = observerTargetRef.current;
+    if (target) observer.observe(target);
+
+    return () => {
+      if (target) observer.unobserve(target);
+    };
+  }, [hasMore, isLoading, isLoadingMore, onLoadMore]);
 
   if (isLoading) {
     return (
@@ -108,16 +128,14 @@ export default function ClassListTable({
       <div className="bg-white border border-neutral-200 rounded-xl shadow-sm p-12 text-center">
         <div className="text-4xl mb-3">📋</div>
         <h3 className="text-lg font-semibold text-neutral-700 mb-1">
-          Không tìm thấy lớp nào
+          Không tìm thấy lớp finished nào
         </h3>
         <p className="text-sm text-neutral-500">
-          Thử thay đổi bộ lọc để tìm kết quả phù hợp
+          Thử thay đổi bộ lọc hoặc kiểm tra lại kết nối LMS
         </p>
       </div>
     );
   }
-
-  const totalPages = Math.ceil(total / itemsPerPage);
 
   return (
     <div className="bg-white border border-neutral-200 rounded-xl shadow-sm overflow-hidden">
@@ -219,34 +237,29 @@ export default function ClassListTable({
         })}
       </div>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between px-5 py-3 border-t border-neutral-200 bg-neutral-50">
-          <div className="text-xs text-neutral-500">
-            Hiển thị {pageIndex * itemsPerPage + 1}–
-            {Math.min((pageIndex + 1) * itemsPerPage, total)} / {total} lớp (2 trang LMS/trang)
+      {/* Infinite Scroll Sentinel & Footer */}
+      <div
+        ref={observerTargetRef}
+        className="flex flex-col items-center justify-center py-5 border-t border-neutral-100 bg-neutral-50/50 gap-2"
+      >
+        {isLoadingMore ? (
+          <div className="flex items-center gap-2 text-xs text-neutral-500 font-medium">
+            <Loader2 size={16} className="animate-spin text-mindx-red" />
+            <span>Đang tải thêm danh sách lớp finished...</span>
           </div>
-          <div className="flex items-center gap-1">
-            {Array.from({ length: Math.min(totalPages, 10) }).map((_, i) => (
-              <button
-                key={i}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onPageChange?.(i);
-                }}
-                className={`w-8 h-8 rounded-lg text-xs font-medium transition-all
-                  ${
-                    i === pageIndex
-                      ? 'bg-mindx-red text-white shadow-sm'
-                      : 'text-neutral-600 hover:bg-neutral-100'
-                  }`}
-              >
-                {i + 1}
-              </button>
-            ))}
+        ) : hasMore ? (
+          <button
+            onClick={onLoadMore}
+            className="text-xs text-neutral-500 hover:text-mindx-red font-medium transition-colors cursor-pointer py-1 px-4 rounded-full hover:bg-neutral-100 border border-neutral-200"
+          >
+            Đã hiển thị {classes.length} / {total || 'nhiều'} lớp finished — Kéo xuống hoặc nhấp để tải tiếp
+          </button>
+        ) : (
+          <div className="text-xs text-neutral-400 font-medium">
+            Đã hiển thị tất cả {classes.length} lớp finished
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

@@ -132,9 +132,8 @@ export default function ClassFilterToolbar({
                 : 'Tất cả cơ sở'}
             </span>
             <svg
-              className={`w-3.5 h-3.5 text-neutral-400 transition-transform ml-auto ${
-                isCentreDropdownOpen ? 'rotate-180' : ''
-              }`}
+              className={`w-3.5 h-3.5 text-neutral-400 transition-transform ml-auto ${isCentreDropdownOpen ? 'rotate-180' : ''
+                }`}
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -211,7 +210,7 @@ export default function ClassFilterToolbar({
                      hover:border-mindx-red/50 focus:outline-none focus:ring-2 focus:ring-mindx-red/20
                      transition-all min-w-[160px]"
         >
-          <option value="">Tất cả trạng thái QC</option>
+          <option value="">Tất cả trạng thái SPCK</option>
           <option value="completed">✅ Đạt yêu cầu</option>
           <option value="partial">⏳ Đang xử lý</option>
           <option value="none">❌ Chưa nộp SP</option>

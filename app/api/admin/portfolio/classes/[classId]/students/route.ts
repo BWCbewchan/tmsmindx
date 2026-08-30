@@ -1,5 +1,5 @@
 import { requireBearerSession } from '@/lib/datasource-api-auth';
-import { getClassStudentDetails } from '@/lib/portfolio-qc/service';
+import { getClassStudentDetails } from '@/lib/portfolio/service';
 import {
   getOrRefreshLmsToken,
   loginFallbackLmsAccount,

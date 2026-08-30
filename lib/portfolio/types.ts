@@ -25,6 +25,7 @@ export interface PortfolioQCClass {
   status: string;
   startDate: string;
   endDate: string;
+  finalSessionDate?: string | null;
   courseName: string;
   courseShortName: string;
   courseLineTag: string;     // e.g. "C4K", "XART"
@@ -32,25 +33,52 @@ export interface PortfolioQCClass {
   centreShortName: string;
   teacherName: string;
   totalSessions: number;    // Total number of slots
-  /** How many students have a submission in session 13 or 14 */
-  submittedCount: number;
-  /** Total active students in this class */
+  /** Total active students in this class (activeInClass === true) */
   totalStudents: number;
-  /** Submission ratio (0–100) */
+  /** Active students with a representative product */
+  submittedCount: number;
+  /** Active students missing a product (totalStudents - submittedCount) */
+  missingCount: number;
+  /** Active students with approved representative product */
+  approvedCount: number;
+  /** Active students with rejected representative product */
+  rejectedCount: number;
+  /** Active students with pending/draft representative product */
+  pendingCount: number;
+  /** Submission ratio percentage (0–100) */
   submissionRatio: number;
+  /** Approval ratio percentage (0–100) */
+  approvalRatio: number;
   /** Overall class status for QC */
   qcStatus: 'completed' | 'partial' | 'none';
+  /** True if class is missing Checkpoint 1 or 2 scores */
+  hasMissingCheckpoint?: boolean;
+}
+
+/** Product status categories for ranking & filtering */
+export type ProductStatusCategory = 'approved' | 'pending' | 'rejected' | 'draft' | 'none';
+
+export interface StudentRepresentativeProduct {
+  id?: string;
+  title?: string | null;
+  link?: string | null;
+  status?: string | null;
+  category: ProductStatusCategory;
+  version?: number;
+  updatedAt?: string | null;
+  totalSubmissions?: number;
 }
 
 /** A student row inside the expanded class detail */
 export interface PortfolioQCStudent {
   studentId: string;
   studentName: string;
-  /** Whether the student has a submission in session 13 or 14 */
+  activeInClass: boolean;
+  /** Whether the student has a representative product */
   hasSubmission: boolean;
-  /** Which session the submission was found (13 or 14), or null */
+  /** Which session the submission was found, or null */
   submissionSession: number | null;
-  /** Submission ratio text, e.g. "1" or "0" */
+  /** Submission count (1 or 0) */
   submissionCount: number;
   /** Ratio as percentage (0 or 100) */
   submissionRatio: number;
@@ -58,6 +86,8 @@ export interface PortfolioQCStudent {
   submissionTitle?: string | null;
   /** URL / link of final product submission if available */
   submissionLink?: string | null;
+  /** Representative product object selected by priority logic */
+  representativeProduct?: StudentRepresentativeProduct | null;
   /** Portfolio status from DB */
   portfolioStatus: 'none' | 'draft' | 'published';
   /** Portfolio ID in DB if exists */

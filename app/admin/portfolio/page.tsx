@@ -35,7 +35,7 @@ function builderHref(item: StudentPortfolioListItem) {
     studentId: item.student_lms_id,
     classId: item.class_lms_id,
   });
-  return `/admin/portfolio-qc/builder/${item.id}?${params.toString()}`;
+  return `/admin/kiem-soat-spck/builder/${item.id}?${params.toString()}`;
 }
 
 export default function PortfolioManagementPage() {

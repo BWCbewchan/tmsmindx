@@ -287,7 +287,7 @@ export default function PortfolioBuilderPage() {
     }
     setIsSyncingJourney(true);
     try {
-      const res = await fetch(`/api/admin/portfolio-qc/students/${sId}/study-classes`, {
+      const res = await fetch(`/api/admin/portfolio/students/${sId}/study-classes`, {
         headers: authHeaders(token),
       });
       const resData = await res.json();
@@ -319,7 +319,7 @@ export default function PortfolioBuilderPage() {
   const autoFetchLmsData = useCallback(async (sId: string) => {
     if (!sId) return;
     try {
-      const journeyRes = await fetch(`/api/admin/portfolio-qc/students/${sId}/study-classes`, {
+      const journeyRes = await fetch(`/api/admin/portfolio/students/${sId}/study-classes`, {
         headers: authHeaders(token),
       }).then((r) => r.json()).catch(() => null);
 
@@ -340,7 +340,7 @@ export default function PortfolioBuilderPage() {
     try {
       let url = '';
       if (params.portfolioKey !== 'new') {
-        url = `/api/admin/portfolio-qc/portfolios/${params.portfolioKey}`;
+        url = `/api/admin/portfolio/portfolios/${params.portfolioKey}`;
       } else if (studentId && classId) {
         const query = new URLSearchParams({
           studentId,
@@ -352,7 +352,7 @@ export default function PortfolioBuilderPage() {
           courseLine: searchParams.get('courseLine') || '',
           teacherName: searchParams.get('teacherName') || '',
         });
-        url = `/api/admin/portfolio-qc/portfolios?${query.toString()}`;
+        url = `/api/admin/portfolio/portfolios?${query.toString()}`;
       }
       if (!url) return;
       const res = await fetch(url, { headers: authHeaders(token), cache: 'no-store' });
@@ -394,8 +394,8 @@ export default function PortfolioBuilderPage() {
     };
     const method = portfolio?.id ? 'PUT' : 'POST';
     const url = portfolio?.id
-      ? `/api/admin/portfolio-qc/portfolios/${portfolio.id}`
-      : '/api/admin/portfolio-qc/portfolios';
+      ? `/api/admin/portfolio/portfolios/${portfolio.id}`
+      : '/api/admin/portfolio/portfolios';
     const res = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
@@ -416,7 +416,7 @@ export default function PortfolioBuilderPage() {
     setPortfolio(json.portfolio);
     setData(json.portfolio.data);
     if (params.portfolioKey === 'new') {
-      router.replace(`/admin/portfolio-qc/builder/${json.portfolio.id}?studentId=${encodeURIComponent(json.portfolio.student_lms_id)}&classId=${encodeURIComponent(json.portfolio.class_lms_id)}`);
+      router.replace(`/admin/portfolio/builder/${json.portfolio.id}?studentId=${encodeURIComponent(json.portfolio.student_lms_id)}&classId=${encodeURIComponent(json.portfolio.class_lms_id)}`);
     }
     return json.portfolio;
   };
@@ -1003,7 +1003,7 @@ export default function PortfolioBuilderPage() {
       <div className="mx-auto max-w-[1360px] space-y-5">
       <div className="sticky top-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 bg-white/95 px-4 py-3 shadow-[0_8px_28px_rgba(15,23,42,0.08)] backdrop-blur">
         <div className="flex min-w-0 items-center gap-3">
-          <Link href="/admin/portfolio-qc" className="grid h-9 w-9 place-items-center rounded-lg border border-neutral-200 text-neutral-600 hover:bg-neutral-50">
+          <Link href="/admin/kiem-soat-spck" className="grid h-9 w-9 place-items-center rounded-lg border border-neutral-200 text-neutral-600 hover:bg-neutral-50">
             <ArrowLeft className="h-4 w-4" />
           </Link>
           <div className="min-w-0">
