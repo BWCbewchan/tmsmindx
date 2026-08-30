@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Edit3, Eye, Loader2, Plus } from 'lucide-react';
+import { Edit3, Eye, ExternalLink, Loader2, Plus } from 'lucide-react';
 import Link from 'next/link';
-import type { PortfolioQCStudent } from '@/lib/portfolio-qc/types';
+import type { PortfolioQCStudent } from '@/lib/portfolio/types';
 
 interface StudentDetailPanelProps {
   classId: string;
@@ -31,7 +31,7 @@ export default function StudentDetailPanel({
     setError(null);
     try {
       const res = await fetch(
-        `/api/admin/portfolio-qc/classes/${classId}/students?className=${encodeURIComponent(className)}`,
+        `/api/admin/portfolio/classes/${classId}/students?className=${encodeURIComponent(className)}`,
       );
       const data = await res.json();
       if (data.success) {
@@ -91,8 +91,7 @@ export default function StudentDetailPanel({
             <tr className="text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">
               <th className="px-5 py-2.5 w-[60px]"></th>
               <th className="px-3 py-2.5">Học viên</th>
-              <th className="px-3 py-2.5 w-[80px] text-center">Bài nộp</th>
-              <th className="px-3 py-2.5 w-[80px] text-center">Tỷ lệ</th>
+              <th className="px-3 py-2.5">Trạng thái Sản phẩm</th>
               <th className="px-3 py-2.5 w-[140px]">Portfolio</th>
               <th className="px-3 py-2.5 w-[180px] text-right">Hành động</th>
             </tr>
@@ -118,8 +117,11 @@ export default function StudentDetailPanel({
                 className,
               });
               const builderHref = student.portfolioId
-                ? `/admin/portfolio-qc/builder/${student.portfolioId}?${builderParams.toString()}`
-                : `/admin/portfolio-qc/builder/new?${builderParams.toString()}`;
+                ? `/admin/kiem-soat-spck/builder/${student.portfolioId}?${builderParams.toString()}`
+                : `/admin/kiem-soat-spck/builder/new?${builderParams.toString()}`;
+
+              const totalWorks = student.representativeProduct?.totalSubmissions || (student.hasSubmission ? 1 : 0);
+              const subLink = student.submissionLink || student.representativeProduct?.link;
 
               return (
                 <tr
@@ -143,30 +145,65 @@ export default function StudentDetailPanel({
                     </span>
                   </td>
 
-                  {/* Submission count */}
-                  <td className="px-3 py-3 text-center">
-                    <span
-                      className={`font-semibold ${
-                        student.hasSubmission
-                          ? 'text-emerald-600'
-                          : 'text-neutral-400'
-                      }`}
-                    >
-                      {student.submissionCount}
-                    </span>
-                  </td>
-
-                  {/* Ratio */}
-                  <td className="px-3 py-3 text-center">
-                    <span
-                      className={`text-sm font-semibold ${
-                        student.submissionRatio === 100
-                          ? 'text-emerald-600'
-                          : 'text-neutral-400'
-                      }`}
-                    >
-                      {student.submissionRatio}%
-                    </span>
+                  {/* Representative Product Status Badge & Details */}
+                  <td className="px-3 py-3">
+                    {student.representativeProduct ? (
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1.5">
+                          {student.representativeProduct.category === 'approved' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 w-fit">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                              Đã duyệt
+                            </span>
+                          ) : student.representativeProduct.category === 'rejected' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200 w-fit">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                              Bị từ chối
+                            </span>
+                          ) : student.representativeProduct.category === 'pending' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 w-fit">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                              Chờ duyệt
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200 w-fit">
+                              Bản nháp
+                            </span>
+                          )}
+                          {totalWorks > 1 ? (
+                            <span className="text-[10px] text-neutral-500 font-medium bg-neutral-100 px-1.5 py-0.5 rounded border border-neutral-200">
+                              {totalWorks} bài nộp
+                            </span>
+                          ) : null}
+                        </div>
+                        {student.submissionTitle ? (
+                          subLink ? (
+                            <a
+                              href={subLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[11px] text-blue-600 hover:text-blue-800 hover:underline font-medium inline-flex items-center gap-1 truncate max-w-[200px]"
+                              title={student.submissionTitle}
+                            >
+                              <span className="truncate">{student.submissionTitle}</span>
+                              <ExternalLink size={10} className="shrink-0 text-blue-500" />
+                            </a>
+                          ) : (
+                            <span className="text-[11px] text-neutral-600 truncate max-w-[200px]" title={student.submissionTitle}>
+                              {student.submissionTitle}
+                            </span>
+                          )
+                        ) : null}
+                      </div>
+                    ) : student.hasSubmission ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        Đã nộp bài
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-neutral-100 text-neutral-500 border border-neutral-200">
+                        Chưa nộp
+                      </span>
+                    )}
                   </td>
 
                   {/* Portfolio status */}

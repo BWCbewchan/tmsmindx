@@ -7,6 +7,27 @@ export function normalizeRoleToken(value?: string): string {
     .replace(/[\s-]+/g, '_')
 }
 
+export function isPortfolioAllowedUser(user: any): boolean {
+  if (!user) return false
+  const normalizedRole = normalizeRoleToken(user.role)
+  const rawRoles = user.userRoles || user.roleCodes || []
+  const roleCodes = rawRoles.map((code: any) =>
+    typeof code === 'string'
+      ? normalizeRoleToken(code)
+      : normalizeRoleToken(code?.role_code || code?.code),
+  )
+
+  const isSuperAdmin =
+    normalizedRole === 'super_admin' ||
+    roleCodes.some((code: string) => code === 'super_admin')
+
+  if (isSuperAdmin) return true
+
+  return roleCodes.some((code: string) =>
+    ['tegl', 'tegl+', 'tm'].includes(code),
+  )
+}
+
 export function checkHrefPermission(href: string, user: any): boolean {
   if (!user) return false
 
@@ -30,6 +51,16 @@ export function checkHrefPermission(href: string, user: any): boolean {
     return false
   }
 
+  const isPortfolioRoute =
+    targetPath === '/admin/kiem-soat-spck' ||
+    targetPath.startsWith('/admin/kiem-soat-spck/') ||
+    targetPath === '/admin/portfolio' ||
+    targetPath.startsWith('/admin/portfolio/')
+
+  if (isPortfolioRoute) {
+    return isPortfolioAllowedUser(user)
+  }
+
   // Check role codes for training input & management roles
   const roleCodes = (user.userRoles || []).map((code: string) => normalizeRoleToken(code))
   const hasManagementRole =
@@ -47,12 +78,11 @@ export function checkHrefPermission(href: string, user: any): boolean {
     return true
   }
 
-  if (targetPath === '/admin/portfolio-qc' || targetPath === '/admin/portfolio') {
-    return true
+  // Base permissions, deal-luong and portfolio
+  const MANAGER_DEFAULT_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong']
+  if (isPortfolioAllowedUser(user)) {
+    MANAGER_DEFAULT_ROUTES.push('/admin/kiem-soat-spck', '/admin/portfolio')
   }
-
-  // Base permissions, deal-luong and portfolio-qc
-  const MANAGER_DEFAULT_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong', '/admin/portfolio-qc', '/admin/portfolio']
   const basePermissions = filterManagementPermissions(user.permissions || [])
   const permissions = Array.from(new Set([...basePermissions, ...MANAGER_DEFAULT_ROUTES]))
 
@@ -106,7 +136,10 @@ export function getFilteredAdminMenuItems(adminMenuItems: any[], user: any, path
 
   if (isSuperAdmin) return adminMenuItems
 
-  const MANAGER_DEFAULT_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong', '/admin/portfolio-qc', '/admin/portfolio']
+  const MANAGER_DEFAULT_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong']
+  if (isPortfolioAllowedUser(user)) {
+    MANAGER_DEFAULT_ROUTES.push('/admin/kiem-soat-spck', '/admin/portfolio')
+  }
   const basePermissions = filterManagementPermissions(user.permissions || [])
   const permissions = Array.from(new Set([...basePermissions, ...MANAGER_DEFAULT_ROUTES]))
 

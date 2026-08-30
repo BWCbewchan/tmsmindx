@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { cookies } from 'next/headers';
 import { verifySessionCookieValue, TPS_SESSION_COOKIE } from '@/lib/session-cookie';
 import { getPublishedPortfolioBySlug } from '@/lib/student-portfolio/service';
@@ -12,6 +13,38 @@ import { PortfolioMobileMenu } from '@/components/student-portfolio/portfolio-mo
 import { PortfolioPdfDownloadButton } from '@/components/student-portfolio/portfolio-pdf-download-button';
 import { PortfolioSideProgressNav } from '@/components/student-portfolio/portfolio-side-progress-nav';
 import logoTechAi from '@/logo_tech_ai.jpg';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const portfolio = await getPublishedPortfolioBySlug(decodeURIComponent(slug));
+  const data = portfolio?.data as StudentPortfolioData | undefined;
+
+  if (!data?.profile?.studentName) {
+    return {
+      title: 'Portfolio Học Viên | MindX Technology School',
+      description: 'Hồ sơ học tập & sản phẩm học viên tại MindX Technology School',
+    };
+  }
+
+  const name = data.profile.studentName;
+  const className = data.profile.className ? `Lớp ${data.profile.className}` : (data.profile.courseName || '');
+  const title = `Portfolio Học Viên ${name}${className ? ` - ${className}` : ''} | MindX Technology School`;
+  const description = `Hành trình sáng tạo, sản phẩm và kết quả học tập của học viên ${name} tại MindX Technology School.`;
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      type: 'website',
+    },
+  };
+}
 
 function initials(name: string) {
   return name
@@ -214,16 +247,58 @@ function projectAnchorId(index: number) {
 
 function awardTone(level?: string, title?: string) {
   const text = (title || '').toLowerCase();
+  const label = title || 'Vinh danh thành tích';
+
   if (level === 'gold' || text.includes('nhat') || text.includes('nhất')) {
-    return { label: 'Giải Nhất', bg: '#fff7d6', border: '#f2c94c', ink: '#8a5a00', medal: '#f59e0b' };
+    return {
+      label: title || 'Giải Nhất',
+      headerBg: 'bg-gradient-to-br from-amber-950 via-yellow-950/90 to-amber-900',
+      accentColor: '#f59e0b',
+      border: 'border-amber-300/40',
+      glow: 'shadow-[0_8px_30px_rgba(245,158,11,0.25)]',
+      medal: '#f59e0b',
+      ink: '#b45309',
+      badgeClass: 'bg-gradient-to-r from-amber-400 to-yellow-500 text-amber-950 font-black',
+      sparkleColor: '#fde68a',
+    };
   }
   if (level === 'silver' || text.includes('nhi') || text.includes('nhì')) {
-    return { label: 'Giải Nhì', bg: '#f3f4f6', border: '#c7ced8', ink: '#475569', medal: '#64748b' };
+    return {
+      label: title || 'Giải Nhì',
+      headerBg: 'bg-gradient-to-br from-slate-900 via-slate-800 to-zinc-900',
+      accentColor: '#94a3b8',
+      border: 'border-slate-300/40',
+      glow: 'shadow-[0_8px_30px_rgba(148,163,184,0.22)]',
+      medal: '#64748b',
+      ink: '#475569',
+      badgeClass: 'bg-gradient-to-r from-slate-200 to-slate-100 text-slate-900 font-black',
+      sparkleColor: '#e2e8f0',
+    };
   }
   if (level === 'bronze' || text.includes('ba')) {
-    return { label: 'Giải Ba', bg: '#fff7ed', border: '#fed7aa', ink: '#c2410c', medal: '#d97706' };
+    return {
+      label: title || 'Giải Ba',
+      headerBg: 'bg-gradient-to-br from-amber-950 via-orange-950 to-stone-900',
+      accentColor: '#d97706',
+      border: 'border-orange-400/40',
+      glow: 'shadow-[0_8px_30px_rgba(217,119,6,0.22)]',
+      medal: '#d97706',
+      ink: '#c2410c',
+      badgeClass: 'bg-gradient-to-r from-orange-400 to-amber-500 text-amber-950 font-black',
+      sparkleColor: '#ffedd5',
+    };
   }
-  return { label: 'Giải Khuyến Khích', bg: '#eef7ff', border: '#9cc8ee', ink: '#1d4f7a', medal: '#0284c7' };
+  return {
+    label,
+    headerBg: 'bg-gradient-to-br from-sky-950 via-indigo-950 to-blue-950',
+    accentColor: '#0284c7',
+    border: 'border-sky-400/40',
+    glow: 'shadow-[0_8px_30px_rgba(14,165,233,0.22)]',
+    medal: '#0284c7',
+    ink: '#0369a1',
+    badgeClass: 'bg-gradient-to-r from-sky-400 to-indigo-500 text-white font-black',
+    sparkleColor: '#bae6fd',
+  };
 }
 
 function portfolioTrack(data: StudentPortfolioData): PortfolioTrack {
@@ -682,22 +757,56 @@ export default async function PublicPortfolioPage({
             {(data.achievements || []).map((award: StudentPortfolioData['achievements'][number], index: number) => {
               const tone = awardTone(award.level, award.title);
               return (
-              <article key={`${award.title}-${index}`} className="overflow-hidden rounded-[18px] border border-[#ded6c9] bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
-                <div className="relative grid h-32 place-items-center overflow-hidden bg-[#171512]">
-                  <div className="absolute -bottom-10 left-6 h-28 w-24 rotate-45 bg-[#bd0026]/70" />
-                  <div className="absolute -bottom-8 right-6 h-24 w-24 -rotate-45 bg-white/8" />
-                  <div className="relative grid h-16 w-16 place-items-center rounded-full border-4 border-white/55 shadow-lg" style={{ backgroundColor: tone.medal }}>
-                    <Award className="h-8 w-8 text-white" fill="white" />
+              <article
+                key={`${award.title}-${index}`}
+                className={`group relative overflow-hidden rounded-[22px] border border-[#e2dcd3] bg-white transition-all duration-300 hover:-translate-y-1.5 ${tone.glow}`}
+              >
+                {/* Header Background with Rich Shimmer & Starburst SVG Watermark */}
+                <div className={`relative flex flex-col items-center justify-center h-44 overflow-hidden ${tone.headerBg} px-4 pt-5 pb-4`}>
+                  {/* Subtle Sparkle Starburst Radial Pattern */}
+                  <div className="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_50%_40%,_var(--tw-gradient-stops))] from-white via-transparent to-transparent" />
+                  <svg
+                    className="absolute inset-0 h-full w-full opacity-15 pointer-events-none"
+                    viewBox="0 0 100 100"
+                    preserveAspectRatio="none"
+                  >
+                    <line x1="50" y1="0" x2="50" y2="100" stroke={tone.sparkleColor} strokeWidth="0.5" strokeDasharray="2 2" />
+                    <line x1="0" y1="50" x2="100" y2="50" stroke={tone.sparkleColor} strokeWidth="0.5" strokeDasharray="2 2" />
+                    <circle cx="50" cy="50" r="35" stroke={tone.sparkleColor} strokeWidth="0.5" fill="none" />
+                    <circle cx="50" cy="50" r="45" stroke={tone.sparkleColor} strokeWidth="0.3" fill="none" />
+                  </svg>
+                  
+                  {/* Glowing Medal Icon */}
+                  <div
+                    className="relative grid h-14 w-14 place-items-center rounded-2xl border-2 border-white/60 shadow-xl transition duration-300 group-hover:scale-105 shrink-0 mb-3.5"
+                    style={{ backgroundColor: tone.medal }}
+                  >
+                    <Award className="h-7 w-7 text-white drop-shadow" fill="white" />
                   </div>
-                  <span className="absolute bottom-4 rounded-full bg-white/12 px-3 py-1 text-[9px] font-extrabold uppercase tracking-wide text-white/80">
+
+                  {/* Badge Label with generous spacing */}
+                  <span className={`relative rounded-full px-3.5 py-1 text-[10px] uppercase tracking-wider ${tone.badgeClass} shadow-md backdrop-blur-sm z-10`}>
                     {tone.label}
                   </span>
                 </div>
+
+                {/* Card Content Body */}
                 <div className="p-5">
-                  <p className="text-[10px] font-extrabold uppercase" style={{ color: theme.ink }}>Giải thưởng MindX</p>
-                  <h3 className="mt-2 font-extrabold text-lg leading-tight text-[#171512]">{award.title}</h3>
-                  <p className="mt-2 text-sm font-semibold leading-6 text-[#777067]">{award.subtitle || 'MindX Technology School'}</p>
-                  {award.date ? <p className="mt-3 text-xs font-bold text-[#9b9288]">{award.date}</p> : null}
+                  <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#9b9288]">
+                    Vinh danh Thành tích
+                  </span>
+                  <h3 className="mt-1.5 font-black text-lg leading-snug text-[#171512]">
+                    {award.title}
+                  </h3>
+                  <p className="mt-2 text-xs font-semibold text-[#665f57]">
+                    {award.subtitle || 'MindX Technology School'}
+                  </p>
+                  {award.date ? (
+                    <div className="mt-3.5 flex items-center gap-1.5 text-[11px] font-bold text-[#8c8275]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#bd0026]" />
+                      <span>{award.date}</span>
+                    </div>
+                  ) : null}
                 </div>
               </article>
               );

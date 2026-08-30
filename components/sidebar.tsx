@@ -365,8 +365,8 @@ export function Sidebar() {
       ],
     },
     {
-      href: '/admin/portfolio-qc',
-      label: 'Quản lý nộp SPCK',
+      href: '/admin/kiem-soat-spck',
+      label: 'Kiểm soát Sản phẩm cuối khóa',
       icon: Sparkles,
     },
     {

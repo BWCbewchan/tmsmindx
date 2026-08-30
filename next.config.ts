@@ -42,8 +42,6 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-  agentRules: false,
-
   async redirects() {
     return [
       {

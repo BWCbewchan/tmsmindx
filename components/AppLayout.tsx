@@ -7,6 +7,7 @@ import {
   getBrowserPath,
 } from '@/lib/auth-redirect'
 import { filterManagementPermissions } from '@/lib/admin-permission-routes'
+import { isPortfolioAllowedUser } from '@/lib/menu-permissions'
 import { authHeaders } from '@/lib/auth-headers'
 import { isUnauthorizedStatus, parseJsonSafe } from '@/lib/auth-error-handling'
 import { ArrowLeft, Mail, MessageCircle, ShieldAlert } from 'lucide-react'
@@ -362,8 +363,12 @@ export default function AppLayout({
 
       // Super admin bypasses all permission checks
       if (!isSuperAdmin) {
-        // manager và admin luôn được phép vào deal-luong routes và portfolio-qc routes
-        const PORTFOLIO_QC_ROUTES = ['/admin/portfolio-qc', '/admin/portfolio', '/admin/deal-luong', '/admin/tao-deal-luong']
+        const canAccessPortfolio = isPortfolioAllowedUser(user)
+        const PORTFOLIO_QC_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong']
+        if (canAccessPortfolio) {
+          PORTFOLIO_QC_ROUTES.push('/admin/kiem-soat-spck', '/admin/portfolio')
+        }
+
         const hasManagementRole =
           ['manager', 'admin', 'super_admin'].includes(user.role) ||
           roleCodes.some((code) => ['LEADER', 'TE', 'TC', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(code))

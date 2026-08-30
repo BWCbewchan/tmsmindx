@@ -1,6 +1,6 @@
 import { requireBearerSession } from '@/lib/datasource-api-auth';
 import { getAccessibleCenters } from '@/lib/center-access';
-import { fetchClassesForQC } from '@/lib/portfolio-qc/service';
+import { fetchClassesForQC } from '@/lib/portfolio/service';
 import {
   getOrRefreshLmsToken,
   loginFallbackLmsAccount,
@@ -20,6 +20,18 @@ export async function GET(req: NextRequest) {
   try {
     const auth = await requireBearerSession(req);
     if (!auth.ok) return auth.response;
+
+    const userRoles = (auth.resolvedAccess?.userRoles || []).map((r) => String(r).toUpperCase());
+    const sysRole = String(auth.resolvedAccess?.role || '').toLowerCase();
+    const isAllowed =
+      sysRole === 'super_admin' ||
+      userRoles.some((r) => ['TEGL', 'TEGL+', 'TM', 'SUPER_ADMIN'].includes(r));
+    if (!isAllowed) {
+      return NextResponse.json(
+        { success: false, error: 'Chỉ tài khoản TEGL, TEGL+, TM hoặc super_admin mới có quyền truy cập.' },
+        { status: 403 },
+      );
+    }
 
     const rl = await rateLimitOr429Async(
       `portfolio-qc:${clientIpFromRequest(req)}`,
