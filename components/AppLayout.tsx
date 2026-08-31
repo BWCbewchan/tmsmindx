@@ -7,7 +7,10 @@ import {
   getBrowserPath,
 } from '@/lib/auth-redirect'
 import { filterManagementPermissions } from '@/lib/admin-permission-routes'
-import { isPortfolioAllowedUser } from '@/lib/menu-permissions'
+import {
+  isPortfolioAllowedUser,
+  isPortfolioRoutePath,
+} from '@/lib/menu-permissions'
 import { authHeaders } from '@/lib/auth-headers'
 import { isUnauthorizedStatus, parseJsonSafe } from '@/lib/auth-error-handling'
 import { ArrowLeft, Mail, MessageCircle, ShieldAlert } from 'lucide-react'
@@ -350,7 +353,10 @@ export default function AppLayout({
       const isSuperAdmin = user.role === 'super_admin'
       const isAdminUser =
         user.isAdmin || ['super_admin', 'admin', 'manager'].includes(user.role)
-      const permissions = filterManagementPermissions(user.permissions || [])
+      const canAccessPortfolio = isPortfolioAllowedUser(user)
+      const permissions = filterManagementPermissions(user.permissions || []).filter(
+        (permission) => canAccessPortfolio || !isPortfolioRoutePath(permission),
+      )
 
       if (!isAdminUser) {
         // Not an admin at all — redirect to user area
@@ -363,7 +369,6 @@ export default function AppLayout({
 
       // Super admin bypasses all permission checks
       if (!isSuperAdmin) {
-        const canAccessPortfolio = isPortfolioAllowedUser(user)
         const PORTFOLIO_QC_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong']
         if (canAccessPortfolio) {
           PORTFOLIO_QC_ROUTES.push('/admin/kiem-soat-spck', '/admin/portfolio')
@@ -377,7 +382,7 @@ export default function AppLayout({
         const hasAnyK12LeaderAccess = permissions.some((p) => p === '/admin/quy-trinh-quy-dinh-leader' || p.startsWith('/admin/quy-trinh-quy-dinh-leader/'))
 
         const extraRoutes: string[] = []
-        if (['manager', 'admin'].includes(user.role) || hasManagementRole) {
+        if (canAccessPortfolio || ['manager', 'admin'].includes(user.role) || hasManagementRole) {
           extraRoutes.push(...PORTFOLIO_QC_ROUTES)
         }
         if (hasAnyK12Access || hasManagementRole) {

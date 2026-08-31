@@ -2857,6 +2857,30 @@ const migrations: Migration[] = [
         ALTER COLUMN thumbnail_position TYPE TEXT;
     `,
   },
+  {
+    name: 'V111_portfolio_role_permissions',
+    version: 111,
+    sql: `
+      DO $$
+      DECLARE
+        allowed_roles text[] := ARRAY['TEGL', 'TEGL+', 'TM', 'CL', 'RL', 'AL', 'LEAD', 'TE', 'TC'];
+        portfolio_routes text[] := ARRAY['/admin/portfolio', '/admin/kiem-soat-spck'];
+      BEGIN
+        IF to_regclass('public.roles') IS NOT NULL AND to_regclass('public.role_permissions') IS NOT NULL THEN
+          DELETE FROM role_permissions
+          WHERE route_path = ANY(portfolio_routes)
+            AND NOT (role_code = ANY(allowed_roles));
+
+          INSERT INTO role_permissions (role_code, route_path)
+          SELECT r.role_code, route_path
+          FROM roles r
+          CROSS JOIN unnest(portfolio_routes) AS route_path
+          WHERE r.role_code = ANY(allowed_roles)
+          ON CONFLICT DO NOTHING;
+        END IF;
+      END $$;
+    `,
+  },
 ]
 
 // ========== HÀM CHẠY MIGRATIONS ==========

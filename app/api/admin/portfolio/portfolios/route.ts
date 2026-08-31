@@ -1,4 +1,5 @@
 import { requireBearerSession } from '@/lib/datasource-api-auth';
+import { isPortfolioAllowedUser } from '@/lib/menu-permissions';
 import {
   buildPortfolioDataFromLms,
   getPortfolioByStudentClass,
@@ -16,7 +17,14 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function GET(req: NextRequest) {
   try {
     const auth = await requireBearerSession(req);
-    if (!auth.ok) return auth.response;
+    if (auth.ok === false) return auth.response;
+
+    if (!isPortfolioAllowedUser(auth.resolvedAccess)) {
+      return NextResponse.json(
+        { success: false, error: 'Chỉ tài khoản TEGL, TEGL+, TM, CL, RL, AL, LEAD, TE, TC hoặc super_admin mới có quyền truy cập.' },
+        { status: 403 },
+      );
+    }
 
     const studentId = req.nextUrl.searchParams.get('studentId') || '';
     const classId = req.nextUrl.searchParams.get('classId') || '';
@@ -76,7 +84,14 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const auth = await requireBearerSession(req);
-    if (!auth.ok) return auth.response;
+    if (auth.ok === false) return auth.response;
+
+    if (!isPortfolioAllowedUser(auth.resolvedAccess)) {
+      return NextResponse.json(
+        { success: false, error: 'Chỉ tài khoản TEGL, TEGL+, TM, CL, RL, AL, LEAD, TE, TC hoặc super_admin mới có quyền truy cập.' },
+        { status: 403 },
+      );
+    }
 
     const body = await req.json();
     const studentId = String(body.studentId || '').trim();

@@ -1,5 +1,6 @@
 import { requireBearerSession } from '@/lib/datasource-api-auth';
 import { getAccessibleCenters } from '@/lib/center-access';
+import { isPortfolioAllowedUser } from '@/lib/menu-permissions';
 import { fetchClassesForQC } from '@/lib/portfolio/service';
 import {
   getOrRefreshLmsToken,
@@ -13,22 +14,17 @@ import { NextRequest, NextResponse } from 'next/server';
  * GET /api/admin/portfolio-qc/classes
  *
  * Fetch classes for Portfolio QC management.
- * Only accessible by manager/admin/super_admin.
+ * Only accessible by configured Portfolio role codes.
  * Centres are filtered based on the user's assignedCenters.
  */
 export async function GET(req: NextRequest) {
   try {
     const auth = await requireBearerSession(req);
-    if (!auth.ok) return auth.response;
+    if (auth.ok === false) return auth.response;
 
-    const userRoles = (auth.resolvedAccess?.userRoles || []).map((r) => String(r).toUpperCase());
-    const sysRole = String(auth.resolvedAccess?.role || '').toLowerCase();
-    const isAllowed =
-      sysRole === 'super_admin' ||
-      userRoles.some((r) => ['TEGL', 'TEGL+', 'TM', 'SUPER_ADMIN'].includes(r));
-    if (!isAllowed) {
+    if (!isPortfolioAllowedUser(auth.resolvedAccess)) {
       return NextResponse.json(
-        { success: false, error: 'Chỉ tài khoản TEGL, TEGL+, TM hoặc super_admin mới có quyền truy cập.' },
+        { success: false, error: 'Chỉ tài khoản TEGL, TEGL+, TM, CL, RL, AL, LEAD, TE, TC hoặc super_admin mới có quyền truy cập.' },
         { status: 403 },
       );
     }

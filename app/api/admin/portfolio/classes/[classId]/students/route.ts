@@ -1,4 +1,5 @@
 import { requireBearerSession } from '@/lib/datasource-api-auth';
+import { isPortfolioAllowedUser } from '@/lib/menu-permissions';
 import { getClassStudentDetails } from '@/lib/portfolio/service';
 import {
   getOrRefreshLmsToken,
@@ -20,7 +21,14 @@ export async function GET(
 ) {
   try {
     const auth = await requireBearerSession(req);
-    if (!auth.ok) return auth.response;
+    if (auth.ok === false) return auth.response;
+
+    if (!isPortfolioAllowedUser(auth.resolvedAccess)) {
+      return NextResponse.json(
+        { success: false, error: 'Chỉ tài khoản TEGL, TEGL+, TM, CL, RL, AL, LEAD, TE, TC hoặc super_admin mới có quyền truy cập.' },
+        { status: 403 },
+      );
+    }
 
     const rl = await rateLimitOr429Async(
       `portfolio-qc-students:${clientIpFromRequest(req)}`,
