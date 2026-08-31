@@ -7,6 +7,28 @@ export function normalizeRoleToken(value?: string): string {
     .replace(/[\s-]+/g, '_')
 }
 
+const PORTFOLIO_ALLOWED_ROLE_CODES = new Set([
+  'tegl',
+  'tegl+',
+  'tm',
+  'cl',
+  'rl',
+  'al',
+  'lead',
+  'te',
+  'tc',
+])
+
+export function isPortfolioRoutePath(path: string): boolean {
+  const targetPath = path.split('?')[0]
+  return (
+    targetPath === '/admin/kiem-soat-spck' ||
+    targetPath.startsWith('/admin/kiem-soat-spck/') ||
+    targetPath === '/admin/portfolio' ||
+    targetPath.startsWith('/admin/portfolio/')
+  )
+}
+
 export function isPortfolioAllowedUser(user: any): boolean {
   if (!user) return false
   const normalizedRole = normalizeRoleToken(user.role)
@@ -23,8 +45,9 @@ export function isPortfolioAllowedUser(user: any): boolean {
 
   if (isSuperAdmin) return true
 
-  return roleCodes.some((code: string) =>
-    ['tegl', 'tegl+', 'tm'].includes(code),
+  return (
+    PORTFOLIO_ALLOWED_ROLE_CODES.has(normalizedRole) ||
+    roleCodes.some((code: string) => PORTFOLIO_ALLOWED_ROLE_CODES.has(code))
   )
 }
 
@@ -51,13 +74,7 @@ export function checkHrefPermission(href: string, user: any): boolean {
     return false
   }
 
-  const isPortfolioRoute =
-    targetPath === '/admin/kiem-soat-spck' ||
-    targetPath.startsWith('/admin/kiem-soat-spck/') ||
-    targetPath === '/admin/portfolio' ||
-    targetPath.startsWith('/admin/portfolio/')
-
-  if (isPortfolioRoute) {
+  if (isPortfolioRoutePath(targetPath)) {
     return isPortfolioAllowedUser(user)
   }
 
@@ -80,10 +97,13 @@ export function checkHrefPermission(href: string, user: any): boolean {
 
   // Base permissions, deal-luong and portfolio
   const MANAGER_DEFAULT_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong']
-  if (isPortfolioAllowedUser(user)) {
+  const canAccessPortfolio = isPortfolioAllowedUser(user)
+  if (canAccessPortfolio) {
     MANAGER_DEFAULT_ROUTES.push('/admin/kiem-soat-spck', '/admin/portfolio')
   }
-  const basePermissions = filterManagementPermissions(user.permissions || [])
+  const basePermissions = filterManagementPermissions(user.permissions || []).filter(
+    (permission) => canAccessPortfolio || !isPortfolioRoutePath(permission),
+  )
   const permissions = Array.from(new Set([...basePermissions, ...MANAGER_DEFAULT_ROUTES]))
 
   const hasAnyK12Access = permissions.some((p) => {
@@ -137,10 +157,13 @@ export function getFilteredAdminMenuItems(adminMenuItems: any[], user: any, path
   if (isSuperAdmin) return adminMenuItems
 
   const MANAGER_DEFAULT_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong']
-  if (isPortfolioAllowedUser(user)) {
+  const canAccessPortfolio = isPortfolioAllowedUser(user)
+  if (canAccessPortfolio) {
     MANAGER_DEFAULT_ROUTES.push('/admin/kiem-soat-spck', '/admin/portfolio')
   }
-  const basePermissions = filterManagementPermissions(user.permissions || [])
+  const basePermissions = filterManagementPermissions(user.permissions || []).filter(
+    (permission) => canAccessPortfolio || !isPortfolioRoutePath(permission),
+  )
   const permissions = Array.from(new Set([...basePermissions, ...MANAGER_DEFAULT_ROUTES]))
 
   const roleCodes = (user.userRoles || []).map((code: string) =>
@@ -183,6 +206,9 @@ export function getFilteredAdminMenuItems(adminMenuItems: any[], user: any, path
 
   const hasPermissionForHref = (href: string) => {
     const targetPath = href.split('?')[0]
+    if (isPortfolioRoutePath(targetPath)) {
+      return canAccessPortfolio
+    }
     return effectivePermissions.some(
       (p) =>
         targetPath === p ||

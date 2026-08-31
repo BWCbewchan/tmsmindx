@@ -1,6 +1,7 @@
 import { requireBearerSession } from '@/lib/datasource-api-auth';
 import { callLmsApi } from '@/lib/lms-api';
 import { getOrRefreshLmsToken, loginFallbackLmsAccount } from '@/lib/lms-token-helper';
+import { isPortfolioAllowedUser } from '@/lib/menu-permissions';
 import { clientIpFromRequest, rateLimitOr429Async } from '@/lib/rate-limit-memory';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -60,7 +61,14 @@ export async function GET(
 ) {
   try {
     const auth = await requireBearerSession(req);
-    if (!auth.ok) return auth.response;
+    if (auth.ok === false) return auth.response;
+
+    if (!isPortfolioAllowedUser(auth.resolvedAccess)) {
+      return NextResponse.json(
+        { success: false, error: 'Chỉ tài khoản TEGL, TEGL+, TM, CL, RL, AL, LEAD, TE, TC hoặc super_admin mới có quyền truy cập.' },
+        { status: 403 },
+      );
+    }
 
     const rl = await rateLimitOr429Async(
       `student-study-classes:${clientIpFromRequest(req)}`,
