@@ -308,6 +308,22 @@ export function Sidebar() {
       ],
     },
     {
+      label: 'Quản lý học viên',
+      icon: Users,
+      submenu: [
+        {
+          href: '/admin/kiem-soat-spck',
+          label: 'Kiểm soát Sản phẩm cuối khóa',
+          icon: Sparkles,
+        },
+        {
+          href: '/admin/portfolio',
+          label: 'Quản lý Portfolio',
+          icon: FileText,
+        },
+      ],
+    },
+    {
       label: 'Đào tạo & Khảo thí',
       icon: GraduationCap,
       submenu: [
@@ -363,16 +379,6 @@ export function Sidebar() {
           ],
         },
       ],
-    },
-    {
-      href: '/admin/kiem-soat-spck',
-      label: 'Kiểm soát Sản phẩm cuối khóa',
-      icon: Sparkles,
-    },
-    {
-      href: '/admin/portfolio',
-      label: 'Quản lý Portfolio',
-      icon: FileText,
     },
     {
       label: 'Cấu Hình Hệ Thống',
@@ -869,7 +875,7 @@ export function Sidebar() {
                             : 'max-h-0 overflow-hidden opacity-0',
                         )}
                       >
-                        <div className="ml-3 mt-1 space-y-0.5 border-l-2 border-gray-200 pl-2">
+                        <div className="ml-3 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
                           {item.submenu?.map((subItem: any) => {
                             const subHasSubmenu =
                               'submenu' in subItem &&
@@ -928,7 +934,7 @@ export function Sidebar() {
                                   >
                                     {toTitleCase(subItem.label)}
                                   </div>
-                                  <div className="ml-2 space-y-0.5 border-l border-gray-200 pl-2">
+                                  <div className="ml-2 space-y-1 border-l border-gray-200 pl-2">
                                     {nestedItems?.map((nestedItem: any) => {
                                       const isNestedActive = isPathMatch(
                                         nestedItem.href,
