@@ -35,6 +35,7 @@ interface Leader {
   code: string
   full_name: string
   email?: string
+  phone?: string
   role_code: string
   role_name: string
   center: string
@@ -857,6 +858,7 @@ function CentersLeadersPanel() {
                             ...editLeader,
                             full_name: selected.full_name,
                             email: selected.email,
+                            phone: (selected as any).phone || (selected as any).phone_number || editLeader.phone || '',
                             code: selected.code || editLeader.code || '',
                             center: mappedCenters,
                           })
@@ -932,6 +934,24 @@ function CentersLeadersPanel() {
                     }
                     id="leader-email"
                     placeholder="example@mindx.edu.vn"
+                    className="h-9 w-full rounded-lg border border-gray-300 px-3 text-sm transition-colors focus:border-[#a1001f] focus:outline-none focus:ring-2 focus:ring-[#a1001f]/20"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label
+                    htmlFor="leader-phone"
+                    className="block text-sm font-medium text-gray-700"
+                  >
+                    Số điện thoại (SĐT)
+                  </label>
+                  <input
+                    type="tel"
+                    value={editLeader.phone || ''}
+                    onChange={(e) =>
+                      setEditLeader({ ...editLeader, phone: e.target.value })
+                    }
+                    id="leader-phone"
+                    placeholder="0912345678"
                     className="h-9 w-full rounded-lg border border-gray-300 px-3 text-sm transition-colors focus:border-[#a1001f] focus:outline-none focus:ring-2 focus:ring-[#a1001f]/20"
                   />
                 </div>

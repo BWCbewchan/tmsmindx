@@ -7,6 +7,10 @@ import {
   getBrowserPath,
 } from '@/lib/auth-redirect'
 import { filterManagementPermissions } from '@/lib/admin-permission-routes'
+import {
+  isPortfolioAllowedUser,
+  isPortfolioRoutePath,
+} from '@/lib/menu-permissions'
 import { authHeaders } from '@/lib/auth-headers'
 import { isUnauthorizedStatus, parseJsonSafe } from '@/lib/auth-error-handling'
 import { ArrowLeft, Mail, MessageCircle, ShieldAlert } from 'lucide-react'
@@ -349,7 +353,10 @@ export default function AppLayout({
       const isSuperAdmin = user.role === 'super_admin'
       const isAdminUser =
         user.isAdmin || ['super_admin', 'admin', 'manager'].includes(user.role)
-      const permissions = filterManagementPermissions(user.permissions || [])
+      const canAccessPortfolio = isPortfolioAllowedUser(user)
+      const permissions = filterManagementPermissions(user.permissions || []).filter(
+        (permission) => canAccessPortfolio || !isPortfolioRoutePath(permission),
+      )
 
       if (!isAdminUser) {
         // Not an admin at all — redirect to user area
@@ -362,8 +369,33 @@ export default function AppLayout({
 
       // Super admin bypasses all permission checks
       if (!isSuperAdmin) {
-        // If they have no permissions, show contact message
-        if (permissions.length === 0) {
+        const PORTFOLIO_QC_ROUTES = ['/admin/deal-luong', '/admin/tao-deal-luong']
+        if (canAccessPortfolio) {
+          PORTFOLIO_QC_ROUTES.push('/admin/kiem-soat-spck', '/admin/portfolio')
+        }
+
+        const hasManagementRole =
+          ['manager', 'admin', 'super_admin'].includes(user.role) ||
+          roleCodes.some((code) => ['LEADER', 'TE', 'TC', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(code))
+
+        const hasAnyK12Access = permissions.some((p) => p === '/admin/page2' || p.startsWith('/admin/page2/'))
+        const hasAnyK12LeaderAccess = permissions.some((p) => p === '/admin/quy-trinh-quy-dinh-leader' || p.startsWith('/admin/quy-trinh-quy-dinh-leader/'))
+
+        const extraRoutes: string[] = []
+        if (canAccessPortfolio || ['manager', 'admin'].includes(user.role) || hasManagementRole) {
+          extraRoutes.push(...PORTFOLIO_QC_ROUTES)
+        }
+        if (hasAnyK12Access || hasManagementRole) {
+          extraRoutes.push('/admin/page2', '/admin/page2/manage')
+        }
+        if (hasAnyK12LeaderAccess || hasManagementRole) {
+          extraRoutes.push('/admin/quy-trinh-quy-dinh-leader', '/admin/quy-trinh-quy-dinh-leader/manage')
+        }
+
+        const effectivePermissions = Array.from(new Set([...permissions, ...extraRoutes]))
+
+        // If they have no permissions at all, show contact message
+        if (effectivePermissions.length === 0) {
           if (hasTrainingInputRole && isTrainingInputRoute) {
             setNoPermission(false)
           } else if (hasTrainingInputRole) {
@@ -374,13 +406,6 @@ export default function AppLayout({
             return
           }
         }
-
-        // Default routes allowed for all management users
-        const PORTFOLIO_QC_ROUTES = ['/admin/portfolio-qc', '/admin/deal-luong', '/admin/tao-deal-luong']
-        const effectivePermissions = Array.from(
-          new Set([...permissions, ...PORTFOLIO_QC_ROUTES]),
-        )
-
         // Check if user has permission for current route
         // Allow bypass for universal admin routes like /admin/profile
         if (

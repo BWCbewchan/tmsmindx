@@ -108,19 +108,56 @@ export function Sidebar() {
       .toLowerCase()
       .replace(/[\s-]+/g, '_')
 
-  const toTitleCase = (value?: string) => {
-    if (!value) return ''
+  const KNOWN_UPPERCASE_TOKENS = useMemo(
+    () =>
+      new Set([
+        'TE',
+        'TC',
+        'HR',
+        'TF',
+        'GEN',
+        'K12',
+        'TPS',
+        'GV',
+        'HĐ',
+        'QL',
+        'BU',
+        'S3',
+      ]),
+    [],
+  )
 
-    return value
-      .trim()
-      .split(/\s+/)
-      .map((word) => {
-        if (!word) return word
-        if (/^[A-Z0-9&()+/.-]+$/.test(word)) return word
-        return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-      })
-      .join(' ')
-  }
+  const toTitleCase = useCallback(
+    (value?: string) => {
+      if (!value) return ''
+
+      return value
+        .trim()
+        .split(/\s+/)
+        .map((word) => {
+          if (!word) return word
+          if (/^[A-Z0-9&()+/.-]+$/.test(word)) return word
+          if (word.includes('/')) {
+            return word
+              .split('/')
+              .map((part) => {
+                const upperPart = part.toUpperCase()
+                if (KNOWN_UPPERCASE_TOKENS.has(upperPart)) return upperPart
+                if (/^[A-Z0-9&()+.-]+$/.test(part)) return part
+                return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+              })
+              .join('/')
+          }
+          const cleanUpper = word.replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
+          if (KNOWN_UPPERCASE_TOKENS.has(cleanUpper)) {
+            return word.toUpperCase()
+          }
+          return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+        })
+        .join(' ')
+    },
+    [KNOWN_UPPERCASE_TOKENS],
+  )
 
   const isNavLinkActive = useCallback(
     (href?: string) => {
@@ -304,10 +341,17 @@ export function Sidebar() {
       icon: BookOpen,
       submenu: [
         {
-          label: 'Quy Trình, Quy Định K12 Teaching',
+          label: 'Quy Trình, Quy Định K12 Teaching (Giáo Viên)',
           submenu: [
             { href: '/admin/page2', label: 'Xem Tài Liệu' },
             { href: '/admin/page2/manage', label: 'Quản Lý Tài Liệu' },
+          ],
+        },
+        {
+          label: 'Quy Trình, Quy Định K12 Teaching - Leader/TE/TC',
+          submenu: [
+            { href: '/admin/quy-trinh-quy-dinh-leader', label: 'Xem Tài Liệu' },
+            { href: '/admin/quy-trinh-quy-dinh-leader/manage', label: 'Quản Lý Tài Liệu' },
           ],
         },
         {
@@ -321,9 +365,14 @@ export function Sidebar() {
       ],
     },
     {
-      href: '/admin/portfolio-qc',
-      label: 'Kiểm Soát Portfolio (QC)',
+      href: '/admin/kiem-soat-spck',
+      label: 'Kiểm soát Sản phẩm cuối khóa',
       icon: Sparkles,
+    },
+    {
+      href: '/admin/portfolio',
+      label: 'Quản lý Portfolio',
+      icon: FileText,
     },
     {
       label: 'Cấu Hình Hệ Thống',
@@ -348,6 +397,23 @@ export function Sidebar() {
       icon: BarChart3,
     },
   ]
+
+  const roleCodes = useMemo(
+    () => (user?.userRoles || []).map((code) => normalizeRoleToken(code)),
+    [user?.userRoles],
+  )
+  const hasManagementRole = useMemo(
+    () =>
+      ['manager', 'admin', 'super_admin'].includes(
+        normalizeRoleToken(user?.role),
+      ) ||
+      roleCodes.some((code) =>
+        ['leader', 'te', 'tc', 'manager', 'admin', 'super_admin'].includes(
+          code,
+        ),
+      ),
+    [user?.role, roleCodes],
+  )
 
   const userMenuItems = [
     {
@@ -388,6 +454,14 @@ export function Sidebar() {
       icon: BookOpen,
       submenu: [
         { href: '/user/quy-trinh-quy-dinh', label: 'Quy trình & Quy định' },
+        ...(hasManagementRole
+          ? [
+              {
+                href: '/user/quy-trinh-quy-dinh-leader',
+                label: 'Quy Trình, Quy Định - Leader/TE/TC',
+              },
+            ]
+          : []),
         { href: '/user/xu-ly-tinh-huong', label: 'Bộ tham khảo xử lý tình huống', rawLabel: 'Bộ tham khảo xử lý tình huống' },
         {
           label: 'Giáo trình',
@@ -564,6 +638,7 @@ export function Sidebar() {
     if (path === '/user/assignments') return 'tour-nav-assignments'
     if (path === '/user/giaitrinh') return 'tour-nav-giaitrinh'
     if (path === '/user/quy-trinh-quy-dinh') return 'tour-nav-quytrinh'
+    if (path === '/user/quy-trinh-quy-dinh-leader' || path === '/admin/quy-trinh-quy-dinh-leader') return 'tour-nav-quytrinh-leader'
     if (path === '/user/quan-ly-phan-hoi') return 'tour-nav-quanlyphanho'
     return undefined
   }
@@ -802,40 +877,38 @@ export function Sidebar() {
                             const isSubActive = isMenuItemActive(subItem)
 
                             if (subHasSubmenu) {
-                              const isK12PolicyGroup =
-                                subItem.label ===
-                                'Quy Trình, Quy Định K12 Teaching'
-                              const nestedItems = isK12PolicyGroup
+                              const isK12PolicyTeacher =
+                                subItem.label === 'Quy Trình, Quy Định K12 Teaching' ||
+                                subItem.label === 'Quy Trình, Quy Định K12 Teaching (Giáo Viên)'
+                              const isK12PolicyLeader =
+                                subItem.label === 'Quy Trình, Quy Định K12 Teaching - Leader/TE/TC'
+
+                              const nestedItems = isK12PolicyTeacher
                                 ? (() => {
-                                  const current = Array.isArray(
-                                    subItem.submenu,
-                                  )
-                                    ? [...subItem.submenu]
-                                    : []
-                                  const hasManageItem = current.some(
-                                    (entry: any) =>
-                                      entry?.href === '/admin/page2/manage',
-                                  )
+                                  const current = Array.isArray(subItem.submenu) ? [...subItem.submenu] : []
+                                  const hasManageItem = current.some((entry: any) => entry?.href === '/admin/page2/manage')
                                   if (!hasManageItem) {
-                                    current.push({
-                                      href: '/admin/page2/manage',
-                                      label: 'Quản Lý Tài Liệu',
-                                    })
+                                    current.push({ href: '/admin/page2/manage', label: 'Quản Lý Tài Liệu' })
                                   }
-                                  // Hide "Quản Lý Tài Liệu" for te/leader/tc roles
-                                  const roleCodes = (user?.userRoles || []).map((code) =>
-                                    normalizeRoleToken(code),
-                                  )
-                                  const hasRestrictedRole = roleCodes.some(
-                                    (code) => code === 'te' || code === 'leader' || code === 'tc',
-                                  )
-
+                                  const roleCodes = (user?.userRoles || []).map((code) => normalizeRoleToken(code))
+                                  const hasRestrictedRole = roleCodes.some((code) => code === 'te' || code === 'leader' || code === 'tc')
                                   if (hasRestrictedRole) {
-                                    return current.filter(
-                                      (item: any) => item?.href !== '/admin/page2/manage'
-                                    )
+                                    return current.filter((item: any) => item?.href !== '/admin/page2/manage')
                                   }
-
+                                  return current
+                                })()
+                                : isK12PolicyLeader
+                                ? (() => {
+                                  const current = Array.isArray(subItem.submenu) ? [...subItem.submenu] : []
+                                  const hasManageItem = current.some((entry: any) => entry?.href === '/admin/quy-trinh-quy-dinh-leader/manage')
+                                  if (!hasManageItem) {
+                                    current.push({ href: '/admin/quy-trinh-quy-dinh-leader/manage', label: 'Quản Lý Tài Liệu' })
+                                  }
+                                  const roleCodes = (user?.userRoles || []).map((code) => normalizeRoleToken(code))
+                                  const hasRestrictedRole = roleCodes.some((code) => code === 'te' || code === 'leader' || code === 'tc')
+                                  if (hasRestrictedRole) {
+                                    return current.filter((item: any) => item?.href !== '/admin/quy-trinh-quy-dinh-leader/manage')
+                                  }
                                   return current
                                 })()
                                 : subItem.submenu

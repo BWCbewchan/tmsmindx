@@ -495,6 +495,23 @@ export function DockNav() {
 
   // ── Item definitions ─────────────────────────────────────────────────────
 
+  const roleCodes = useMemo(
+    () => (user?.userRoles || []).map((code: string) => String(code).trim().toLowerCase().replace(/[\s-]+/g, '_')),
+    [user?.userRoles],
+  )
+  const hasManagementRole = useMemo(
+    () =>
+      ['manager', 'admin', 'super_admin'].includes(
+        String(user?.role || '').trim().toLowerCase().replace(/[\s-]+/g, '_'),
+      ) ||
+      roleCodes.some((code: string) =>
+        ['leader', 'te', 'tc', 'manager', 'admin', 'super_admin'].includes(
+          code,
+        ),
+      ),
+    [user?.role, roleCodes],
+  )
+
   // ── User area ── 7 desktop items  /  5 mobile items
   const userDesktopItems: NavDockItem[] = useMemo(() => [
     { id: 'truyenthong', label: 'Truyền thông', icon: Megaphone, href: '/user/truyenthong' },
@@ -519,12 +536,15 @@ export function DockNav() {
       id: 'tailieu', label: 'Tài liệu', icon: BookOpen,
       submenu: [
         { href: '/user/quy-trinh-quy-dinh', label: 'Quy trình & Quy định' },
+        ...(hasManagementRole
+          ? [{ href: '/user/quy-trinh-quy-dinh-leader', label: 'Quy Trình, Quy Định - Leader/TE/TC' }]
+          : []),
         { href: '/user/giao-trinh-trai-nghiem', label: 'Giáo trình trải nghiệm' },
         { href: '/user/giao-trinh-chuyen-mon', label: 'Giáo trình chuyên môn' },
       ] as SubItem[],
     },
     { id: 'phanhoi', label: 'Phản hồi', icon: FileText, href: '/user/quan-ly-phan-hoi' },
-  ], [unreadCount])
+  ], [unreadCount, hasManagementRole])
 
   // Mobile: 5 core items (drop Lịch and Phản hồi — go in settings)
   const userMobileItems: NavDockItem[] = useMemo(() => [
@@ -542,12 +562,15 @@ export function DockNav() {
       id: 'tailieu', label: 'Tài liệu', icon: BookOpen,
       submenu: [
         { href: '/user/quy-trinh-quy-dinh', label: 'Quy trình & Quy định' },
+        ...(hasManagementRole
+          ? [{ href: '/user/quy-trinh-quy-dinh-leader', label: 'Quy Trình, Quy Định - Leader/TE/TC' }]
+          : []),
         { href: '/user/giao-trinh-trai-nghiem', label: 'Giáo trình trải nghiệm' },
         { href: '/user/giao-trinh-chuyen-mon', label: 'Giáo trình chuyên môn' },
       ] as SubItem[],
     },
     { id: 'thongtin', label: 'Thông tin', icon: Home, href: '/user/thong-tin-giao-vien' },
-  ], [unreadCount])
+  ], [unreadCount, hasManagementRole])
 
   // ── Admin area ── 6 desktop / 4 mobile
   const rawAdminDesktopItems: NavDockItem[] = useMemo(() => [
@@ -585,9 +608,13 @@ export function DockNav() {
     {
       id: 'tailieu', label: 'Tài liệu', icon: BookOpen,
       submenu: [
-        { groupLabel: 'Quy Trình K12', items: [
+        { groupLabel: 'Quy Trình K12 (Giáo Viên)', items: [
           { href: '/admin/page2', label: 'Xem Tài Liệu' },
           { href: '/admin/page2/manage', label: 'Quản Lý Tài Liệu' },
+        ]},
+        { groupLabel: 'Quy Trình K12 (Leader/TE/TC)', items: [
+          { href: '/admin/quy-trinh-quy-dinh-leader', label: 'Xem Tài Liệu' },
+          { href: '/admin/quy-trinh-quy-dinh-leader/manage', label: 'Quản Lý Tài Liệu' },
         ]},
         { groupLabel: 'Tài Liệu Giảng Dạy', items: [
           { href: '/admin/giao-trinh-trai-nghiem', label: 'Giáo trình trải nghiệm' },
@@ -656,6 +683,9 @@ export function DockNav() {
     { href: '/user/hoat-dong-hang-thang', label: 'Hoạt động hàng tháng' },
     { href: '/user/lich-cua-toi', label: 'Lịch cá nhân' },
     { href: '/user/quan-ly-phan-hoi', label: 'Trung tâm phản hồi' },
+    ...(hasManagementRole
+      ? [{ href: '/user/quy-trinh-quy-dinh-leader', label: 'Quy Trình, Quy Định - Leader/TE/TC' }]
+      : []),
   ].filter(i => !isTempHiddenUserRoute(i.href))
 
   const mobileExtraAdminItems: SubItem[] = [
@@ -671,6 +701,8 @@ export function DockNav() {
     // Tài liệu K12 & Giáo trình
     { href: '/admin/page2', label: 'Xem Tài Liệu K12' },
     { href: '/admin/page2/manage', label: 'Quản Lý Tài Liệu K12' },
+    { href: '/admin/quy-trinh-quy-dinh-leader', label: 'Xem Tài Liệu Leader/TE/TC' },
+    { href: '/admin/quy-trinh-quy-dinh-leader/manage', label: 'Quản Lý Tài Liệu Leader/TE/TC' },
     { href: '/admin/giao-trinh-chuyen-mon', label: 'Giáo trình chuyên môn' },
     { href: '/admin/quan-ly-tai-lieu-giang-day', label: 'Quản lý giáo trình' },
     // Hệ thống

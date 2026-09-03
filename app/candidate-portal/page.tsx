@@ -1,7 +1,8 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertCircle,
   Building2,
   CalendarDays,
   CheckCircle2,
@@ -9,6 +10,7 @@ import {
   Clock,
   Download,
   ExternalLink,
+  FileCheck,
   FileText,
   Flag,
   LogOut,
@@ -18,11 +20,14 @@ import {
   Phone,
   Route,
   Search,
+  ShieldCheck,
+  Trash2,
   UploadCloud,
   UsersRound,
   Video,
   X,
 } from 'lucide-react';
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSearchParams } from 'next/navigation';
 import GenOverviewTab, { TrainingScheduleEvent } from '../admin/hr-candidates/components/GenOverviewTab';
@@ -264,6 +269,64 @@ const CENTER_OPTIONS = [
 const CLASS_TYPES = ['Lớp học chính', 'Lớp học trải nghiệm'];
 const HARVEST_TEMPLATE_URL = '/templates/template-thu-hoach-sau-observe.pdf';
 const ROADMAP_ILLUSTRATION_URL = '/candidate-portal/dao-tao-dau-vao.svg';
+
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+function getRoleBadgeConfig(role: string) {
+  const r = role.toLowerCase();
+  if (r.includes('tegl')) {
+    return {
+      label: role,
+      badgeClass: 'bg-[#a1001f] text-white border-[#a1001f]',
+      cardClass: 'border-[#a1001f]/30 bg-[#a1001f]/[0.02] shadow-xs ring-1 ring-[#a1001f]/10',
+      isLead: true,
+    };
+  }
+  if (r.includes('coding')) {
+    return {
+      label: role,
+      badgeClass: 'bg-blue-50 text-blue-700 border-blue-200',
+      cardClass: 'border-gray-100 bg-white hover:border-blue-200',
+      isLead: false,
+    };
+  }
+  if (r.includes('robotic')) {
+    return {
+      label: role,
+      badgeClass: 'bg-purple-50 text-purple-700 border-purple-200',
+      cardClass: 'border-gray-100 bg-white hover:border-purple-200',
+      isLead: false,
+    };
+  }
+  if (r.includes('art')) {
+    return {
+      label: role,
+      badgeClass: 'bg-amber-50 text-amber-800 border-amber-200',
+      cardClass: 'border-gray-100 bg-white hover:border-amber-200',
+      isLead: false,
+    };
+  }
+  if (r.includes('teacher coordinator') || r.includes('tc')) {
+    return {
+      label: role,
+      badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+      cardClass: 'border-gray-100 bg-white hover:border-emerald-200',
+      isLead: false,
+    };
+  }
+  return {
+    label: role,
+    badgeClass: 'bg-gray-100 text-gray-800 border-gray-200',
+    cardClass: 'border-gray-100 bg-white',
+    isLead: false,
+  };
+}
 const CANDIDATE_TAB_HREFS: Record<CandidateTabId, string> = {
   observe: '/candidate-portal',
   videos: '/candidate-portal/videos',
@@ -339,16 +402,18 @@ function parseTeLeaderCsv(csvText: string): TeLeaderContact[] {
       const [first = '', second = '', third = '', fourth = '', fifth = ''] = parseCsvLine(line);
       if (!first && !second && !third && !fourth && !fifth) return;
 
-      if (first.startsWith('HCM -')) {
-        currentArea = first.replace('HCM -', '').trim();
-        contacts.push({
-          area: currentArea,
-          center: currentArea,
-          name: second,
-          role: third,
-          phone: fourth,
-          email: fifth,
-        });
+      if (first.includes(' - ')) {
+        currentArea = first.split(' - ')[1].trim();
+        if (second) {
+          contacts.push({
+            area: currentArea,
+            center: currentArea,
+            name: second,
+            role: third,
+            phone: fourth,
+            email: fifth,
+          });
+        }
         return;
       }
 
@@ -518,6 +583,29 @@ function CandidatePortalContent() {
   const [harvestFile, setHarvestFile] = useState<File | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [isObserveModalOpen, setIsObserveModalOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setHarvestFile(e.dataTransfer.files[0]);
+    }
+  }, []);
   const [isRoadmapLightboxOpen, setIsRoadmapLightboxOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
@@ -753,6 +841,16 @@ function CandidatePortalContent() {
     }
   }, [activeTab, fetchTeLeaderContacts]);
 
+  const [selectedTeArea, setSelectedTeArea] = useState<string>('all');
+
+  const allTeAreas = useMemo(() => {
+    const areas = new Set<string>();
+    teLeaderContacts.forEach((c) => {
+      if (c.area) areas.add(c.area);
+    });
+    return ['all', ...Array.from(areas)];
+  }, [teLeaderContacts]);
+
   const teLeaderManagers = useMemo(() => {
     const managerMap = new Map<string, TeLeaderManager>();
 
@@ -777,10 +875,29 @@ function CandidatePortalContent() {
       });
     });
 
-    return Array.from(managerMap.values()).map((manager) => ({
+    const result = Array.from(managerMap.values()).map((manager) => ({
       ...manager,
       centers: manager.centers.sort((a, b) => a.localeCompare(b, 'vi')),
     }));
+
+    const areaCentersMap = new Map<string, Set<string>>();
+    result.forEach((m) => {
+      if (!areaCentersMap.has(m.area)) areaCentersMap.set(m.area, new Set());
+      m.centers.forEach((c) => {
+        if (c !== m.area) areaCentersMap.get(m.area)?.add(c);
+      });
+    });
+
+    return result.map((m) => {
+      if (m.role.toLowerCase().includes('tegl') && (m.centers.length === 0 || m.centers.includes(m.area))) {
+        const areaCenters = Array.from(areaCentersMap.get(m.area) || []);
+        return {
+          ...m,
+          centers: areaCenters.length > 0 ? areaCenters.sort((a, b) => a.localeCompare(b, 'vi')) : [m.area],
+        };
+      }
+      return m;
+    });
   }, [teLeaderContacts]);
 
   const filteredTeLeaderManagers = useMemo(() => {
@@ -794,13 +911,16 @@ function CandidatePortalContent() {
   }, [teLeaderManagers, teLeaderSearch]);
 
   const teLeaderManagersByArea = useMemo(() => {
-    return filteredTeLeaderManagers.reduce<Record<string, TeLeaderManager[]>>((groups, manager) => {
+    const grouped = filteredTeLeaderManagers.reduce<Record<string, TeLeaderManager[]>>((groups, manager) => {
       const key = manager.area || 'Khác';
       groups[key] = groups[key] || [];
       groups[key].push(manager);
       return groups;
     }, {});
-  }, [filteredTeLeaderManagers]);
+
+    if (selectedTeArea === 'all') return grouped;
+    return Object.fromEntries(Object.entries(grouped).filter(([area]) => area === selectedTeArea));
+  }, [filteredTeLeaderManagers, selectedTeArea]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1097,15 +1217,21 @@ function CandidatePortalContent() {
         }
       >
         <div className="min-w-0">
-      {activeTab === 'observe' && (
+                     {activeTab === 'observe' && (
         <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr] animate-in fade-in duration-300">
           <section className="space-y-6">
-            <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-              <div className="bg-primary p-6 text-primary-foreground">
+            {/* Tiến độ dự thính Card */}
+            <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-md transition-all">
+              <div className="relative overflow-hidden bg-[#a1001f] p-6 text-white shadow-md">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-sm font-semibold text-primary-foreground/80">Tiến độ dự thính</p>
-                    <h2 className="mt-1 text-3xl font-bold">{submittedCount}/5 bài</h2>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-bold text-white backdrop-blur-xs">
+                        {progressPercent}% hoàn thành
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs font-semibold text-white/80 uppercase tracking-wider">Tiến độ dự thính</p>
+                    <h2 className="mt-1 text-3xl font-extrabold text-white tracking-tight">{submittedCount} / 5 <span className="text-lg font-medium text-white/80">bài</span></h2>
                   </div>
                   <Button
                     type="button"
@@ -1115,66 +1241,151 @@ function CandidatePortalContent() {
                       setSubmitMessage('');
                       setIsObserveModalOpen(true);
                     }}
-                    className="h-10 shrink-0 border-0 bg-primary-foreground font-bold text-primary shadow-sm hover:bg-primary-foreground/90 hover:text-primary"
+                    className="h-11 shrink-0 rounded-xl border border-white/20 bg-white font-bold text-[#a1001f] shadow-md hover:bg-white/95 hover:scale-[1.02] transition-all"
                   >
                     <UploadCloud className="h-4 w-4" />
                     Nộp thu hoạch
                   </Button>
                 </div>
-                <div className="mt-5 h-3 overflow-hidden rounded-full bg-primary-foreground/20">
-                  <div className="h-full rounded-full bg-primary-foreground transition-all" style={{ width: `${progressPercent}%` }} />
+                <div className="mt-5 h-2.5 overflow-hidden rounded-full bg-black/20 p-0.5">
+                  <div
+                    className="h-full rounded-full bg-white transition-all duration-500 shadow-xs"
+                    style={{ width: `${progressPercent}%` }}
+                  />
                 </div>
               </div>
-              <div className="grid grid-cols-3 divide-x divide-border p-4 text-center">
-                <div>
-                  <p className="text-xl font-bold text-foreground">{submittedCount}</p>
-                  <p className="text-xs font-semibold text-muted-foreground">Đã nộp</p>
+
+              {/* Stats Counters */}
+              <div className="grid grid-cols-3 divide-x divide-gray-100 bg-gray-50/50 p-4 text-center">
+                <div className="px-2 py-1">
+                  <p className="text-2xl font-black text-gray-900">{submittedCount}</p>
+                  <p className="mt-0.5 text-xs font-bold text-gray-500 uppercase tracking-wider">Đã nộp</p>
+                </div>
+                <div className="px-2 py-1">
+                  <p className="text-2xl font-black text-emerald-600">{approvedCount}</p>
+                  <p className="mt-0.5 text-xs font-bold text-gray-500 uppercase tracking-wider">Đã duyệt</p>
+                </div>
+                <div className="px-2 py-1">
+                  <p className="text-2xl font-black text-[#a1001f]">{Math.max(0, 5 - submittedCount)}</p>
+                  <p className="mt-0.5 text-xs font-bold text-gray-500 uppercase tracking-wider">Còn lại</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Hướng dẫn dự thính Card */}
+            <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-xs space-y-4">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#a1001f]/10 text-[#a1001f]">
+                  <ClipboardList className="h-4 w-4" />
                 </div>
                 <div>
-                  <p className="text-xl font-bold text-success">{approvedCount}</p>
-                  <p className="text-xs font-semibold text-muted-foreground">Đã duyệt</p>
+                  <h3 className="text-sm font-bold text-gray-900">Hướng dẫn làm bài & Nộp thu hoạch</h3>
+                  <p className="text-xs text-gray-500">Các bước hoàn thành lộ trình observe tại cơ sở</p>
                 </div>
-                <div>
-                  <p className="text-xl font-bold text-primary">{Math.max(0, 5 - submittedCount)}</p>
-                  <p className="text-xs font-semibold text-muted-foreground">Còn lại</p>
+              </div>
+
+              <div className="space-y-3 text-xs leading-relaxed text-gray-600">
+                <div className="flex items-start gap-2.5 rounded-xl border border-gray-100 bg-gray-50/60 p-3">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#a1001f] text-[10px] font-bold text-white">1</span>
+                  <p><span className="font-bold text-gray-800">Tải mẫu phiếu thu hoạch</span> từ nút bên trên hoặc trong form nộp bài để có đúng định dạng quy định.</p>
                 </div>
+                <div className="flex items-start gap-2.5 rounded-xl border border-gray-100 bg-gray-50/60 p-3">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#a1001f] text-[10px] font-bold text-white">2</span>
+                  <p><span className="font-bold text-gray-800">Tham gia tối thiểu 5 buổi dự thính</span> tại cơ sở được phân công và ghi chép nội dung quan sát.</p>
+                </div>
+                <div className="flex items-start gap-2.5 rounded-xl border border-gray-100 bg-gray-50/60 p-3">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#a1001f] text-[10px] font-bold text-white">3</span>
+                  <p><span className="font-bold text-gray-800">Nộp thu hoạch</span> lên hệ thống sau mỗi buổi dự thính để HR/Leader kiểm tra và phê duyệt.</p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-1 border-t border-gray-100">
+                <Button
+                  asChild
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-lg text-xs font-semibold text-gray-700 hover:border-[#a1001f] hover:text-[#a1001f]"
+                >
+                  <a href={HARVEST_TEMPLATE_URL} download>
+                    <Download className="h-3.5 w-3.5" /> Tải mẫu thu hoạch
+                  </a>
+                </Button>
+                <Button
+                  asChild
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-lg text-xs font-semibold text-gray-700 hover:border-[#a1001f] hover:text-[#a1001f]"
+                >
+                  <Link href={K12_ONSITE_TRAINING_URL}>
+                    <ExternalLink className="h-3.5 w-3.5" /> Quy định dự thính
+                  </Link>
+                </Button>
               </div>
             </div>
           </section>
 
-          <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
+          {/* Right Section: Lịch sử nộp thu hoạch */}
+          <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-xs flex flex-col">
             <div className="mb-5 flex items-center justify-between gap-4">
               <div>
-                <h2 className="text-lg font-bold text-foreground">Lịch sử nộp thu hoạch</h2>
-                <p className="text-sm text-muted-foreground">HR sẽ kiểm tra và duyệt từng bài nộp.</p>
+                <h2 className="text-lg font-bold text-gray-900 tracking-tight">Lịch sử nộp thu hoạch</h2>
+                <p className="text-xs text-gray-500">Danh sách các bài observe bạn đã gửi lên hệ thống.</p>
               </div>
+              <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700">
+                {sessions.length} bài đã nộp
+              </span>
             </div>
 
             {loadingSessions ? (
               <CandidateListSkeleton />
             ) : sessions.length === 0 ? (
-              <div className="flex h-72 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted text-center">
-                <FileText className="mb-3 h-11 w-11 text-muted-foreground/50" />
-                <p className="font-bold text-foreground">Chưa có bài thu hoạch</p>
-                <p className="mt-1 max-w-sm text-sm text-muted-foreground">Sau khi nộp, bài thu hoạch sẽ xuất hiện tại đây để theo dõi trạng thái.</p>
+              <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50/50 p-8 text-center min-h-[320px]">
+                <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#a1001f]/10 text-[#a1001f]">
+                  <FileText className="h-7 w-7" />
+                </div>
+                <p className="font-bold text-gray-900">Chưa có bài thu hoạch nào</p>
+                <p className="mt-1 max-w-xs text-xs text-gray-500 leading-relaxed">
+                  Sau khi nộp, các bài thu hoạch sẽ xuất hiện tại đây để bạn tiện theo dõi phản hồi và trạng thái phê duyệt từ HR.
+                </p>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setSubmitMessage('');
+                    setIsObserveModalOpen(true);
+                  }}
+                  variant="mindx"
+                  size="sm"
+                  className="mt-4 rounded-xl font-semibold shadow-xs"
+                >
+                  <UploadCloud className="h-4 w-4" /> Nộp bài đầu tiên
+                </Button>
               </div>
             ) : (
               <div className="space-y-3">
                 {sessions.map((session) => {
                   const status = getStatusConfig(session.status);
                   return (
-                    <article key={session.id} className="rounded-xl border border-border bg-muted p-4 transition hover:border-primary/30 hover:bg-primary/5">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
+                    <article
+                      key={session.id}
+                      className="rounded-2xl border border-gray-100 bg-gray-50/40 p-4 transition-all duration-200 hover:border-[#a1001f]/30 hover:bg-white hover:shadow-md"
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0 space-y-1.5">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 ${status.className}`}>{status.label}</span>
-                            <span className="rounded-full bg-background px-2.5 py-1 text-[11px] font-semibold text-muted-foreground ring-1 ring-border">
+                            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ring-1 ${status.className}`}>
+                              {status.label}
+                            </span>
+                            <span className="rounded-full bg-white px-2.5 py-0.5 text-[11px] font-semibold text-gray-600 ring-1 ring-gray-200">
                               {session.class_type}
                             </span>
                           </div>
-                          <h3 className="mt-3 font-bold text-foreground">{session.center_code}</h3>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            Ngày dự thính: {new Date(session.observe_date).toLocaleDateString('vi-VN')}
+                          <h3 className="font-bold text-gray-900 flex items-center gap-1.5 text-base">
+                            <MapPin className="h-4 w-4 text-[#a1001f]" />
+                            {session.center_code}
+                          </h3>
+                          <p className="text-xs text-gray-500 flex items-center gap-1">
+                            <CalendarDays className="h-3.5 w-3.5 text-gray-400" />
+                            Ngày dự thính: <span className="font-semibold text-gray-700">{new Date(session.observe_date).toLocaleDateString('vi-VN')}</span>
                           </p>
                         </div>
 
@@ -1182,15 +1393,17 @@ function CandidatePortalContent() {
                           asChild
                           variant="outline"
                           size="sm"
+                          className="h-9 rounded-xl border-gray-200 font-semibold text-xs text-gray-700 hover:border-[#a1001f] hover:text-[#a1001f] hover:bg-[#a1001f]/5 transition-all shadow-xs shrink-0"
                         >
-                        <a
-                          href={session.harvest_file_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Xem file
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </a>
+                          <a
+                            href={session.harvest_file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <FileText className="h-3.5 w-3.5 text-[#a1001f]" />
+                            Xem file
+                            <ExternalLink className="h-3 w-3 text-gray-400" />
+                          </a>
                         </Button>
                       </div>
                     </article>
@@ -1204,83 +1417,97 @@ function CandidatePortalContent() {
 
       {activeTab === 'observe' && isObserveModalOpen && (
         <div
-          className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center bg-black/55 p-4 backdrop-blur-md"
+          className="fixed inset-0 z-modal-backdrop-custom flex items-center justify-center bg-black/60 p-4 backdrop-blur-md animate-in fade-in duration-200"
           onClick={() => setIsObserveModalOpen(false)}
           role="presentation"
         >
           <div
-            className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white/95 shadow-2xl animate-in fade-in zoom-in duration-200"
+            className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 animate-in fade-in zoom-in-95 duration-200"
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="observe-submit-title"
           >
-            <div className="border-b border-white/20 bg-linear-to-r from-[#a1001f] to-[#c41230] p-5 text-white shadow-md">
+            {/* Modal Header */}
+            <div className="relative border-b border-white/10 bg-[#a1001f] p-5 text-white shadow-md">
               <div className="flex items-start justify-between gap-4">
-              <div className="flex min-w-0 items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/15 text-white">
-                  <UploadCloud className="h-5 w-5" />
+                <div className="flex min-w-0 items-start gap-3.5">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/15 shadow-inner backdrop-blur-xs">
+                    <UploadCloud className="h-6 w-6 text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 id="observe-submit-title" className="text-lg font-bold leading-tight text-white tracking-tight">
+                      Nộp thu hoạch dự thính
+                    </h2>
+                    <p className="mt-1 text-xs font-medium text-white/80">
+                      Hoàn thiện thông tin buổi observe và tải file thu hoạch từ máy tính.
+                    </p>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <h2 id="observe-submit-title" className="text-lg font-bold leading-tight text-white">
-                    Nộp thu hoạch dự thính
-                  </h2>
-                  <p className="mt-0.5 text-xs font-medium text-white/80">
-                    Hoàn thiện thông tin buổi observe và tải file thu hoạch từ máy tính.
-                  </p>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    asChild
+                    variant="secondary"
+                    size="sm"
+                    className="h-9 rounded-xl border border-white/20 bg-white/95 font-bold text-[#a1001f] shadow-xs hover:bg-white hover:text-[#a1001f] transition-all"
+                  >
+                    <a href={HARVEST_TEMPLATE_URL} download>
+                      <Download className="h-4 w-4" />
+                      Tải mẫu
+                    </a>
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => setIsObserveModalOpen(false)}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white/80 transition-colors hover:bg-white/15 hover:text-white"
+                    aria-label="Đóng modal"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
                 </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <Button
-                  asChild
-                  variant="secondary"
-                  size="sm"
-                  className="h-9 rounded-xl border border-white/25 bg-white font-bold text-[#a1001f] shadow-sm hover:bg-white/90 hover:text-[#a1001f]"
-                >
-                  <a href={HARVEST_TEMPLATE_URL} download>
-                    <Download className="h-4 w-4" />
-                    Tải mẫu
-                  </a>
-                </Button>
-              <button
-                type="button"
-                onClick={() => setIsObserveModalOpen(false)}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/75 transition-colors hover:bg-white/15 hover:text-white"
-                aria-label="Đóng modal"
-              >
-                <X className="h-5 w-5" />
-              </button>
-              </div>
               </div>
             </div>
 
-            <div className="max-h-[76vh] overflow-y-auto px-5 py-4">
-              <div className="mb-4 rounded-xl border border-[#a1001f]/10 bg-[#a1001f]/5 p-4">
+            {/* Modal Content */}
+            <div className="max-h-[75vh] overflow-y-auto px-6 py-5 custom-scrollbar space-y-5">
+              {/* Quy trình banner */}
+              <div className="rounded-xl border border-[#a1001f]/15 bg-[#a1001f]/[0.03] p-4 transition-all hover:bg-[#a1001f]/[0.05]">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-bold text-gray-900">Quy trình dự thính tại cơ sở</p>
-                    <p className="mt-1 text-sm leading-6 text-gray-600">
+                  <div className="space-y-0.5">
+                    <p className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+                      <ClipboardList className="h-4 w-4 text-[#a1001f]" />
+                      Quy trình dự thính tại cơ sở
+                    </p>
+                    <p className="text-xs leading-relaxed text-gray-600">
                       Trước khi nộp thu hoạch, ứng viên cần đối chiếu với mục Đào tạo tại cơ sở trong Quy Trình, Quy Định K12 Teaching.
                     </p>
                   </div>
-                  <Button asChild variant="outline" size="sm" className="h-9 shrink-0 rounded-xl bg-white font-semibold">
-                    <a href={K12_ONSITE_TRAINING_URL} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="h-4 w-4" />
+                  <Button
+                    asChild
+                    variant="outline"
+                    size="sm"
+                    className="h-8 shrink-0 rounded-lg bg-white font-semibold text-xs border-gray-200 text-gray-700 hover:border-[#a1001f] hover:text-[#a1001f] transition-all shadow-xs"
+                    onClick={() => setIsObserveModalOpen(false)}
+                  >
+                    <Link href={K12_ONSITE_TRAINING_URL}>
+                      <ExternalLink className="h-3.5 w-3.5" />
                       Xem quy trình
-                    </a>
+                    </Link>
                   </Button>
                 </div>
               </div>
 
+              {/* Form Controls */}
               <div className="space-y-4">
-                <label className="block">
-                  <span className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase text-gray-600">
-                    <MapPin className="h-3.5 w-3.5" /> Cơ sở
-                  </span>
+                {/* Cơ sở */}
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-gray-600">
+                    <MapPin className="h-3.5 w-3.5 text-[#a1001f]" /> Cơ sở dự thính <span className="text-[#a1001f]">*</span>
+                  </label>
                   <select
                     value={form.center_code}
                     onChange={(event) => setForm((prev) => ({ ...prev, center_code: event.target.value }))}
-                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm font-semibold text-gray-900 outline-none transition focus:border-[#a1001f] focus:ring-2 focus:ring-[#a1001f]/25"
+                    className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-3.5 py-2.5 text-sm font-semibold text-gray-900 outline-none transition-all focus:border-[#a1001f] focus:bg-white focus:ring-2 focus:ring-[#a1001f]/20 hover:border-gray-300"
                   >
                     {CENTER_OPTIONS.map((center) => (
                       <option key={center} value={center}>
@@ -1288,29 +1515,30 @@ function CandidatePortalContent() {
                       </option>
                     ))}
                   </select>
-                </label>
+                </div>
 
+                {/* Grid 2 cols: Ngày & Hình thức */}
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase text-gray-600">
-                      <CalendarDays className="h-3.5 w-3.5" /> Ngày dự thính
-                    </span>
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-gray-600">
+                      <CalendarDays className="h-3.5 w-3.5 text-[#a1001f]" /> Ngày dự thính <span className="text-[#a1001f]">*</span>
+                    </label>
                     <input
                       type="date"
                       value={form.observe_date}
                       onChange={(event) => setForm((prev) => ({ ...prev, observe_date: event.target.value }))}
-                      className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm font-semibold text-gray-900 outline-none transition focus:border-[#a1001f] focus:ring-2 focus:ring-[#a1001f]/25"
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-3.5 py-2.5 text-sm font-semibold text-gray-900 outline-none transition-all focus:border-[#a1001f] focus:bg-white focus:ring-2 focus:ring-[#a1001f]/20 hover:border-gray-300"
                     />
-                  </label>
+                  </div>
 
-                  <label className="block">
-                    <span className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase text-gray-600">
-                      <Building2 className="h-3.5 w-3.5" /> Hình thức lớp
-                    </span>
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-gray-600">
+                      <Building2 className="h-3.5 w-3.5 text-[#a1001f]" /> Hình thức lớp <span className="text-[#a1001f]">*</span>
+                    </label>
                     <select
                       value={form.class_type}
                       onChange={(event) => setForm((prev) => ({ ...prev, class_type: event.target.value }))}
-                      className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm font-semibold text-gray-900 outline-none transition focus:border-[#a1001f] focus:ring-2 focus:ring-[#a1001f]/25"
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50/50 px-3.5 py-2.5 text-sm font-semibold text-gray-900 outline-none transition-all focus:border-[#a1001f] focus:bg-white focus:ring-2 focus:ring-[#a1001f]/20 hover:border-gray-300"
                     >
                       {CLASS_TYPES.map((type) => (
                         <option key={type} value={type}>
@@ -1318,42 +1546,124 @@ function CandidatePortalContent() {
                         </option>
                       ))}
                     </select>
-                  </label>
+                  </div>
                 </div>
 
-                <label className="block">
-                  <span className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase text-gray-600">
-                    <FileText className="h-3.5 w-3.5" /> File thu hoạch
-                  </span>
+                {/* File Dropzone Upload Area */}
+                <div className="space-y-1.5">
+                  <label className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-gray-600">
+                    <span className="flex items-center gap-1.5">
+                      <FileText className="h-3.5 w-3.5 text-[#a1001f]" /> File thu hoạch <span className="text-[#a1001f]">*</span>
+                    </span>
+                    {harvestFile && (
+                      <span className="text-[11px] font-semibold text-emerald-600 capitalize">Đã sẵn sàng nộp</span>
+                    )}
+                  </label>
+
                   <input
+                    ref={fileInputRef}
                     key={fileInputKey}
                     type="file"
                     accept=".pdf,.doc,.docx,.xls,.xlsx,image/png,image/jpeg,image/webp"
                     onChange={(event) => setHarvestFile(event.target.files?.[0] ?? null)}
-                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm font-semibold text-gray-900 file:mr-4 file:rounded-lg file:border-0 file:bg-[#a1001f] file:px-3 file:py-2 file:text-sm file:font-bold file:text-white hover:file:bg-[#8a001a] focus:outline-none focus:border-[#a1001f] focus:ring-2 focus:ring-[#a1001f]/25"
+                    className="hidden"
                   />
-                  {harvestFile && (
-                    <span className="mt-2 block truncate text-xs font-semibold text-gray-500">
-                      Đã chọn: {harvestFile.name}
-                    </span>
-                  )}
-                </label>
 
+                  {!harvestFile ? (
+                    <div
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                      onClick={() => fileInputRef.current?.click()}
+                      className={`group relative flex flex-col items-center justify-center rounded-2xl border-2 border-dashed p-6 text-center cursor-pointer transition-all duration-200 ${
+                        isDragging
+                          ? 'border-[#a1001f] bg-[#a1001f]/10 scale-[1.01]'
+                          : 'border-gray-200 bg-gray-50/40 hover:border-[#a1001f]/50 hover:bg-[#a1001f]/[0.02]'
+                      }`}
+                    >
+                      <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-xs border border-gray-100 group-hover:scale-110 group-hover:border-[#a1001f]/30 transition-all duration-200">
+                        <UploadCloud className="h-6 w-6 text-[#a1001f]" />
+                      </div>
+                      <p className="text-sm font-bold text-gray-800">
+                        Kéo & thả file vào đây hoặc <span className="text-[#a1001f] underline decoration-[#a1001f]/40 underline-offset-4">bấm để chọn file</span>
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500 font-medium">
+                        Hỗ trợ PDF, Word (.doc, .docx), Excel (.xls, .xlsx) hoặc ảnh (.png, .jpg)
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between rounded-2xl border border-emerald-500/30 bg-emerald-50/60 p-4 transition-all shadow-xs">
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-xs">
+                          <FileCheck className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-gray-900">{harvestFile.name}</p>
+                          <p className="text-xs font-semibold text-emerald-700">
+                            {formatFileSize(harvestFile.size)} • Đã chọn file
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="h-8 px-2.5 text-xs font-semibold text-gray-600 hover:bg-emerald-100 hover:text-gray-900 rounded-lg"
+                        >
+                          Đổi file
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setHarvestFile(null)}
+                          className="h-8 w-8 text-gray-400 hover:bg-rose-100 hover:text-rose-600 rounded-lg"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Submit Feedback Message */}
                 {submitMessage && (
-                  <div className="rounded-xl border border-[#a1001f]/20 bg-[#a1001f]/10 px-4 py-3 text-sm font-semibold text-[#a1001f]">
-                    {submitMessage}
+                  <div
+                    className={`flex items-center gap-2.5 rounded-xl border px-4 py-3 text-sm font-semibold animate-in fade-in duration-150 ${
+                      submitMessage.includes('thành công')
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                        : 'border-rose-200 bg-rose-50 text-rose-800'
+                    }`}
+                  >
+                    {submitMessage.includes('thành công') ? (
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                    ) : (
+                      <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+                    )}
+                    <span>{submitMessage}</span>
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="flex justify-end border-t border-gray-100 bg-white p-5">
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-3 border-t border-gray-100 bg-gray-50/80 px-6 py-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsObserveModalOpen(false)}
+                className="h-10 rounded-xl px-4 font-semibold text-gray-700 hover:bg-gray-100 border-gray-200"
+              >
+                Hủy bỏ
+              </Button>
               <Button
                 type="button"
                 onClick={handleSubmitObserve}
                 loading={submitting}
                 variant="mindx"
-                className="rounded-xl font-semibold"
+                className="h-10 rounded-xl px-5 font-semibold shadow-md shadow-[#a1001f]/20 hover:shadow-lg transition-all"
               >
                 {!submitting && <UploadCloud className="h-4 w-4" />}
                 Nộp thu hoạch
@@ -1676,116 +1986,201 @@ function CandidatePortalContent() {
       )}
 
       {activeTab === 'te-leader-info' && (
-        <div className="animate-in fade-in duration-300">
-          <section className="rounded-xl border border-border bg-card shadow-sm">
-            <div className="border-b border-border bg-primary px-5 py-5 text-primary-foreground sm:px-6">
+        <div className="animate-in fade-in duration-300 space-y-6">
+          {/* Solid Red Header Banner */}
+          <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-xs">
+            <div className="bg-[#a1001f] px-6 py-6 text-white shadow-md">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="min-w-0">
-                  <div className="inline-flex items-center gap-2 rounded-full bg-primary-foreground/15 px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary-foreground">
+                  <div className="inline-flex items-center gap-2 rounded-full bg-white/20 px-3 py-1 text-xs font-bold uppercase tracking-wider text-white backdrop-blur-xs">
                     <UsersRound className="h-3.5 w-3.5" />
-                    Candidate Portal
+                    Sơ đồ nhân sự & Quản lý
                   </div>
-                  <h1 className="mt-3 text-2xl font-bold text-primary-foreground sm:text-3xl">
-                    Thông tin TE/Leader
+                  <h1 className="mt-3 text-2xl font-extrabold text-white sm:text-3xl tracking-tight">
+                    Thông tin TEGL & Đội ngũ Leader
                   </h1>
-                  <p className="mt-2 max-w-3xl text-sm font-medium leading-6 text-primary-foreground/80 sm:text-base">
-                    Danh sách TEGL, Leader và Teacher Coordinator theo từng cơ sở để ứng viên liên hệ trong quá trình đào tạo tại cơ sở.
+                  <p className="mt-2 max-w-3xl text-xs font-medium leading-relaxed text-white/90 sm:text-sm">
+                    Danh sách TEGL Khu vực, Leader Chuyên môn (Coding, Robotics, Art) và Teacher Coordinator theo từng khu vực quản lý.
                   </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="rounded-xl bg-white/15 px-3 py-2 text-xs font-bold text-white backdrop-blur-xs border border-white/20">
+                    {teLeaderManagers.length} nhân sự quản lý
+                  </span>
                 </div>
               </div>
             </div>
 
-            <div className="space-y-5 p-4 sm:p-6">
-              <label className="relative block">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  type="search"
-                  value={teLeaderSearch}
-                  onChange={(event) => setTeLeaderSearch(event.target.value)}
-                  placeholder="Tìm theo cơ sở, tên, vai trò, SĐT hoặc email..."
-                  className="h-12 w-full rounded-lg border border-border bg-background pl-11 pr-4 text-sm font-medium text-foreground shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15"
-                />
-              </label>
+            {/* Search & Area Filter Bar */}
+            <div className="p-5 sm:p-6 space-y-4 border-b border-gray-100 bg-gray-50/50">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <label className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="search"
+                    value={teLeaderSearch}
+                    onChange={(event) => setTeLeaderSearch(event.target.value)}
+                    placeholder="Tìm theo cơ sở, tên TE/Leader, vai trò, SĐT hoặc email..."
+                    className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-11 pr-4 text-sm font-medium text-gray-900 shadow-xs outline-none transition focus:border-[#a1001f] focus:ring-2 focus:ring-[#a1001f]/20"
+                  />
+                  {teLeaderSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setTeLeaderSearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 hover:text-gray-700"
+                    >
+                      Xóa
+                    </button>
+                  )}
+                </label>
+              </div>
 
+              {/* Area Filter Tabs */}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <span className="text-xs font-bold uppercase tracking-wider text-gray-500 mr-1">Khu vực:</span>
+                {allTeAreas.map((areaKey) => {
+                  const isActive = selectedTeArea === areaKey;
+                  const label = areaKey === 'all' ? 'Tất cả khu vực' : areaKey;
+                  return (
+                    <button
+                      key={areaKey}
+                      type="button"
+                      onClick={() => setSelectedTeArea(areaKey)}
+                      className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition-all ${
+                        isActive
+                          ? 'bg-[#a1001f] text-white shadow-xs'
+                          : 'bg-white text-gray-700 border border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* List Content */}
+            <div className="p-5 sm:p-6 space-y-8">
               {loadingTeLeaderContacts ? (
                 <ContactCardsSkeleton />
               ) : teLeaderContactsError ? (
-                <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-5 text-sm font-semibold text-destructive">
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm font-semibold text-rose-800">
                   {teLeaderContactsError}
                 </div>
-              ) : filteredTeLeaderManagers.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm font-semibold text-muted-foreground">
-                  Không tìm thấy TE/Leader phù hợp.
+              ) : Object.keys(teLeaderManagersByArea).length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-gray-200 p-10 text-center">
+                  <UsersRound className="mx-auto h-10 w-10 text-gray-400 mb-2" />
+                  <p className="text-base font-bold text-gray-900">Không tìm thấy nhân sự phù hợp</p>
+                  <p className="text-xs text-gray-500 mt-1">Thử điều chỉnh từ khóa tìm kiếm hoặc chọn lại bộ lọc khu vực.</p>
                 </div>
               ) : (
-                <div className="space-y-6">
-                  {Object.entries(teLeaderManagersByArea).map(([area, managers]) => (
-                    <section key={area} className="space-y-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
-                          <Building2 className="h-5 w-5 text-primary" />
-                          {area}
-                        </h2>
-                        <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">
+                Object.entries(teLeaderManagersByArea).map(([area, managers]) => {
+                  return (
+                    <section key={area} className="space-y-4">
+                      <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#a1001f]/10 text-[#a1001f]">
+                            <Building2 className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <h2 className="text-lg font-extrabold text-gray-900 tracking-tight">Khu vực {area}</h2>
+                            <p className="text-xs text-gray-500 font-medium">Ban quản lý và đội ngũ chuyên môn khu vực</p>
+                          </div>
+                        </div>
+                        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700">
                           {managers.length} nhân sự
                         </span>
                       </div>
 
-                      <div className="grid gap-4 xl:grid-cols-2">
-                        {managers.map((manager, index) => (
-                          <article
-                            key={`${area}-${manager.name}-${manager.role}-${index}`}
-                            className="rounded-xl border border-border bg-background p-4 shadow-sm"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                                  Ban quản lý
-                                </p>
-                                <h3 className="mt-2 text-lg font-bold text-foreground">{manager.name}</h3>
+                      {/* Managers Grid */}
+                      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
+                        {managers.map((manager, index) => {
+                          const roleConfig = getRoleBadgeConfig(manager.role);
+                          return (
+                            <article
+                              key={`${area}-${manager.name}-${manager.role}-${index}`}
+                              className={`rounded-2xl border p-5 transition-all duration-200 ${roleConfig.cardClass} hover:shadow-md`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    {roleConfig.isLead ? (
+                                      <ShieldCheck className="h-4 w-4 text-[#a1001f]" />
+                                    ) : (
+                                      <UsersRound className="h-4 w-4 text-gray-400" />
+                                    )}
+                                    <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                                      {roleConfig.isLead ? 'Trưởng khu vực (TEGL)' : 'Nhân sự quản lý'}
+                                    </span>
+                                  </div>
+                                  <h3 className="mt-1.5 text-lg font-bold text-gray-900 tracking-tight">{manager.name}</h3>
+                                </div>
+                                <span className={`shrink-0 rounded-full border px-3 py-1 text-xs font-bold ${roleConfig.badgeClass}`}>
+                                  {manager.role}
+                                </span>
                               </div>
-                              <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary">
-                                {manager.role}
-                              </span>
-                            </div>
 
-                            <div className="mt-4 grid gap-2 text-sm font-semibold text-muted-foreground sm:grid-cols-2">
-                              {manager.phone && (
-                                <a href={`tel:${manager.phone}`} className="inline-flex items-center gap-2 hover:text-primary">
-                                  <Phone className="h-4 w-4" />
-                                  {manager.phone}
-                                </a>
-                              )}
-                              {manager.email && (
-                                <a href={`mailto:${manager.email}`} className="inline-flex min-w-0 items-center gap-2 hover:text-primary">
-                                  <Mail className="h-4 w-4 shrink-0" />
-                                  <span className="truncate">{manager.email}</span>
-                                </a>
-                              )}
-                            </div>
-
-                            <div className="mt-4 rounded-lg border border-border bg-muted/60 p-3">
-                              <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                                <MapPin className="h-3.5 w-3.5" />
-                                Cơ sở quản lý
-                              </p>
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                {manager.centers.map((center) => (
-                                  <span
-                                    key={`${manager.name}-${center}`}
-                                    className="rounded-full border border-border bg-background px-3 py-1 text-xs font-bold text-foreground"
+                              {/* Contact Information */}
+                              <div className="mt-4 grid gap-2 text-xs font-semibold text-gray-700 sm:grid-cols-2 pt-3 border-t border-gray-100">
+                                {manager.phone ? (
+                                  <a
+                                    href={`tel:${manager.phone}`}
+                                    className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-gray-800 hover:bg-[#a1001f]/10 hover:text-[#a1001f] transition-all"
                                   >
-                                    {center}
-                                  </span>
-                                ))}
+                                    <Phone className="h-3.5 w-3.5 text-[#a1001f] shrink-0" />
+                                    <span>{manager.phone}</span>
+                                  </a>
+                                ) : (
+                                  <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-gray-400">
+                                    <Phone className="h-3.5 w-3.5 shrink-0" />
+                                    <span>Chưa có SĐT</span>
+                                  </div>
+                                )}
+
+                                {manager.email ? (
+                                  <a
+                                    href={`mailto:${manager.email}`}
+                                    className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-gray-800 hover:bg-[#a1001f]/10 hover:text-[#a1001f] transition-all min-w-0"
+                                  >
+                                    <Mail className="h-3.5 w-3.5 text-[#a1001f] shrink-0" />
+                                    <span className="truncate">{manager.email}</span>
+                                  </a>
+                                ) : (
+                                  <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-gray-400 min-w-0">
+                                    <Mail className="h-3.5 w-3.5 shrink-0" />
+                                    <span>Chưa có Email</span>
+                                  </div>
+                                )}
                               </div>
-                            </div>
-                          </article>
-                        ))}
+
+                              {/* Managed Centers List */}
+                              <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50/70 p-3">
+                                <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                                  <MapPin className="h-3.5 w-3.5 text-[#a1001f]" />
+                                  {roleConfig.isLead ? 'Cơ sở phụ trách trong khu vực' : 'Cơ sở quản lý'}
+                                </p>
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  {manager.centers.length > 0 ? (
+                                    manager.centers.map((center) => (
+                                      <span
+                                        key={`${manager.name}-${center}`}
+                                        className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-800 shadow-2xs"
+                                      >
+                                        {center}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="text-xs text-gray-400 italic">Toàn bộ khu vực</span>
+                                  )}
+                                </div>
+                              </div>
+                            </article>
+                          );
+                        })}
                       </div>
                     </section>
-                  ))}
-                </div>
+                  );
+                })
               )}
             </div>
           </section>

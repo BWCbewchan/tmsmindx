@@ -1,6 +1,11 @@
 import { requireBearerDbRoles } from '@/lib/auth-server'
 import { getAccessibleCenters } from '@/lib/center-access'
 import { callLmsApi } from '@/lib/lms-api'
+import {
+  getOrRefreshLmsToken,
+  loginFallbackLmsAccount,
+  applyRefreshedCookies,
+} from '@/lib/lms-token-helper'
 import { getQCWindowInfo } from '@/lib/qc-time-window'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -268,8 +273,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, classes: [], total: 0 })
     }
 
-    const firebaseToken = request.cookies.get('lms_firebase_token')?.value
-    const authHeader = firebaseToken ? `Bearer ${firebaseToken}` : undefined
+    // Tự động làm mới token LMS hoặc sử dụng fallback service account
+    let tokenSession = await getOrRefreshLmsToken(request)
+    let authHeader = tokenSession.token ? `Bearer ${tokenSession.token}` : undefined
     const itemsPerPage = 100
     const maxPages = 20
     const variables = {
@@ -282,14 +288,37 @@ export async function GET(request: NextRequest) {
       orderBy: 'startDate_asc',
     }
 
-    const firstResult = await callLmsApi<any>(
-      {
-        query: GET_QC_CLASSES_QUERY,
-        operationName: 'GetClasses',
-        variables,
-      },
-      authHeader,
-    )
+    let firstResult: any
+    try {
+      firstResult = await callLmsApi<any>(
+        {
+          query: GET_QC_CLASSES_QUERY,
+          operationName: 'GetClasses',
+          variables,
+        },
+        authHeader,
+      )
+    } catch (err: any) {
+      console.warn(
+        '[quan-ly-qc/classes] LMS token call failed:',
+        err?.message,
+        '- Retrying with fallback account...',
+      )
+      tokenSession = await loginFallbackLmsAccount()
+      if (tokenSession.token) {
+        authHeader = `Bearer ${tokenSession.token}`
+        firstResult = await callLmsApi<any>(
+          {
+            query: GET_QC_CLASSES_QUERY,
+            operationName: 'GetClasses',
+            variables,
+          },
+          authHeader,
+        )
+      } else {
+        throw err
+      }
+    }
 
     const firstPage = firstResult?.data?.classes
     const allClasses = Array.isArray(firstPage?.data) ? [...firstPage.data] : []
@@ -297,17 +326,25 @@ export async function GET(request: NextRequest) {
     const totalPages = Math.min(Math.ceil(total / itemsPerPage), maxPages)
 
     for (let pageIndex = 1; pageIndex < totalPages; pageIndex += 1) {
-      const pageResult = await callLmsApi<any>(
-        {
-          query: GET_QC_CLASSES_QUERY,
-          operationName: 'GetClasses',
-          variables: { ...variables, pageIndex },
-        },
-        authHeader,
-      )
-      const pageRows = pageResult?.data?.classes?.data
-      if (!Array.isArray(pageRows) || pageRows.length === 0) break
-      allClasses.push(...pageRows)
+      try {
+        const pageResult = await callLmsApi<any>(
+          {
+            query: GET_QC_CLASSES_QUERY,
+            operationName: 'GetClasses',
+            variables: { ...variables, pageIndex },
+          },
+          authHeader,
+        )
+        const pageRows = pageResult?.data?.classes?.data
+        if (!Array.isArray(pageRows) || pageRows.length === 0) break
+        allClasses.push(...pageRows)
+      } catch (pageErr) {
+        console.warn(
+          `[quan-ly-qc/classes] Error fetching page ${pageIndex}:`,
+          pageErr,
+        )
+        break
+      }
     }
 
     const now = new Date()
@@ -315,13 +352,16 @@ export async function GET(request: NextRequest) {
       .filter((cls) => isClassInAccessibleCenter(cls, allowedKeys))
       .map((cls) => mapClass(cls, now))
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       classes,
       total: classes.length,
       lmsTotal: total,
       truncated: totalPages === maxPages && total > maxPages * itemsPerPage,
     })
+
+    applyRefreshedCookies(response, tokenSession)
+    return response
   } catch (error) {
     const message =
       error instanceof Error ? error.message : 'Không thể tải danh sách lớp QC'

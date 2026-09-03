@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { cookies } from 'next/headers';
 import { verifySessionCookieValue, TPS_SESSION_COOKIE } from '@/lib/session-cookie';
 import { getPublishedPortfolioBySlug } from '@/lib/student-portfolio/service';
@@ -8,8 +9,42 @@ import { notFound } from 'next/navigation';
 import { ProjectCardShowcase } from '@/components/student-portfolio/project-card-showcase';
 import { GalleryShowcase } from '@/components/student-portfolio/gallery-showcase';
 import { LearningJourneyRoadmap } from '@/components/student-portfolio/learning-journey-roadmap';
+import { PortfolioMobileMenu } from '@/components/student-portfolio/portfolio-mobile-menu';
+import { PortfolioPdfDownloadButton } from '@/components/student-portfolio/portfolio-pdf-download-button';
 import { PortfolioSideProgressNav } from '@/components/student-portfolio/portfolio-side-progress-nav';
 import logoTechAi from '@/logo_tech_ai.jpg';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const portfolio = await getPublishedPortfolioBySlug(decodeURIComponent(slug));
+  const data = portfolio?.data as StudentPortfolioData | undefined;
+
+  if (!data?.profile?.studentName) {
+    return {
+      title: 'Portfolio Học Viên | MindX Technology School',
+      description: 'Hồ sơ học tập & sản phẩm học viên tại MindX Technology School',
+    };
+  }
+
+  const name = data.profile.studentName;
+  const className = data.profile.className ? `Lớp ${data.profile.className}` : (data.profile.courseName || '');
+  const title = `Portfolio Học Viên ${name}${className ? ` - ${className}` : ''} | MindX Technology School`;
+  const description = `Hành trình sáng tạo, sản phẩm và kết quả học tập của học viên ${name} tại MindX Technology School.`;
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      type: 'website',
+    },
+  };
+}
 
 function initials(name: string) {
   return name
@@ -172,12 +207,6 @@ function detectPortfolioTrack(value?: string): PortfolioTrack | null {
   return null;
 }
 
-function sameText(a?: string, b?: string) {
-  const left = normalizeTrack(a).replace(/[^a-z0-9]+/g, ' ').trim();
-  const right = normalizeTrack(b).replace(/[^a-z0-9]+/g, ' ').trim();
-  return Boolean(left && right && (left.includes(right) || right.includes(left)));
-}
-
 function scoreText(value?: number | null) {
   return typeof value === 'number' ? value.toFixed(1).replace(/\.0$/, '') : '';
 }
@@ -218,16 +247,58 @@ function projectAnchorId(index: number) {
 
 function awardTone(level?: string, title?: string) {
   const text = (title || '').toLowerCase();
+  const label = title || 'Vinh danh thành tích';
+
   if (level === 'gold' || text.includes('nhat') || text.includes('nhất')) {
-    return { label: 'Giải Nhất', bg: '#fff7d6', border: '#f2c94c', ink: '#8a5a00', medal: '#f59e0b' };
+    return {
+      label: title || 'Giải Nhất',
+      headerBg: 'bg-gradient-to-br from-amber-950 via-yellow-950/90 to-amber-900',
+      accentColor: '#f59e0b',
+      border: 'border-amber-300/40',
+      glow: 'shadow-[0_8px_30px_rgba(245,158,11,0.25)]',
+      medal: '#f59e0b',
+      ink: '#b45309',
+      badgeClass: 'bg-gradient-to-r from-amber-400 to-yellow-500 text-amber-950 font-black',
+      sparkleColor: '#fde68a',
+    };
   }
   if (level === 'silver' || text.includes('nhi') || text.includes('nhì')) {
-    return { label: 'Giải Nhì', bg: '#f3f4f6', border: '#c7ced8', ink: '#475569', medal: '#64748b' };
+    return {
+      label: title || 'Giải Nhì',
+      headerBg: 'bg-gradient-to-br from-slate-900 via-slate-800 to-zinc-900',
+      accentColor: '#94a3b8',
+      border: 'border-slate-300/40',
+      glow: 'shadow-[0_8px_30px_rgba(148,163,184,0.22)]',
+      medal: '#64748b',
+      ink: '#475569',
+      badgeClass: 'bg-gradient-to-r from-slate-200 to-slate-100 text-slate-900 font-black',
+      sparkleColor: '#e2e8f0',
+    };
   }
   if (level === 'bronze' || text.includes('ba')) {
-    return { label: 'Giải Ba', bg: '#fff7ed', border: '#fed7aa', ink: '#c2410c', medal: '#d97706' };
+    return {
+      label: title || 'Giải Ba',
+      headerBg: 'bg-gradient-to-br from-amber-950 via-orange-950 to-stone-900',
+      accentColor: '#d97706',
+      border: 'border-orange-400/40',
+      glow: 'shadow-[0_8px_30px_rgba(217,119,6,0.22)]',
+      medal: '#d97706',
+      ink: '#c2410c',
+      badgeClass: 'bg-gradient-to-r from-orange-400 to-amber-500 text-amber-950 font-black',
+      sparkleColor: '#ffedd5',
+    };
   }
-  return { label: 'Giải Khuyến Khích', bg: '#eef7ff', border: '#9cc8ee', ink: '#1d4f7a', medal: '#0284c7' };
+  return {
+    label,
+    headerBg: 'bg-gradient-to-br from-sky-950 via-indigo-950 to-blue-950',
+    accentColor: '#0284c7',
+    border: 'border-sky-400/40',
+    glow: 'shadow-[0_8px_30px_rgba(14,165,233,0.22)]',
+    medal: '#0284c7',
+    ink: '#0369a1',
+    badgeClass: 'bg-gradient-to-r from-sky-400 to-indigo-500 text-white font-black',
+    sparkleColor: '#bae6fd',
+  };
 }
 
 function portfolioTrack(data: StudentPortfolioData): PortfolioTrack {
@@ -364,13 +435,6 @@ export default async function PublicPortfolioPage({
   const nameTokens = profile.studentName.split(/\s+/).filter(Boolean);
   const heroLastName = nameTokens.length > 1 ? nameTokens.slice(-1).join(' ') : profile.studentName;
   const heroLeadName = nameTokens.length > 1 ? nameTokens.slice(0, -1).join(' ') : '';
-  const projectForJourney = (item: StudentPortfolioData['learningJourney'][number]) =>
-    (data.projects || []).find((project) =>
-      sameText(project.course, item.title) ||
-      sameText(project.course, item.code) ||
-      sameText(project.title, item.title) ||
-      sameText(project.title, item.code),
-    );
   const visibleSectionKeys = [
     hasIntroSection ? 'intro' : '',
     hasJourney ? 'journey' : '',
@@ -386,6 +450,7 @@ export default async function PublicPortfolioPage({
   const sideNavSections = [
     hasIntroSection ? { id: 'intro', label: 'Giới thiệu' } : null,
     hasJourney ? { id: 'journey', label: 'Lộ trình học tập' } : null,
+    hasProjects ? { id: 'projects', label: 'Sản phẩm' } : null,
     hasDna ? { id: 'dna', label: 'Đánh giá DNA' } : null,
     hasResults ? { id: 'results', label: 'Kết quả học tập' } : null,
     hasGallery ? { id: 'gallery', label: 'Thư viện hình ảnh' } : null,
@@ -398,40 +463,50 @@ export default async function PublicPortfolioPage({
 
   return (
     <main className={`scroll-smooth min-h-screen ${theme.surface} text-[#171512] antialiased portfolio-theme relative bg-[#faf8f5]`}>
+      <div className="portfolio-pdf-brand hidden" style={{ display: 'none' }}>
+        <img src={logoTechAi.src} alt="MindX Tech & AI School" />
+      </div>
+
       {/* Floating Side Progress Navigation Bar (Hình 2) */}
-      <PortfolioSideProgressNav sections={sideNavSections} themeColor={theme.ink} />
+      <div className="portfolio-print-hidden print:hidden">
+        <PortfolioSideProgressNav sections={sideNavSections} themeColor={theme.ink} />
+      </div>
 
       {/* Header Bar */}
-      <header className="sticky top-0 z-50 border-b border-[#e8e2d8] bg-white/92 backdrop-blur-md transition-all duration-300">
-        <nav className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 text-xs font-bold uppercase">
-          <div className="flex items-center gap-3">
-            <img src={logoTechAi.src} alt="MindX Technology School" className="h-11 w-auto object-contain" />
+      <header className="portfolio-print-hidden sticky top-0 z-50 border-b border-[#e8e2d8] bg-white/92 backdrop-blur-md transition-all duration-300 print:hidden">
+        <nav className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-5 py-4 text-xs font-bold uppercase">
+          <div className="flex min-w-0 shrink-0 items-center gap-3">
+            <img src={logoTechAi.src} alt="MindX Technology School" className="h-10 w-auto max-w-[170px] object-contain sm:h-12" />
             <span className="h-4 w-px bg-[#d8d0c2]" />
-            <span className="font-extrabold text-[#423d37]">Hồ sơ Học viên MindX</span>
+            <span className="hidden whitespace-nowrap font-extrabold text-[#423d37] lg:inline">Hồ sơ Học viên MindX</span>
           </div>
-          <div className="hidden items-center gap-7 font-bold text-[#55504a] sm:flex">
-            {hasJourney ? <a href="#journey" className={`${theme.accent} transition-colors duration-200`}>Lộ trình</a> : null}
-            {hasDna ? <a href="#dna" className={`${theme.accent} transition-colors duration-200`}>DNA Năng lực</a> : null}
-            {hasResults ? <a href="#results" className={`${theme.accent} transition-colors duration-200`}>Kết quả</a> : null}
-            {hasGallery ? <a href="#gallery" className={`${theme.accent} transition-colors duration-200`}>Thư viện ảnh</a> : null}
-            {hasAchievements ? <a href="#awards" className={`${theme.accent} transition-colors duration-200`}>Thành tích</a> : null}
-            {hasRewards ? <a href="#rewards" className={`${theme.accent} transition-colors duration-200`}>Điểm thưởng</a> : null}
+          <div className="hidden min-w-0 flex-1 items-center justify-end gap-4 font-bold text-[#55504a] lg:flex xl:gap-6">
+            {hasJourney ? <a href="#journey" className={`${theme.accent} whitespace-nowrap transition-colors duration-200`}>Lộ trình</a> : null}
+            {hasDna ? <a href="#dna" className={`${theme.accent} whitespace-nowrap transition-colors duration-200`}>DNA Năng lực</a> : null}
+            {hasResults ? <a href="#results" className={`${theme.accent} whitespace-nowrap transition-colors duration-200`}>Kết quả</a> : null}
+            {hasGallery ? <a href="#gallery" className={`${theme.accent} whitespace-nowrap transition-colors duration-200`}>Thư viện ảnh</a> : null}
+            {hasAchievements ? <a href="#awards" className={`${theme.accent} whitespace-nowrap transition-colors duration-200`}>Thành tích</a> : null}
+            {hasRewards ? <a href="#rewards" className={`${theme.accent} whitespace-nowrap transition-colors duration-200`}>Điểm thưởng</a> : null}
           </div>
-          {hasProjects ? (
-            <a
-              href="#projects"
-              className="rounded-full px-5 py-2.5 text-xs font-bold text-white shadow-xs transition-all duration-200 hover:shadow-md"
-              style={{ backgroundColor: theme.ink }}
-            >
-              Khám phá Sản phẩm
-            </a>
-          ) : null}
+          <div className="flex shrink-0 items-center gap-2.5">
+            {hasProjects ? (
+              <a
+                href="#projects"
+                className="hidden whitespace-nowrap rounded-full px-5 py-2.5 text-xs font-bold text-white shadow-xs transition-all duration-200 hover:shadow-md sm:inline-flex"
+                style={{ backgroundColor: theme.ink }}
+              >
+                Khám phá Sản phẩm
+              </a>
+            ) : null}
+            <PortfolioPdfDownloadButton />
+            <PortfolioMobileMenu sections={sideNavSections} themeColor={theme.ink} />
+          </div>
         </nav>
       </header>
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden border-b border-[#e8e2d8]/80 bg-gradient-to-b from-white via-[#faf8f5] to-[#fff5f7]">
-        <div className="mx-auto grid min-h-[620px] max-w-6xl items-center gap-14 px-4 py-14 sm:px-5 sm:py-16 md:grid-cols-[minmax(0,1fr)_430px] lg:grid-cols-[minmax(0,1fr)_460px]">
+      <section className="portfolio-print-section-hero relative overflow-hidden border-b border-[#e8e2d8]/80 bg-gradient-to-b from-white via-[#faf8f5] to-[#fff5f7]">
+        <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-10 sm:px-5 sm:py-16 md:min-h-[620px] md:grid-cols-[minmax(0,1fr)_430px] md:gap-14 lg:grid-cols-[minmax(0,1fr)_460px]">
         <div className="min-w-0">
           <div className="mb-7 inline-flex max-w-full items-center gap-2 rounded-full border border-[#ded6c9] bg-white/80 px-4 py-1.5 text-xs font-extrabold shadow-2xs" style={{ color: theme.ink }}>
             <TrackIcon className="h-3.5 w-3.5 shrink-0" />
@@ -459,7 +534,7 @@ export default async function PublicPortfolioPage({
             {hasProjects ? (
               <a
                 href="#projects"
-                className="inline-flex items-center gap-2 rounded-full px-7 py-3.5 text-sm font-bold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+                className="portfolio-print-hidden inline-flex items-center gap-2 rounded-full px-7 py-3.5 text-sm font-bold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg print:hidden"
                 style={{ backgroundColor: theme.ink }}
               >
                 Khám phá sản phẩm <ExternalLink className="h-4 w-4" />
@@ -523,7 +598,7 @@ export default async function PublicPortfolioPage({
 
       {/* Dark Contrast Intro & Skills Bar */}
       {hasIntroSection ? (
-      <section className="bg-[#171512] py-16 text-white">
+      <section className="portfolio-print-section-intro bg-[#171512] py-10 text-white sm:py-16">
         <div className="mx-auto grid max-w-6xl gap-8 px-5 md:grid-cols-[240px_1fr]">
           <div>
             <p className="text-xs font-black uppercase" style={{ color: theme.ink }}>{sectionNo('intro')} · Giới thiệu</p>
@@ -579,7 +654,7 @@ export default async function PublicPortfolioPage({
 
       {/* Projects Section */}
       {hasProjects ? (
-        <section id="projects" className="mx-auto max-w-6xl px-5 py-20 scroll-mt-12">
+        <section id="projects" className="mx-auto max-w-6xl px-5 py-10 scroll-mt-12 sm:py-20">
           <div className="mb-12">
             <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: theme.ink }}>{sectionNo('projects')} · DỰ ÁN NỔI BẬT</p>
             <h2 className="mt-2 text-4xl font-extrabold leading-[1.08] text-[#171512] sm:text-5xl">Dự án & sản phẩm của học viên.</h2>
@@ -601,7 +676,7 @@ export default async function PublicPortfolioPage({
 
       {/* DNA Competency Section with SVG Radar Chart */}
       {hasDna ? (
-        <section id="dna" className="mx-auto max-w-6xl px-5 py-24 scroll-mt-12">
+        <section id="dna" className="mx-auto max-w-6xl px-5 py-10 scroll-mt-12 sm:py-24">
           <div className="mb-12">
             <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: theme.ink }}>{sectionNo('dna')} · ĐÁNH GIÁ NĂNG LỰC DNA</p>
             <h2 className="mt-2 text-4xl font-extrabold leading-[1.08] text-[#171512] sm:text-5xl">DNA năng lực & thiên hướng.</h2>
@@ -642,7 +717,7 @@ export default async function PublicPortfolioPage({
 
       {/* Checkpoint Results Section */}
       {hasResults ? (
-        <section id="results" className="mx-auto max-w-6xl px-5 py-16 scroll-mt-12">
+        <section id="results" className="mx-auto max-w-6xl px-5 py-10 scroll-mt-12 sm:py-16">
           <div className="mb-10">
             <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: theme.ink }}>{sectionNo('results')} · KẾT QUẢ HỌC TẬP</p>
             <h2 className="mt-2 text-4xl font-extrabold leading-[1.08] text-[#171512] sm:text-5xl">Năng lực có căn cứ quan sát.</h2>
@@ -661,7 +736,7 @@ export default async function PublicPortfolioPage({
 
       {/* Gallery Section */}
       {hasGallery ? (
-        <section id="gallery" className="mx-auto max-w-6xl px-5 py-20 scroll-mt-12">
+        <section id="gallery" className="mx-auto max-w-6xl px-5 py-10 scroll-mt-12 sm:py-20">
           <div className="mb-12">
             <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: theme.ink }}>{sectionNo('gallery')} · THƯ VIỆN HÌNH ẢNH</p>
             <h2 className="mt-2 text-4xl font-extrabold leading-[1.08] text-[#171512] sm:text-5xl">Thư viện hình ảnh & chứng chỉ.</h2>
@@ -673,7 +748,7 @@ export default async function PublicPortfolioPage({
 
       {/* Achievements Section */}
       {hasAchievements ? (
-        <section id="awards" className="mx-auto max-w-6xl px-5 py-20 scroll-mt-12">
+        <section id="awards" className="mx-auto max-w-6xl px-5 py-10 scroll-mt-12 sm:py-20">
           <div className="mb-10">
             <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: theme.ink }}>{sectionNo('awards')} · THÀNH TÍCH & GIẢI THƯỞNG</p>
             <h2 className="mt-2 text-4xl sm:text-5xl font-extrabold leading-[1.25] text-[#171512]">Thành tích & dấu ấn cá nhân.</h2>
@@ -682,22 +757,56 @@ export default async function PublicPortfolioPage({
             {(data.achievements || []).map((award: StudentPortfolioData['achievements'][number], index: number) => {
               const tone = awardTone(award.level, award.title);
               return (
-              <article key={`${award.title}-${index}`} className="overflow-hidden rounded-[18px] border border-[#ded6c9] bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
-                <div className="relative grid h-32 place-items-center overflow-hidden bg-[#171512]">
-                  <div className="absolute -bottom-10 left-6 h-28 w-24 rotate-45 bg-[#bd0026]/70" />
-                  <div className="absolute -bottom-8 right-6 h-24 w-24 -rotate-45 bg-white/8" />
-                  <div className="relative grid h-16 w-16 place-items-center rounded-full border-4 border-white/55 shadow-lg" style={{ backgroundColor: tone.medal }}>
-                    <Award className="h-8 w-8 text-white" fill="white" />
+              <article
+                key={`${award.title}-${index}`}
+                className={`group relative overflow-hidden rounded-[22px] border border-[#e2dcd3] bg-white transition-all duration-300 hover:-translate-y-1.5 ${tone.glow}`}
+              >
+                {/* Header Background with Rich Shimmer & Starburst SVG Watermark */}
+                <div className={`relative flex flex-col items-center justify-center h-44 overflow-hidden ${tone.headerBg} px-4 pt-5 pb-4`}>
+                  {/* Subtle Sparkle Starburst Radial Pattern */}
+                  <div className="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_50%_40%,_var(--tw-gradient-stops))] from-white via-transparent to-transparent" />
+                  <svg
+                    className="absolute inset-0 h-full w-full opacity-15 pointer-events-none"
+                    viewBox="0 0 100 100"
+                    preserveAspectRatio="none"
+                  >
+                    <line x1="50" y1="0" x2="50" y2="100" stroke={tone.sparkleColor} strokeWidth="0.5" strokeDasharray="2 2" />
+                    <line x1="0" y1="50" x2="100" y2="50" stroke={tone.sparkleColor} strokeWidth="0.5" strokeDasharray="2 2" />
+                    <circle cx="50" cy="50" r="35" stroke={tone.sparkleColor} strokeWidth="0.5" fill="none" />
+                    <circle cx="50" cy="50" r="45" stroke={tone.sparkleColor} strokeWidth="0.3" fill="none" />
+                  </svg>
+                  
+                  {/* Glowing Medal Icon */}
+                  <div
+                    className="relative grid h-14 w-14 place-items-center rounded-2xl border-2 border-white/60 shadow-xl transition duration-300 group-hover:scale-105 shrink-0 mb-3.5"
+                    style={{ backgroundColor: tone.medal }}
+                  >
+                    <Award className="h-7 w-7 text-white drop-shadow" fill="white" />
                   </div>
-                  <span className="absolute bottom-4 rounded-full bg-white/12 px-3 py-1 text-[9px] font-extrabold uppercase tracking-wide text-white/80">
+
+                  {/* Badge Label with generous spacing */}
+                  <span className={`relative rounded-full px-3.5 py-1 text-[10px] uppercase tracking-wider ${tone.badgeClass} shadow-md backdrop-blur-sm z-10`}>
                     {tone.label}
                   </span>
                 </div>
+
+                {/* Card Content Body */}
                 <div className="p-5">
-                  <p className="text-[10px] font-extrabold uppercase" style={{ color: theme.ink }}>Giải thưởng MindX</p>
-                  <h3 className="mt-2 font-extrabold text-lg leading-tight text-[#171512]">{award.title}</h3>
-                  <p className="mt-2 text-sm font-semibold leading-6 text-[#777067]">{award.subtitle || 'MindX Technology School'}</p>
-                  {award.date ? <p className="mt-3 text-xs font-bold text-[#9b9288]">{award.date}</p> : null}
+                  <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#9b9288]">
+                    Vinh danh Thành tích
+                  </span>
+                  <h3 className="mt-1.5 font-black text-lg leading-snug text-[#171512]">
+                    {award.title}
+                  </h3>
+                  <p className="mt-2 text-xs font-semibold text-[#665f57]">
+                    {award.subtitle || 'MindX Technology School'}
+                  </p>
+                  {award.date ? (
+                    <div className="mt-3.5 flex items-center gap-1.5 text-[11px] font-bold text-[#8c8275]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#bd0026]" />
+                      <span>{award.date}</span>
+                    </div>
+                  ) : null}
                 </div>
               </article>
               );
@@ -708,7 +817,7 @@ export default async function PublicPortfolioPage({
 
       {/* Rewards & Activities Section */}
       {hasRewards ? (
-        <section id="rewards" className="mx-auto max-w-6xl px-5 py-16 scroll-mt-12">
+        <section id="rewards" className="mx-auto max-w-6xl px-5 py-10 scroll-mt-12 sm:py-16">
           <div className="mb-8">
             <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: theme.ink }}>{sectionNo('rewards')} · ĐIỂM THƯỞNG & HOẠT ĐỘNG</p>
             <h2 className="mt-2 text-4xl sm:text-5xl font-extrabold leading-[1.25] text-[#171512]">Điểm thưởng & Hoạt động.</h2>
@@ -762,15 +871,15 @@ export default async function PublicPortfolioPage({
       ) : null}
 
       {/* Student Quote Banner */}
-      <section className="bg-[#171512] px-5 py-24 text-center text-white">
+      <section className="bg-[#171512] px-5 py-10 text-center text-white sm:py-24">
         <Star className="mx-auto mb-6 h-9 w-9" style={{ color: theme.ink }} />
-        <blockquote className="mx-auto max-w-3xl text-2xl sm:text-3xl font-black leading-relaxed">
+        <blockquote className="mx-auto max-w-5xl text-balance text-[clamp(22px,4vw,34px)] font-black leading-[1.35] tracking-tight">
           "{data.quote || 'Mỗi lần chương trình bị lỗi là một lần mình hiểu nó rõ hơn.'}"
         </blockquote>
       </section>
 
       {/* MindX Red Footer */}
-      <footer className={`bg-gradient-to-r ${theme.hero} px-5 py-12 text-white`}>
+      <footer className={`portfolio-print-footer-page bg-gradient-to-r ${theme.hero} px-5 py-12 text-white`}>
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-2xl font-black">

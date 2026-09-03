@@ -3,6 +3,7 @@ import { callLmsApi } from '@/lib/lms-api';
 import { generateSlug } from '@/lib/utils';
 import type {
   StudentPortfolioData,
+  StudentPortfolioListItem,
   StudentPortfolioRecord,
   PortfolioStatus,
 } from './types';
@@ -682,11 +683,11 @@ function buildProjectsFromWorks(
         ...uploadedImageUrls,
         ...attachmentImageUrls,
         ...relatedImageUrls,
-        bestWork.latestData?.thumbnail,
       ]);
       return {
         title: cleanText(bestWork.latestData?.title) || 'Sản phẩm cuối khóa',
         course: cleanText(cls.course?.name) || cleanText(cls.course?.shortName) || cleanText(cls.name),
+        classCode: cleanText(cls.name),
         imageUrl: imageUrls[0] || '',
         imageUrls,
         videoUrls: cleanUrlList(bestWork.latestData?.videoUrls),
@@ -1390,10 +1391,10 @@ function rewardTransactionAward(item: RewardTransactionItem): StudentPortfolioDa
   if (!isAwardType) return null;
 
   const prizeMap: Record<string, { title: string; level: 'gold' | 'silver' | 'bronze' | 'merit' }> = {
-    FIRST_PRIZE: { title: 'Đạt giải nhất Demo/SPCK', level: 'gold' },
-    SECOND_PRIZE: { title: 'Đạt giải nhì Demo/SPCK', level: 'silver' },
-    THIRD_PRIZE: { title: 'Đạt giải ba Demo/SPCK', level: 'bronze' },
-    CONSOLATION_PRIZE: { title: 'Đạt giải khuyến khích Demo/SPCK', level: 'merit' },
+    FIRST_PRIZE: { title: 'Đạt giải nhất', level: 'gold' },
+    SECOND_PRIZE: { title: 'Đạt giải nhì', level: 'silver' },
+    THIRD_PRIZE: { title: 'Đạt giải ba', level: 'bronze' },
+    CONSOLATION_PRIZE: { title: 'Đạt giải khuyến khích', level: 'merit' },
   };
 
   const fallbackPrize = directText.includes('giai nhat') || directText.includes('first')
@@ -1819,7 +1820,7 @@ export function normalizePortfolioData(data: StudentPortfolioData): StudentPortf
         : /nhi|nhì/i.test(text)
         ? 'silver'
         : 'bronze';
-      const awardTitleStr = /giải|giai/i.test(titleText) ? titleText : 'Đạt giải ba Demo/SPCK';
+      const awardTitleStr = titleText || 'Tuyên dương thành tích';
       if (!achievements.some((a) => a.title === awardTitleStr)) {
         achievements.push({
           title: awardTitleStr,
@@ -1831,11 +1832,8 @@ export function normalizePortfolioData(data: StudentPortfolioData): StudentPortf
     }
   });
 
-  // Filter out test achievements
-  const realAchievements = achievements.filter((a) => {
-    if (sameText(a.title, 'Test thành tích') || sameText(a.subtitle, 'Thành tích test')) return false;
-    return Boolean(a.title && /giải|giai|nhất|nhì|ba|khuyến khích|spck|demo/i.test(`${a.title} ${a.subtitle || ''}`));
-  });
+  // Preserve all valid user-created achievements
+  const realAchievements = achievements.filter((a) => Boolean(a.title && a.title.trim()));
 
   const rawJourney = Array.isArray(data.learningJourney) ? data.learningJourney : [];
   const assignedAwardIndices = new Set<number>();
@@ -2032,6 +2030,112 @@ export async function getPublishedPortfolioBySlug(
   const record = result.rows[0];
   record.data = normalizePortfolioData(record.data as StudentPortfolioData);
   return record;
+}
+
+export async function listPortfolios(input: {
+  search?: string;
+  pageIndex?: number;
+  itemsPerPage?: number;
+  centreNames?: string[];
+} = {}): Promise<{
+  data: StudentPortfolioListItem[];
+  pagination: { total: number; pageIndex: number; itemsPerPage: number };
+}> {
+  await ensurePortfolioSchema();
+
+  const pageIndex = Math.max(0, Number(input.pageIndex || 0));
+  const itemsPerPage = Math.min(100, Math.max(10, Number(input.itemsPerPage || 25)));
+  const offset = pageIndex * itemsPerPage;
+  const params: unknown[] = [];
+  const where: string[] = [];
+
+  const search = cleanText(input.search);
+  if (search) {
+    params.push(`%${search}%`);
+    const param = `$${params.length}`;
+    where.push(`(
+      student_name ILIKE ${param}
+      OR class_name ILIKE ${param}
+      OR centre_name ILIKE ${param}
+      OR course_name ILIKE ${param}
+      OR public_slug ILIKE ${param}
+      OR data->'profile'->>'studentName' ILIKE ${param}
+      OR data->'profile'->>'className' ILIKE ${param}
+    )`);
+  }
+
+  const centreNames = (input.centreNames || []).map(cleanText).filter(Boolean);
+  if (centreNames.length > 0) {
+    params.push(centreNames);
+    const param = `$${params.length}`;
+    where.push(`(
+      centre_name = ANY(${param}::text[])
+      OR data->'profile'->>'centreName' = ANY(${param}::text[])
+    )`);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::int AS total FROM portfolios ${whereSql}`,
+    params,
+  );
+
+  const rowsParams = [...params, itemsPerPage, offset];
+  const limitParam = `$${rowsParams.length - 1}`;
+  const offsetParam = `$${rowsParams.length}`;
+  const result = await pool.query(
+    `SELECT
+       id,
+       student_lms_id,
+       class_lms_id,
+       student_name,
+       class_name,
+       centre_name,
+       course_name,
+       public_slug,
+       status,
+       created_by,
+       created_at,
+       updated_at
+     FROM portfolios
+     ${whereSql}
+     ORDER BY updated_at DESC, created_at DESC
+     LIMIT ${limitParam} OFFSET ${offsetParam}`,
+    rowsParams,
+  );
+
+  return {
+    data: result.rows as StudentPortfolioListItem[],
+    pagination: {
+      total: Number(countResult.rows[0]?.total || 0),
+      pageIndex,
+      itemsPerPage,
+    },
+  };
+}
+
+export async function deletePortfolioById(
+  id: string | number,
+  input: { centreNames?: string[] } = {},
+): Promise<boolean> {
+  await ensurePortfolioSchema();
+  const params: unknown[] = [String(id)];
+  const centreNames = (input.centreNames || []).map(cleanText).filter(Boolean);
+  let centreSql = '';
+
+  if (centreNames.length > 0) {
+    params.push(centreNames);
+    centreSql = `AND (
+      centre_name = ANY($2::text[])
+      OR data->'profile'->>'centreName' = ANY($2::text[])
+    )`;
+  }
+
+  const result = await pool.query(
+    `DELETE FROM portfolios WHERE id::text = $1 ${centreSql}`,
+    params,
+  );
+  return (result.rowCount || 0) > 0;
 }
 
 export async function upsertPortfolio(input: {

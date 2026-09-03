@@ -1,6 +1,6 @@
 import pool from "@/lib/db";
 import { type PoolClient } from 'pg';
-import path from "path";
+import * as path from "path";
 import { unstable_cache } from "next/cache";
 
 
@@ -124,16 +124,45 @@ function prettifyName(filename: string) {
 	return addVietnameseAccents(title);
 }
 
-function decodeHtmlEntities(input: string) {
-	return input
-		.replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
-		.replace(/&#([0-9]+);/g, (_, dec: string) => String.fromCodePoint(parseInt(dec, 10)))
-		.replace(/&nbsp;/g, " ")
-		.replace(/&amp;/g, "&")
-		.replace(/&lt;/g, "<")
-		.replace(/&gt;/g, ">")
-		.replace(/&quot;/g, '"')
-		.replace(/&apos;/g, "'");
+const HTML_ENTITIES_MAP: Record<string, string> = {
+	'&aacute;': 'á', '&Aacute;': 'Á',
+	'&agrave;': 'à', '&Agrave;': 'À',
+	'&acirc;': 'â', '&Acirc;': 'Â',
+	'&atilde;': 'ã', '&Atilde;': 'Ã',
+	'&eacute;': 'é', '&Eacute;': 'É',
+	'&egrave;': 'è', '&Egrave;': 'È',
+	'&ecirc;': 'ê', '&Ecirc;': 'Ê',
+	'&iacute;': 'í', '&Iacute;': 'Í',
+	'&igrave;': 'ì', '&Igrave;': 'Ì',
+	'&oacute;': 'ó', '&Oacute;': 'Ó',
+	'&ograve;': 'ò', '&Ograve;': 'Ò',
+	'&ocirc;': 'ô', '&Ocirc;': 'Ô',
+	'&otilde;': 'õ', '&Otilde;': 'Õ',
+	'&uacute;': 'ú', '&Uacute;': 'Ú',
+	'&ugrave;': 'ù', '&Ugrave;': 'Ù',
+	'&yacute;': 'ý', '&Yacute;': 'Ý',
+	'&nbsp;': ' ',
+	'&amp;': '&',
+	'&lt;': '<',
+	'&gt;': '>',
+	'&quot;': '"',
+	'&#39;': "'",
+	'&apos;': "'",
+};
+
+function decodeHtmlEntities(input: string): string {
+	if (!input) return '';
+	let str = input;
+	for (const [entity, char] of Object.entries(HTML_ENTITIES_MAP)) {
+		str = str.replaceAll(entity, char);
+	}
+	str = str.replace(/&#x([0-9a-f]+);/gi, (_, hex: string) =>
+		String.fromCodePoint(parseInt(hex, 16)),
+	);
+	str = str.replace(/&#([0-9]+);/g, (_, dec: string) =>
+		String.fromCodePoint(parseInt(dec, 10)),
+	);
+	return str;
 }
 
 function cleanHeadingText(raw: string) {
@@ -157,7 +186,7 @@ function extractTitle(content: string, fallback: string) {
 
 function extractHeadings(content: string) {
 	const result: Array<{ id: string; text: string; level: number }> = [];
-	const headingRegex = /^(#{1,3})\s+(.+)$/gm;
+	const headingRegex = /^(#{1,6})\s+(.+)$/gm;
 	let match: RegExpExecArray | null;
 
 	while ((match = headingRegex.exec(content)) !== null) {
@@ -174,24 +203,32 @@ function extractHeadings(content: string) {
 		});
 	}
 
-	if (result.length > 0) {
-		return result;
-	}
-
-	const htmlHeadingRegex = /<h([1-3])\b[^>]*>([\s\S]*?)<\/h\1>/gi;
+	const htmlHeadingRegex = /<h([1-6])\b([^>]*)>([\s\S]*?)<\/h\1>/gi;
 	while ((match = htmlHeadingRegex.exec(content)) !== null) {
 		const level = Number(match[1]);
-		const text = cleanHeadingText(match[2] || "");
+		const attrs = match[2] || "";
+		const idMatch = /\bid=["']([^"']+)["']/i.exec(attrs);
+		const text = cleanHeadingText(match[3] || "");
 		if (!text) continue;
 
 		result.push({
-			id: slugify(text),
+			id: idMatch ? idMatch[1] : slugify(text),
 			text,
 			level,
 		});
 	}
 
-	return result;
+	const idCounts = new Map<string, number>();
+	return result.map((item) => {
+		const baseId = item.id || "section";
+		const count = idCounts.get(baseId) || 0;
+		idCounts.set(baseId, count + 1);
+		const uniqueId = count === 0 ? baseId : `${baseId}-${count}`;
+		return {
+			...item,
+			id: uniqueId,
+		};
+	});
 }
 
 // walkDirectory không còn được sử dụng vì đã chuyển sang database
@@ -570,7 +607,7 @@ async function loadK12DocsFromDatabase(includeDraft = false): Promise<K12DocsPay
 			return null;
 		}
 
-		const result = await client.query<K12DocumentRow>(
+		const result = await client.query(
 			`SELECT id, slug, title, relative_path, content, type, section_id, parent_id, topic, excerpt, cover_image_url, status, sort_order
 			 FROM k12_documents
 			 ${includeDraft ? "" : "WHERE status = 'published'"}
@@ -578,7 +615,7 @@ async function loadK12DocsFromDatabase(includeDraft = false): Promise<K12DocsPay
 		);
 
 		// Chỉ sử dụng dữ liệu từ database, không đọc filesystem
-		const documents: K12DocItem[] = result.rows.map((row) => {
+		const documents: K12DocItem[] = (result.rows as K12DocumentRow[]).map((row) => {
 			const normalizedPath = normalizeRelativePath(row.relative_path);
 			const mergedContent = row.content || "";
 
@@ -670,30 +707,13 @@ const loadK12DocsDraftCached = unstable_cache(
 
 export async function loadK12Docs(options?: { includeDraft?: boolean }): Promise<K12DocsPayload> {
 	const includeDraft = options?.includeDraft ?? false;
-	const cacheKey = includeDraft ? 'draft' : 'published';
+	const dbDocs = await loadK12DocsFromDatabase(includeDraft);
+	if (dbDocs) return dbDocs;
 
-	// In development, always fetch fresh data from DB
-	if (process.env.NODE_ENV !== 'production') {
-		k12DocsMemCache.clear();
-		const dbDocs = await loadK12DocsFromDatabase(includeDraft);
-		if (dbDocs) return dbDocs;
-	}
-
-	// Lớp 1: in-memory (instant — cùng worker/process)
-	const mem = k12DocsMemCache.get(cacheKey);
-	if (mem && Date.now() < mem.expiresAt) {
-		return mem.payload;
-	}
-
-	// Lớp 2: Next.js unstable_cache (persist qua requests, tự revalidate)
-	let payload: K12DocsPayload;
-	if (includeDraft) {
-		payload = await loadK12DocsDraftCached();
-	} else {
-		payload = await loadK12DocsCached(false);
-	}
-
-	// Lưu vào in-memory cache
-	k12DocsMemCache.set(cacheKey, { payload, expiresAt: Date.now() + MEM_CACHE_TTL_MS });
-	return payload;
+	return {
+		rootTitle: 'Quy trình, Quy định MindX K12',
+		tree: [],
+		documents: [],
+		defaultSlug: '',
+	};
 }
