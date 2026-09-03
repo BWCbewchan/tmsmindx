@@ -591,6 +591,13 @@ export function DockNav() {
       ] as SubItem[],
     },
     {
+      id: 'hocvien', label: 'Học viên', icon: FileText,
+      submenu: [
+        { href: '/admin/kiem-soat-spck', label: 'Kiểm soát Sản phẩm cuối khóa' },
+        { href: '/admin/portfolio', label: 'Quản lý Portfolio' },
+      ] as SubItem[],
+    },
+    {
       id: 'daotao', label: 'Đào tạo', icon: GraduationCap,
       submenu: [
         { groupLabel: 'Đào Tạo Nâng Cao', items: [
@@ -655,6 +662,13 @@ export function DockNav() {
       ] as SubItem[],
     },
     {
+      id: 'hocvien', label: 'Học viên', icon: FileText,
+      submenu: [
+        { href: '/admin/kiem-soat-spck', label: 'Kiểm soát Sản phẩm cuối khóa' },
+        { href: '/admin/portfolio', label: 'Quản lý Portfolio' },
+      ] as SubItem[],
+    },
+    {
       id: 'daotao', label: 'Đào tạo', icon: GraduationCap,
       submenu: [
         { href: '/admin/page5', label: 'Thư viện video nâng cao' },
@@ -695,6 +709,9 @@ export function DockNav() {
     { href: '/admin/page4/lich-danh-gia', label: 'Lịch sự kiện' },
     { href: '/admin/deal-luong?type=salary_reduction', label: 'Hạ lương' },
     { href: '/admin/deal-luong?type=bonus', label: 'Nâng lương' },
+    // Học viên
+    { href: '/admin/kiem-soat-spck', label: 'Kiểm soát Sản phẩm cuối khóa' },
+    { href: '/admin/portfolio', label: 'Quản lý Portfolio' },
     // Đào tạo extra
     { href: '/admin/page4/danh-sach-dang-ky', label: 'Danh sách Giáo viên đăng ký' },
     { href: '/admin/thu-vien-de', label: 'Thư viện đề chuyên môn' },

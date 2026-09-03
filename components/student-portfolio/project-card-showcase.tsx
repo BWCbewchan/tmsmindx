@@ -303,20 +303,30 @@ export function ProjectCardShowcase({ project, defaultCourse, trackHint }: { pro
             <button
               type="button"
               onClick={() => setLightboxIndex(null)}
-              className="absolute right-4 top-4 z-10 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+              className="absolute right-3 top-3 z-30 grid h-8 w-8 place-items-center rounded-full border border-white/25 bg-black/45 text-white shadow-[0_6px_18px_rgba(0,0,0,0.28)] backdrop-blur-md transition hover:scale-105 hover:bg-black/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 sm:right-4 sm:top-4"
               aria-label="Đóng ảnh"
             >
-              <X className="h-5 w-5" />
+              <X className="h-[18px] w-[18px] stroke-[3]" />
             </button>
             {images.length > 1 ? (
-              <>
-                <button type="button" onClick={prevImage} className="absolute left-4 top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/20" aria-label="Ảnh trước">
-                  <ChevronLeft className="h-6 w-6" />
+              <div className="pointer-events-none absolute inset-x-2 top-1/2 z-20 flex -translate-y-1/2 items-center justify-between sm:inset-x-4">
+                <button
+                  type="button"
+                  onClick={prevImage}
+                  className="pointer-events-auto grid h-9 w-9 touch-manipulation place-items-center rounded-full border border-white/20 bg-black/42 text-white shadow-[0_8px_20px_rgba(0,0,0,0.32)] backdrop-blur-md transition hover:scale-105 hover:bg-black/58 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+                  aria-label="Ảnh trước"
+                >
+                  <ChevronLeft className="h-5 w-5 stroke-[3]" />
                 </button>
-                <button type="button" onClick={nextImage} className="absolute right-4 top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/20" aria-label="Ảnh sau">
-                  <ChevronRight className="h-6 w-6" />
+                <button
+                  type="button"
+                  onClick={nextImage}
+                  className="pointer-events-auto grid h-9 w-9 touch-manipulation place-items-center rounded-full border border-white/20 bg-black/42 text-white shadow-[0_8px_20px_rgba(0,0,0,0.32)] backdrop-blur-md transition hover:scale-105 hover:bg-black/58 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+                  aria-label="Ảnh sau"
+                >
+                  <ChevronRight className="h-5 w-5 stroke-[3]" />
                 </button>
-              </>
+              </div>
             ) : null}
             <div className="grid max-h-[82vh] place-items-center bg-black">
               <img src={images[lightboxIndex]} alt={project.title} className="max-h-[82vh] w-full object-contain" />

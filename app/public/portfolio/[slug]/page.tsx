@@ -347,6 +347,12 @@ const trackTheme = {
   },
 } as const;
 
+const defaultTrackQuotes: Record<PortfolioTrack, string> = {
+  coding: 'Mỗi lần chương trình bị lỗi là một lần mình hiểu nó rõ hơn.',
+  robotics: 'Mỗi lần mô hình chuyển động tốt hơn là một lần ý tưởng được kiểm chứng rõ hơn.',
+  art: 'Mỗi tác phẩm là một cách em kể câu chuyện của mình bằng màu sắc và trí tưởng tượng.',
+};
+
 function sanitizeIntroText(text?: string, studentName: string = '') {
   if (!text) return '';
   const clean = text
@@ -405,6 +411,7 @@ export default async function PublicPortfolioPage({
   const track = portfolioTrack(data);
   const theme = trackTheme[track];
   const TrackIcon = theme.Icon;
+  const studentQuote = data.quote || defaultTrackQuotes[track];
   const allScores = [...(data.dnaScores || []), ...(data.mindsetScores || []), ...(data.orientationScores || [])];
   const dnaAverage = allScores.length
     ? Math.round((allScores.reduce((sum, score) => sum + Number(score.value || 0), 0) / allScores.length) * 10) / 10
@@ -874,7 +881,7 @@ export default async function PublicPortfolioPage({
       <section className="bg-[#171512] px-5 py-10 text-center text-white sm:py-24">
         <Star className="mx-auto mb-6 h-9 w-9" style={{ color: theme.ink }} />
         <blockquote className="mx-auto max-w-5xl text-balance text-[clamp(22px,4vw,34px)] font-black leading-[1.35] tracking-tight">
-          "{data.quote || 'Mỗi lần chương trình bị lỗi là một lần mình hiểu nó rõ hơn.'}"
+          "{studentQuote}"
         </blockquote>
       </section>
 
